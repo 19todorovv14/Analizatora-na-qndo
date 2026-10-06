@@ -2,6 +2,7 @@
 
 import { Award } from "lucide-react";
 import Link from "next/link";
+import { useEffect, useRef } from "react";
 
 import { BrandMark } from "@/components/shell/Brand";
 import { levelInfo } from "@/components/shell/level";
@@ -70,11 +71,32 @@ function NavLink({ item, active, collapsed, onNavigate }: { item: NavItem; activ
   );
 }
 
+/** Scroll the nearest scrollable ancestor (never the page) so `el` is fully visible. */
+function revealInScrollParent(el: HTMLElement, margin = 28) {
+  let box = el.parentElement;
+  while (box && box !== document.body) {
+    const oy = getComputedStyle(box).overflowY;
+    if ((oy === "auto" || oy === "scroll") && box.scrollHeight > box.clientHeight) break;
+    box = box.parentElement;
+  }
+  if (!box || box === document.body) return;
+  const r = el.getBoundingClientRect();
+  const b = box.getBoundingClientRect();
+  if (r.top < b.top + margin) box.scrollTop -= b.top + margin - r.top;
+  else if (r.bottom > b.bottom - margin) box.scrollTop += r.bottom - (b.bottom - margin);
+}
+
 /** Grouped navigation (desktop sidebar and mobile drawer). */
 export function SidebarNav({ pathname, collapsed = false, onNavigate }: { pathname: string; collapsed?: boolean; onNavigate?: () => void }) {
   const current = activeHref(pathname);
+  const navRef = useRef<HTMLElement>(null);
+  // keep the active item visible: /stats, /risk, /settings/* sit below the fold of a 900px-tall sidebar
+  useEffect(() => {
+    const el = navRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (el) revealInScrollParent(el);
+  }, [current, collapsed]);
   return (
-    <nav aria-label="Основна навигация" className={cx("pb-3", collapsed ? "px-0" : "px-3")}>
+    <nav ref={navRef} aria-label="Основна навигация" className={cx("pb-4", collapsed ? "px-0" : "px-3")}>
       {NAV_GROUPS.map((g, gi) => (
         <div key={g.key} role="group" aria-label={g.label}>
           {collapsed ? (
@@ -202,7 +224,7 @@ export function DesktopSidebar({ pathname, collapsed, xp, animate }: { pathname:
           )}
         </Link>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pt-3">
+      <div className="scroll-fade-y min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pt-3">
         <SidebarNav pathname={pathname} collapsed={collapsed} />
       </div>
       <div className={cx("shrink-0 space-y-2.5 border-t border-white/[0.06]", collapsed ? "flex flex-col items-center py-3" : "p-3")}>

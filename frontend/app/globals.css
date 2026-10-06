@@ -569,6 +569,12 @@
   }
 }
 
+/* Soft top/bottom edge on a vertical scroll area (hints that the list continues). */
+@utility scroll-fade-y {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 18px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 18px), transparent 100%);
+}
+
 /* Respect reduced motion: drop non-essential animation, keep spinners (state feedback). */
 @media (prefers-reduced-motion: reduce) {
   *,
