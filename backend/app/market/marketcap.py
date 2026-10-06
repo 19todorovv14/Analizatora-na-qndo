@@ -189,7 +189,14 @@ def crypto_market_caps(bases: list[str]) -> dict:
             if name == "none"
             else f"Unknown MARKET_CAP_PROVIDER '{name}' (supported: none, coingecko)"
         )
-        return {"available": False, "provider": "none", "caps": {}, "source": None, "reason": reason, "fetched_ts": None}
+        return {
+            "available": False,
+            "provider": "none",
+            "caps": {},
+            "source": None,
+            "reason": reason,
+            "fetched_ts": None,
+        }
     try:
         data = p.caps()
     except MarketCapError as exc:

@@ -22,6 +22,7 @@ FILTER_KEYS = (
     "conflict",
     "stop_unavailable",
     "position_size",
+    "margin",
 )
 FILTER_LABELS = {
     "regime": "Regime filter",
@@ -34,6 +35,7 @@ FILTER_LABELS = {
     "conflict": "LONG и SHORT едновременно",
     "stop_unavailable": "Няма stop distance (ATR)",
     "position_size": "Количество под минималното",
+    "margin": "Отхвърлена поръчка (недостатъчен margin)",
 }
 MAX_CONDITION_LABELS = 48  # bounded dict even for the largest allowed strategy (4 blocks × 12 conditions)
 SIDES = (("long", "entry_long"), ("short", "entry_short"))
@@ -112,6 +114,13 @@ def record_filter(stats: dict, key: str) -> None:
 def record_entry(stats: dict, side: str) -> None:
     stats["entries"] += 1
     stats["by_side"][side]["entries"] += 1
+
+
+def record_order_rejected(stats: dict, side: str) -> None:
+    """The paper broker rejected an entry order counted as an entry (e.g. not enough free margin at the fill)."""
+    stats["entries"] = max(0, stats["entries"] - 1)
+    stats["by_side"][side]["entries"] = max(0, stats["by_side"][side]["entries"] - 1)
+    record_filter(stats, "margin")
 
 
 def top_blockers(stats: dict, limit: int = 5) -> list[dict]:

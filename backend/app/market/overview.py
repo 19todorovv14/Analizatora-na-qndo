@@ -442,13 +442,12 @@ class Collected:
 
 
 class QuoteEngine:
-    def __init__(self, clock: Callable[[], float] = time.time, workers: int = 2):
+    def __init__(self, clock: Callable[[], float] = time.time, workers: int = 3):
         self.clock = clock
         self._lock = threading.RLock()
         self._entries: dict[str, Entry] = {}
         self._daily: dict[str, tuple[int, tuple, list[Candle]]] = {}
         self._regimes: OrderedDict[tuple, dict] = OrderedDict()
-        self._local = threading.local()
         self.background = Background(workers=workers)
         self._warm_thread: threading.Thread | None = None
         self._warm_stop = threading.Event()
@@ -480,11 +479,14 @@ class QuoteEngine:
 
     # -------------------------------------------------------------- cache
     def _get(self, symbol: str, rkey: tuple, now: int, max_age: int) -> Entry | None:
+        """Cached entry at most `max_age` seconds old (computed for the same provider). Errors, unavailable and
+        partial snapshots additionally expire after their own short TTL so they are retried soon."""
         e = self._entries.get(symbol)
         if e is None or e.route_key != rkey:
             return None
         age = now - e.as_of
-        if age < 0 or age >= max_age:
+        complete = e.quote.get("status") == STATUS_OK and not e.quote.get("partial")
+        if age < 0 or age >= (max_age if complete else min(max_age, e.ttl)):
             return None
         return e
 
@@ -505,7 +507,11 @@ class QuoteEngine:
     def stats(self) -> dict:
         with self._lock:
             by_status = Counter(e.quote.get("status") for e in self._entries.values())
-        return {"entries": len(self._entries), "by_status": dict(by_status), "background_pending": self.background.pending()}
+        return {
+            "entries": len(self._entries),
+            "by_status": dict(by_status),
+            "background_pending": self.background.pending(),
+        }
 
     # -------------------------------------------------------------- public API
     def quote(
@@ -591,14 +597,12 @@ class QuoteEngine:
             out[symbol] = self._await(spec, r, fut, now, max(0.0, deadline - time.monotonic())).quote
         return out
 
-    def collect(
-        self, specs: Iterable[AssetSpec], *, now: int | None = None, seconds: float = LIST_SYNC_SECONDS
-    ) -> Collected:
+    def collect(self, specs: Iterable[AssetSpec], *, now: int | None = None, seconds: float | None = None) -> Collected:
         """Snapshots for a universe-wide list. Uses cached snapshots (≤ 10 min); missing demo/Binance ones are
-        computed only within a small time budget (the warm-up thread fills the rest). Rate-limited and
-        unavailable instruments are excluded."""
+        computed only within a small time budget (LIST_SYNC_SECONDS; the warm-up thread fills the rest).
+        Rate-limited and unavailable instruments are excluded."""
         now = self.now(now)
-        budget = Budget(REQUEST_LIVE_FETCHES, seconds)
+        budget = Budget(REQUEST_LIVE_FETCHES, LIST_SYNC_SECONDS if seconds is None else seconds)
         items: list[tuple[AssetSpec, dict]] = []
         eligible = unavailable = rate_limited = missing = 0
         rl_classes: list[str] = []
@@ -640,7 +644,9 @@ class QuoteEngine:
             return placeholder(
                 spec, status=STATUS_ON_DEMAND, reason=REASON_ON_DEMAND, code=CODE_ON_DEMAND, now=now, source=r.source
             )
-        return placeholder(spec, status=STATUS_PENDING, reason=REASON_PENDING, code=CODE_PENDING, now=now, source=r.source)
+        return placeholder(
+            spec, status=STATUS_PENDING, reason=REASON_PENDING, code=CODE_PENDING, now=now, source=r.source
+        )
 
     def _submit_rate_limited(self, spec: AssetSpec, r: Route, now: int) -> Future | None:
         return self.background.submit(("quote", spec.symbol, r.key), lambda: self._compute(spec, r, now, None))
@@ -650,7 +656,9 @@ class QuoteEngine:
             return fut.result(timeout=wait)
         except FutureTimeout:
             return Entry(
-                placeholder(spec, status=STATUS_PENDING, reason=REASON_PENDING, code=CODE_PENDING, now=now, source=r.source),
+                placeholder(
+                    spec, status=STATUS_PENDING, reason=REASON_PENDING, code=CODE_PENDING, now=now, source=r.source
+                ),
                 now,
                 0,
                 r.key,
@@ -674,7 +682,9 @@ class QuoteEngine:
             return stale  # stale-while-revalidate: the background job refreshes it
         if fut is None:
             return Entry(
-                placeholder(spec, status=STATUS_PENDING, reason=REASON_BUSY, code=CODE_PENDING, now=now, source=r.source),
+                placeholder(
+                    spec, status=STATUS_PENDING, reason=REASON_BUSY, code=CODE_PENDING, now=now, source=r.source
+                ),
                 now,
                 0,
                 r.key,
@@ -698,14 +708,18 @@ class QuoteEngine:
             )
         except MarketDataError as exc:
             quote, extra, ttl = (
-                placeholder(spec, status=STATUS_ERROR, reason=scrub_secrets(exc), code=CODE_ERROR, now=now, source=r.source),
+                placeholder(
+                    spec, status=STATUS_ERROR, reason=scrub_secrets(exc), code=CODE_ERROR, now=now, source=r.source
+                ),
                 {},
                 TTL_FAILED,
             )
         except Exception as exc:  # noqa: BLE001 - malformed provider data must not break a whole list
             log.warning("Quote snapshot for %s failed", spec.symbol, exc_info=True)
             quote, extra, ttl = (
-                placeholder(spec, status=STATUS_ERROR, reason=scrub_secrets(exc), code=CODE_ERROR, now=now, source=r.source),
+                placeholder(
+                    spec, status=STATUS_ERROR, reason=scrub_secrets(exc), code=CODE_ERROR, now=now, source=r.source
+                ),
                 {},
                 TTL_FAILED,
             )
@@ -747,7 +761,9 @@ class QuoteEngine:
         assert provider is not None
         daily_all = provider.get_candles(spec, "1d", limit=DAILY_CLOSED + 1, now=now)
         if not daily_all:
-            raise MarketDataError(f"{r.source['name'] if r.source else 'Provider'} returned no daily bars for {spec.symbol}")
+            raise MarketDataError(
+                f"{r.source['name'] if r.source else 'Provider'} returned no daily bars for {spec.symbol}"
+            )
         last = daily_all[-1]
         prev = daily_all[-2] if len(daily_all) >= 2 else None
         price = last.close
@@ -789,6 +805,7 @@ class QuoteEngine:
             high=tick.get("high"),
             low=tick.get("low"),
             volume=tick.get("base_volume"),
+            quote_volume=tick.get("quote_volume"),
             daily=daily,
             spark=spark,
             spark_tf="1d" if daily else None,
@@ -860,13 +877,14 @@ class QuoteEngine:
         spark: list[float],
         spark_tf: str | None,
         partial_reason: str | None = None,
+        quote_volume: float | None = None,
     ) -> tuple[dict, dict]:
         p = spec.price_precision
         range_pct = (high - low) / low * 100 if high is not None and low is not None and low > 0 else None
         atr_percent = atr_pct(daily, price)
         reg = self._regime_1d(spec, r, daily)
         closes = [c.close for c in daily] + ([price] if price is not None else [])
-        volume_usd = self._volume_usd(spec, r, volume, price, now)
+        volume_usd = self._volume_usd(spec, r, volume, price, now, quote_volume=quote_volume)
         values = {
             "price": price,
             "change_24h_pct": _r(change_24h_pct, 3),
@@ -896,52 +914,68 @@ class QuoteEngine:
         return quote, {"regime_1d": reg}
 
     # -------------------------------------------------------------- volume in USD
-    def _volume_usd(self, spec: AssetSpec, r: Route, volume: float | None, price: float | None, now: int) -> float | None:
-        """24h volume in USD ≈ base volume × price, converted from the quote currency with a rate from the SAME kind
-        of data (demo ↔ demo, live ↔ live); None when unknown — never invented."""
+    def _volume_usd(
+        self,
+        spec: AssetSpec,
+        r: Route,
+        volume: float | None,
+        price: float | None,
+        now: int,
+        *,
+        quote_volume: float | None = None,
+    ) -> float | None:
+        """24h volume in USD; None when unknown (never invented).
+
+        DEMO: the synthetic generator is parameterised so that base volume × price ≈ its ``daily_volume_usd`` for
+        every quote currency, so volume × price is used as is. Live data: base volume × price is in the quote
+        currency and is converted with a LIVE rate of that currency (C/USD, USD/C or C/USDT) taken from the
+        snapshot cache only (no extra provider requests); a demo rate is never mixed into live data. When the
+        provider reports the quote-currency volume itself (Binance quoteVolume) that exact value is used.
+        """
+        if r.is_demo:
+            return volume * price if volume is not None and price is not None else None
+        currency = (spec.currency or "USD").upper()
+        if quote_volume is not None:
+            rate = 1.0 if currency in USD_LIKE else self._usd_rate(currency, now)
+            return None if rate is None else quote_volume * rate
         if volume is None or price is None:
             return None
         if (spec.base or "").upper() in USD_LIKE:
-            return volume  # base units are already dollars (e.g. USD/JPY)
-        currency = (spec.currency or "USD").upper()
+            return volume  # base units are dollars (e.g. USD/JPY)
         if currency in USD_LIKE:
             return volume * price
-        rate = self._usd_rate(currency, r.is_demo, now)
+        rate = self._usd_rate(currency, now)
         return None if rate is None else volume * price * rate
 
-    def _usd_rate(self, currency: str, demo: bool, now: int) -> float | None:
-        depth = getattr(self._local, "depth", 0)
-        if depth > 1:
-            return None
-        self._local.depth = depth + 1
-        try:
-            for symbol, invert in ((f"{currency}/USD", False), (f"USD/{currency}", True), (f"{currency}/USDT", False)):
-                try:
-                    spec = get_asset(symbol)
-                except UnknownAssetError:
-                    continue
-                r = route(spec)
-                if r.kind is None or r.is_demo != demo:
-                    continue
-                e = self._get(symbol, r.key, now, LIST_MAX_STALE)
-                if e is None and r.kind == KIND_DIRECT:
-                    e = self._compute(spec, r, now, None)
-                price = e.quote.get("price") if e is not None and e.quote.get("available") else None
-                if price:
-                    return 1 / price if invert else price
-            return None
-        finally:
-            self._local.depth = depth
+    def _usd_rate(self, currency: str, now: int) -> float | None:
+        """USD value of one unit of `currency` from a cached LIVE snapshot (None when not cached)."""
+        for symbol, invert in ((f"{currency}/USD", False), (f"USD/{currency}", True), (f"{currency}/USDT", False)):
+            try:
+                spec = get_asset(symbol)
+            except UnknownAssetError:
+                continue
+            r = route(spec)
+            if r.kind is None or r.is_demo:
+                continue
+            e = self._get(symbol, r.key, now, LIST_MAX_STALE)
+            price = e.quote.get("price") if e is not None and e.quote.get("available") else None
+            if price:
+                return 1 / price if invert else price
+        return None
 
     # -------------------------------------------------------------- warm-up
-    def warm(self, now: int | None = None, *, specs: Iterable[AssetSpec] | None = None, refresh_ratio: float = 0.5) -> dict:
+    def warm(
+        self, now: int | None = None, *, specs: Iterable[AssetSpec] | None = None, refresh_ratio: float = 0.5
+    ) -> dict:
         """Compute (or refresh) the snapshots of the curated demo/Binance instruments. Rate-limited providers are
         never warmed (on demand only). Returns counts by status."""
         t0 = time.monotonic()
         now = self.now(now)
         todo = list(specs) if specs is not None else list(ASSETS)
         # USD-quoted instruments first: their prices convert the volume of the others to USD
-        todo.sort(key=lambda s: 0 if (s.currency or "USD").upper() in USD_LIKE or (s.base or "").upper() in USD_LIKE else 1)
+        todo.sort(
+            key=lambda s: 0 if (s.currency or "USD").upper() in USD_LIKE or (s.base or "").upper() in USD_LIKE else 1
+        )
         counts: Counter = Counter()
         budget = unlimited()
         for spec in todo:
@@ -1021,7 +1055,9 @@ ENGINE = QuoteEngine()
 
 
 # ------------------------------------------------------------------ module-level convenience (other packages)
-def get_quote(symbol_or_spec: str | AssetSpec, *, now: int | None = None, on_demand: bool = False, wait: float = 0.0) -> dict:
+def get_quote(
+    symbol_or_spec: str | AssetSpec, *, now: int | None = None, on_demand: bool = False, wait: float = 0.0
+) -> dict:
     """Quote snapshot of one instrument (curated or synced). Unknown symbols → status 'unknown'."""
     if isinstance(symbol_or_spec, AssetSpec):
         spec = symbol_or_spec

@@ -104,10 +104,8 @@ def trade_metrics(
     win_streak, loss_streak = streaks(nets)
     best = max(trades, key=lambda t: t["net_pnl"]) if trades else None
     worst = min(trades, key=lambda t: t["net_pnl"]) if trades else None
-    opens = [t.get("opened_ts") or t.get("entry_ts") for t in trades]
-    closes = [t.get("closed_ts") or t.get("exit_ts") for t in trades]
-    opens = [x for x in opens if x]
-    closes = [x for x in closes if x]
+    opens = [x for t in trades if (x := t.get("opened_ts", t.get("entry_ts"))) is not None]
+    closes = [x for t in trades if (x := t.get("closed_ts", t.get("exit_ts"))) is not None]
     span = (max(closes) - min(opens)) if opens and closes else 0
 
     if equity_curve is None and initial_balance is not None:

@@ -473,7 +473,7 @@ function Row({ it }: { it: Item }) {
           <span className="block truncate text-xs text-muted">{it.item.tour}</span>
         </span>
         <span className="hidden shrink-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-faint md:inline">{it.group}</span>
-        {it.item.shortcut && <ShortcutKeys combo={it.item.shortcut} className="hidden sm:inline-flex" />}
+        {it.item.shortcut && <ShortcutKeys decorative combo={it.item.shortcut} className="hidden sm:inline-flex" />}
       </>
     );
   }

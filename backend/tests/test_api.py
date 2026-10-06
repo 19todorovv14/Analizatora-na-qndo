@@ -27,7 +27,7 @@ VISUALS = {
 
 
 def test_academy_content_integrity():
-    assert len(MODULES) == 8
+    assert len(MODULES) == 11  # V2: LEVEL 0–10 adds leverage, backtesting, advanced
     slugs = set()
     for m in MODULES:
         assert 5 <= len(m["quiz"]) <= 10, m["key"]

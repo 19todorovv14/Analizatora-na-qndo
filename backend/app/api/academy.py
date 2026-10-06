@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.academy import challenges as ch
 from app.academy.content import LESSONS_BY_SLUG, MODULES_BY_KEY
+from app.academy.levels import resolve_lesson_slug
 from app.academy.scenarios import SCENARIOS, get_scenario
 from app.api.deps import current_user
 from app.database import get_db
@@ -22,9 +23,12 @@ def _module(key: str) -> str:
 
 
 def _lesson(slug: str) -> str:
-    if slug not in LESSONS_BY_SLUG:
+    """Canonical lesson slug; also accepts the alias routes of lessons shadowed by lab pages (e.g. the Level 0
+    lesson 'leverage' is served at /learn/leverage-basics because /learn/leverage is the Leverage Lab)."""
+    canonical = resolve_lesson_slug(slug)
+    if canonical is None or canonical not in LESSONS_BY_SLUG:
         raise HTTPException(status_code=404, detail="Урокът не е намерен.")
-    return slug
+    return canonical
 
 
 @router.get("/academy/progress")

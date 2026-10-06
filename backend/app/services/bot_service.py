@@ -51,8 +51,12 @@ def create_bot(db: Session, user: User, data: dict) -> Bot:
     StrategyDefinition(**definition)  # validate
     config = {**DEFAULT_CONFIG, **{k: v for k, v in (data.get("config") or {}).items() if k in DEFAULT_CONFIG}}
     if data.get("max_positions") is not None:  # v2 alias of config.max_open_positions
-        config["max_open_positions"] = int(data["max_positions"])
-    config["max_open_positions"] = max(1, int(config["max_open_positions"]))
+        config["max_open_positions"] = data["max_positions"]
+    try:
+        mp = config.get("max_open_positions")
+        config["max_open_positions"] = DEFAULT_CONFIG["max_open_positions"] if mp is None else max(1, int(mp))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Max positions трябва да е цяло число ≥ 1.") from exc
     get_asset(data["symbol"])
     acc = paper_service.create_account(
         db,
@@ -213,6 +217,10 @@ def run_bot(db: Session, bot: Bot, now: int | None = None) -> int:
                 "exit_signal",
             ):
                 log(db, bot, "trade", e.message, e.ts, type=e.type)
+            if e.type == "order_rejected":
+                o = broker.s.orders.get(e.data.get("order_id"))
+                if o is not None and not o.reduce_only and (o.meta or {}).get("source") == "bot":
+                    bot_stats.record_order_rejected(stats, "long" if o.side == BUY else "short")
         seen_events = len(broker.events)
         close_ts = c.ts + sec
         processed += 1
@@ -295,7 +303,9 @@ def run_bot(db: Session, bot: Bot, now: int | None = None) -> int:
             risk_pct = float(cfg.get("risk_per_trade_pct", defn.risk_per_trade_pct))
             per_unit = sd + c.close * 2 * spec.taker_fee
             qty = snap["equity"] * risk_pct / 100 / per_unit
-            qty = spec.round_qty(min(qty, snap["equity"] * broker.leverage_for(bot.symbol) / c.close * 0.95))
+            # cap by FREE margin (equals equity when flat) so a 2nd/3rd position is not rejected by the broker
+            free = max(snap["free_margin"], 0.0)
+            qty = spec.round_qty(min(qty, free * broker.leverage_for(bot.symbol) / c.close * 0.95))
             if qty < spec.min_qty:
                 bot_stats.record_filter(stats, "position_size")
                 log(db, bot, "warn", "Изчисленото количество е под минималното — сделката е пропусната.", close_ts)

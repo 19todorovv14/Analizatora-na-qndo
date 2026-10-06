@@ -44,7 +44,7 @@ from app.ai.review import review_position
 from app.analysis.signal import analyze
 from app.market.base import AssetSpec, Candle, MarketDataError
 from app.market.catalog import UnknownAssetError, get_asset
-from app.models import Backtest, PaperPosition, Strategy, User
+from app.models import Backtest, LearningProgress, PaperPosition, Strategy, User
 from app.risk.engine import RiskRules
 from app.services import learning_service, market_service, paper_service, settings_service, stats_service
 from app.strategies.rules import StrategyDefinition, describe
@@ -169,7 +169,11 @@ def resolve_strategy(
             continue
     key = next((k for k in DEFAULT_TEMPLATE_KEYS if k in TEMPLATES_BY_KEY), TEMPLATES[0]["key"])
     tpl = TEMPLATES_BY_KEY[key]
-    return StrategyDefinition(**tpl["definition"]), _info(None, selected=False, source="template", name=tpl["name"]), None
+    return (
+        StrategyDefinition(**tpl["definition"]),
+        _info(None, selected=False, source="template", name=tpl["name"]),
+        None,
+    )
 
 
 # ------------------------------------------------------------------- chart
@@ -306,13 +310,15 @@ def _compact_chart(cd: ChartData, indicators: list[str] | None = None) -> dict:
             "trend": st.get("trend"),
             "high": st.get("last_high_label"),
             "low": st.get("last_low_label"),
-            "swings": [[s.get("label") or s.get("kind"), _r(s.get("price"), pp)] for s in (st.get("swings") or [])[-4:]],
+            "swings": [
+                [s.get("label") or s.get("kind"), _r(s.get("price"), pp)] for s in (st.get("swings") or [])[-4:]
+            ],
         },
         "trend": a.get("trend"),
         "regime": (a.get("regime") or {}).get("regime"),
         "momentum": (a.get("momentum") or {}).get("label"),
         "volatility": vol.get("label"),
-        "atr_rank": _r(vol.get("rank"), 0),
+        "atr_rank": int(round(vol["rank"])) if vol.get("rank") is not None else None,
         "support": [[_r(x["price"], pp), x.get("touches", 1)] for x in a.get("support") or []],
         "resistance": [[_r(x["price"], pp), x.get("touches", 1)] for x in a.get("resistance") or []],
         "signal": {
@@ -456,7 +462,9 @@ def _account_section(db: Session, user: User, now: int, rules: RiskRules) -> dic
     }
 
 
-def _review(db: Session, ids: list[int], pid: str, trades: list[dict], rules: RiskRules) -> tuple[dict, list[dict], dict] | None:
+def _review(
+    db: Session, ids: list[int], pid: str, trades: list[dict], rules: RiskRules
+) -> tuple[dict, list[dict], dict] | None:
     found = paper_service.position_detail(db, ids, pid)
     if not found:
         return None
@@ -567,6 +575,10 @@ def _journal_section(db: Session, user: User, limit: int = 5) -> tuple[dict, lis
     }, entries
 
 
+def completed_lessons(db: Session, user: User) -> set[str]:
+    return set(db.scalars(select(LearningProgress.lesson_slug).where(LearningProgress.user_id == user.id)))
+
+
 def _learning_section(db: Session, user: User) -> tuple[dict, dict]:
     prog = learning_service.progress(db, user)
     mods = [m for m in prog.get("modules") or [] if isinstance(m, dict)]
@@ -599,9 +611,7 @@ def _learning_section(db: Session, user: User) -> tuple[dict, dict]:
     }, prog
 
 
-def find_backtest(
-    db: Session, user: User, backtest_id: int | None, strategy_row_id: int | None
-) -> Backtest | None:
+def find_backtest(db: Session, user: User, backtest_id: int | None, strategy_row_id: int | None) -> Backtest | None:
     if backtest_id is not None:
         bt = db.get(Backtest, backtest_id)
         if bt is None or bt.user_id != user.id:
@@ -689,7 +699,7 @@ def _used_item(key: str, sec: dict) -> dict:
         if key == "chart":
             i = sec["ind"]
             values = {
-                "Цена": _num(sec.get("price"), _decimals(sec.get("price"))),
+                "Последна цена": _num(sec.get("price"), _decimals(sec.get("price"))),
                 "Режим": sec.get("regime") or "—",
                 "Структура": f"{sec['structure'].get('high') or '—'} + {sec['structure'].get('low') or '—'}",
                 "RSI(14)": _num(i.get("rsi"), 1),
@@ -880,6 +890,7 @@ class ContextBundle:
     position_review: dict | None = None
     journal_entries: list[dict] = field(default_factory=list)
     progress: dict | None = None
+    completed_lessons: set[str] = field(default_factory=set)
     backtest: Backtest | None = None
 
     @property
@@ -971,6 +982,7 @@ def collect(
         ctx["journal"], b.journal_entries = _journal_section(db, user)
     if "learning" in inc:
         ctx["learning"], b.progress = _learning_section(db, user)
+        b.completed_lessons = completed_lessons(db, user)
     if "backtest" in inc:
         b.backtest = find_backtest(db, user, backtest_id, row.id if row is not None else None)
         ctx["backtest"] = _backtest_section(b.backtest)

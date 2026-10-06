@@ -15,6 +15,9 @@ from app.models import Backtest, Bot, Strategy, User
 from app.services import backtest_service, bot_service, market_service, user_service
 from app.strategies.meta import SETUP_DISCLAIMER, builder_meta
 from app.strategies.rules import IndicatorCache, StrategyDefinition, describe, evaluate
+from app.strategies.templates import TEMPLATES
+
+_TEMPLATE_KEY_BY_NAME = {t["name"]: t["key"] for t in TEMPLATES}
 
 router = APIRouter(tags=["strategies"])
 
@@ -44,6 +47,8 @@ def _strategy_out(s: Strategy) -> dict:
         "summary": desc,
         "rules_count": len(s.rules),
         "updated_ts": s.updated_ts,
+        # v2 (additive): which built-in template a template row is (null for user strategies)
+        "template_key": _TEMPLATE_KEY_BY_NAME.get(s.name) if s.is_template else None,
     }
 
 

@@ -40,8 +40,9 @@ export function fuzzyScore(query: string, text: string): number {
     from = f + 1;
   }
   const span = from - first;
-  if (span > query.length * 3 + 2) return 0;
-  return Math.max(1, 400 - gaps * 12 - first * 2 + (isBoundary(t[first - 1]) ? 60 : 0));
+  // must start at a word start ("bktst" → "backtesting", not "rsi" → "tRade SImulator") and stay compact
+  if (!isBoundary(t[first - 1]) || span > query.length * 2 + 2) return 0;
+  return Math.max(1, 400 - gaps * 12 - first * 2);
 }
 
 /** Best score of `query` over several fields, each with a weight. */

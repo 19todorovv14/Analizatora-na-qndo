@@ -45,7 +45,9 @@ function NavLink({ item, active, collapsed, onNavigate }: { item: NavItem; activ
       {!collapsed && (
         <>
           <span className="min-w-0 flex-1 truncate">{item.label}</span>
-          {item.shortcut && <ShortcutKeys combo={item.shortcut} className="opacity-0 transition-opacity duration-150 group-hover:opacity-100" />}
+          {item.shortcut && (
+            <ShortcutKeys decorative combo={item.shortcut} className="opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
+          )}
         </>
       )}
     </Link>

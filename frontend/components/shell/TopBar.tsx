@@ -62,6 +62,7 @@ export function WorkspaceSwitch({ fullWidth, onNavigate }: { fullWidth?: boolean
   const router = useRouter();
   return (
     <Segmented<WorkspaceMode>
+      size={fullWidth ? "md" : "sm"}
       ariaLabel="Работно пространство"
       fullWidth={fullWidth}
       value={mode}
@@ -268,7 +269,7 @@ export function TopBar({
         </div>
 
         {/* right cluster */}
-        <div className="ml-auto flex items-center gap-1.5 @xl:gap-2.5">
+        <div className="ml-auto flex items-center gap-1.5 @xl:gap-2">
           <div className="hidden @3xl:flex">
             <ExplainSwitch />
           </div>
@@ -285,7 +286,9 @@ export function TopBar({
               ]}
             />
           </div>
-          <PaperBadge compact className="hidden @6xl:inline-flex" />
+          <div className="hidden @6xl:block">
+            <PaperBadge compact />
+          </div>
           <Link
             href="/learn"
             title={`Level ${lv.level} · ${lv.xp} XP · още ${lv.toNext} XP до Level ${lv.level + 1}`}
@@ -293,15 +296,13 @@ export function TopBar({
           >
             <Award size={12} strokeWidth={2.2} aria-hidden />
             L{lv.level}
-            <span className="text-gold/45" aria-hidden>
+            <span className="hidden text-gold/45 @7xl:inline" aria-hidden>
               ·
             </span>
-            <span className="num">{lv.xp} XP</span>
+            <span className="num hidden @7xl:inline">{lv.xp} XP</span>
           </Link>
 
-          <span aria-hidden className="mx-0.5 hidden h-5 w-px bg-white/[0.08] @4xl:block" />
-
-          <div className="hidden @4xl:block">
+          <div className="hidden @3xl:block">
             <UserMenu user={user} onOpenHelp={onOpenHelp} />
           </div>
           {user.is_guest && (

@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, patch, post } from "@/lib/api";
@@ -21,7 +20,6 @@ const Ctx = createContext<SessionCtx | null>(null);
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const router = useRouter();
   // last mode confirmed by the server + a sequence number so only the newest request wins
   const confirmedMode = useRef<User["mode"] | null>(null);
   const modeSeq = useRef(0);
@@ -69,9 +67,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     } catch {
       /* the session may already be gone — leave anyway */
     }
-    setUser(null);
-    router.push("/");
-  }, [router]);
+    // Full page load of the landing page: drops every cached (SWR) response of this account and
+    // avoids racing the shell's "no user → /login" redirect, which a soft router.push("/") lost.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a hard reset is intended
+    window.location.assign("/");
+  }, []);
 
   const value = useMemo(
     () => ({ user, loading, beginner: (user?.mode ?? "beginner") === "beginner", refresh, setMode, logout }),

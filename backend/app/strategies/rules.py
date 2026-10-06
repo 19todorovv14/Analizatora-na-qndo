@@ -54,6 +54,14 @@ class Operand(BaseModel):
     shift: int = Field(0, ge=0, le=50)  # bars back
     mult: float = Field(1.0, gt=0, le=100)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _type_alias(cls, data):
+        """Accept {"type": "price", ...} as an alias of {"kind": "price", ...} (normalised to `kind`)."""
+        if isinstance(data, dict) and "kind" not in data and "type" in data:
+            data = {**{k: v for k, v in data.items() if k != "type"}, "kind": data["type"]}
+        return data
+
     @model_validator(mode="after")
     def _check(self):
         if self.kind == "indicator":

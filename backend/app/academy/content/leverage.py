@@ -84,7 +84,7 @@ MODULE = {
         ),
         lesson(
             "maintenance-margin",
-            "Maintenance margin и margin level",
+            "Maintenance margin — margin level и stop-out",
             "Margin level = Equity / Used margin. Когато падне до нивото на stop-out, позициите се затварят "
             "принудително.",
             [

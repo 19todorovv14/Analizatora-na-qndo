@@ -115,7 +115,9 @@ class FinnhubClient:
             resp = self.client.get(f"{self.base_url}{path}", params=params, headers={"X-Finnhub-Token": self.api_key})
         except httpx.HTTPError as exc:
             # httpx error texts can contain the full request URL → only the error type is reported
-            raise NewsProviderError(f"Finnhub request failed ({type(exc).__name__}: {scrub_secrets(exc, limit=120)})") from exc
+            raise NewsProviderError(
+                f"Finnhub request failed ({type(exc).__name__}: {scrub_secrets(exc, limit=120)})"
+            ) from exc
         if resp.status_code >= 400:
             detail = ""
             try:
@@ -265,9 +267,7 @@ def get_news(category: str = "general", *, client: FinnhubClient | None = None) 
         }
     out = {
         "configured": True,
-        "items": [
-            {k: n[k] for k in ("headline", "summary", "source", "url", "ts", "category")} for n in items
-        ],
+        "items": [{k: n[k] for k in ("headline", "summary", "source", "url", "ts", "category")} for n in items],
         "fetched_ts": int(time.time()),
         "disclaimer": DISCLAIMER,
     }

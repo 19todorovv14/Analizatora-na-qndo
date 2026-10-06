@@ -181,6 +181,8 @@ def main_losing_condition(groups: dict[str, list[dict]]) -> dict | None:
 
 
 def _regime_extremes(rows: list[dict]) -> tuple[dict | None, dict | None]:
+    """(worst, best) regime among regimes with ≥ 3 trades: worst = lowest average R if it is negative,
+    best = highest average R if it is positive."""
     ok = [r for r in rows if r["trades"] >= MIN_GROUP_TRADES and r["average_r"] is not None]
 
     def view(r: dict) -> dict:
@@ -194,12 +196,10 @@ def _regime_extremes(rows: list[dict]) -> tuple[dict | None, dict | None]:
 
     if not ok:
         return None, None
-    if len(ok) == 1:
-        r = ok[0]
-        return (view(r) if r["average_r"] < 0 else None), (view(r) if r["average_r"] > 0 else None)
+    # "worst" only when it actually loses on average, "best" only when it actually wins on average
     worst = min(ok, key=lambda r: r["average_r"])
     best = max(ok, key=lambda r: r["average_r"])
-    return view(worst), view(best)
+    return (view(worst) if worst["average_r"] < 0 else None), (view(best) if best["average_r"] > 0 else None)
 
 
 # ------------------------------------------------------------------ the coach

@@ -72,9 +72,21 @@ function HeroIllustration() {
             Illustration · virtual
           </span>
         </div>
-        <div className="relative px-4 pb-4 pt-3">
+        <div className="grid grid-cols-3 gap-2 border-b border-white/[0.06] px-4 py-3 text-[11px]">
+          {[
+            ["Stop loss", "зададен"],
+            ["Risk / trade", "≤ 1%"],
+            ["Reward : risk", "2R"],
+          ].map(([k, v]) => (
+            <div key={k} className="glass-inset px-2.5 py-2">
+              <div className="text-faint">{k}</div>
+              <div className="num mt-0.5 font-semibold text-text">{v}</div>
+            </div>
+          ))}
+        </div>
+        <div className="relative px-4 pb-5 pt-4">
           <div className="grid-mesh absolute inset-0 opacity-70" aria-hidden />
-          <svg viewBox={`0 0 ${CANDLES.length * (w + gap) + 20} 90`} className="relative h-48 w-full" aria-hidden preserveAspectRatio="none">
+          <svg viewBox={`0 0 ${CANDLES.length * (w + gap) + 20} 90`} className="relative h-52 w-full" aria-hidden preserveAspectRatio="none">
             <path
               d={CANDLES.map((c, i) => `${i ? "L" : "M"}${10 + i * (w + gap) + w / 2} ${(c[0] + c[1]) / 2 + 3}`).join(" ")}
               fill="none"
@@ -94,31 +106,24 @@ function HeroIllustration() {
                 </g>
               );
             })}
-            <line x1="0" x2="1000" y1="64" y2="64" stroke="var(--color-down)" strokeOpacity="0.5" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
-            <line x1="0" x2="1000" y1="20" y2="20" stroke="var(--color-up)" strokeOpacity="0.5" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
+            <line x1="0" x2="1000" y1="80" y2="80" stroke="var(--color-down)" strokeOpacity="0.5" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
+            <line x1="0" x2="1000" y1="16" y2="16" stroke="var(--color-up)" strokeOpacity="0.5" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
           </svg>
-          <div className="relative mt-3 grid grid-cols-3 gap-2 text-[11px]">
-            {[
-              ["Stop loss", "зададен"],
-              ["Risk / trade", "≤ 1%"],
-              ["Reward : risk", "2R"],
-            ].map(([k, v]) => (
-              <div key={k} className="glass-inset px-2.5 py-2">
-                <div className="text-faint">{k}</div>
-                <div className="num mt-0.5 font-semibold text-text">{v}</div>
-              </div>
-            ))}
+          <div className="pointer-events-none absolute left-5 top-3 flex gap-3 text-[10px] font-medium uppercase tracking-[0.08em]" aria-hidden>
+            <span className="text-up/80">Take profit</span>
+            <span className="text-faint">·</span>
+            <span className="text-down/80">Stop loss</span>
           </div>
         </div>
       </div>
-      <div className="glass-strong absolute -bottom-6 -left-4 hidden w-60 rounded-xl p-3 sm:block">
+      <div className="glass-strong absolute -bottom-8 -right-5 hidden w-56 rounded-xl p-3 sm:block">
         <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-accent2">
           <Sparkles size={13} strokeWidth={2} aria-hidden />
           AI Teacher
         </div>
         <ul className="mt-2 space-y-1.5 text-xs text-muted">
           {["OBSERVATION", "RULES", "SCENARIO", "INVALIDATION", "RISK"].map((s) => (
-            <li key={s} className="flex items-center gap-2">
+            <li key={s} className="flex items-center gap-1.5">
               <CircleCheck size={13} strokeWidth={2} className="text-up" aria-hidden />
               <span className="font-medium tracking-wide text-text/85">{s}</span>
             </li>
@@ -215,14 +220,11 @@ export default function Landing() {
             <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-accent2">Философията</div>
             <h2 className="mt-1.5 text-xl font-semibold tracking-[-0.015em]">Учи → разбери → упражнявай → подобрявай</h2>
           </div>
-          <ol className="mt-6 flex flex-wrap items-center justify-center gap-x-2 gap-y-3">
+          <ol className="mt-6 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-2.5">
             {FLOW.map((s, i) => (
-              <li key={s} className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-2 rounded-lg border border-up/25 bg-up/[0.08] px-3 py-1.5 text-[13px] font-semibold tracking-wide text-up">
-                  <span className="num text-[10px] text-up/70">{String(i + 1).padStart(2, "0")}</span>
-                  {s}
-                </span>
-                {i < FLOW.length - 1 && <ArrowRight size={14} strokeWidth={2} className="text-faint" aria-hidden />}
+              <li key={s} className="flex items-center gap-1.5">
+                <span className="rounded-lg border border-up/25 bg-up/[0.08] px-2.5 py-1.5 text-xs font-semibold tracking-wide text-up">{s}</span>
+                {i < FLOW.length - 1 && <ArrowRight size={13} strokeWidth={2} className="text-faint" aria-hidden />}
               </li>
             ))}
           </ol>

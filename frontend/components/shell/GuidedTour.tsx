@@ -61,7 +61,8 @@ function place(target: string | undefined, card: HTMLElement | null): Placement 
   const rect = { left: r.left - 4, top: r.top - 4, width: r.width + 8, height: r.height + 8 };
   let left: number;
   let top: number;
-  if (r.right + GAP + cw + PAD <= vw) {
+  // left-side targets (sidebar) → card to their right; top-bar / content targets → below (or above)
+  if (r.left < vw * 0.3 && r.right + GAP + cw + PAD <= vw) {
     left = r.right + GAP;
     top = r.top - 8;
   } else {
@@ -101,7 +102,8 @@ export function GuidedTour() {
 
   const show = !hidden && onDashboard && !!data && !data.settings.tour_done;
   const current = STEPS[Math.min(step, STEPS.length - 1)];
-  useFocusTrap(show, card);
+  // trap focus only once the card is positioned (a visibility:hidden element cannot take focus)
+  useFocusTrap(show && pos !== null, card);
 
   useEffect(() => {
     if (!show) return;
@@ -110,6 +112,9 @@ export function GuidedTour() {
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => setPos(place(current.target, cardRef.current)));
     };
+    // bring the target into view inside its scroll container (e.g. the sidebar nav) once per step
+    const el = current.target ? document.querySelector<HTMLElement>(`[data-tour="${current.target}"]`) : null;
+    el?.scrollIntoView({ block: "nearest", inline: "nearest" });
     update();
     // the shell may still be settling (fonts, sidebar width) — measure again shortly after
     const t = window.setTimeout(update, 260);

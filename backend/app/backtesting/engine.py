@@ -116,7 +116,8 @@ def run_backtest(
             broker.last_bar[sym] = bar
         else:
             broker.process_bar(sym, bar)
-        snap_equity = broker.snapshot()["equity"]
+        snap = broker.snapshot()
+        snap_equity = snap["equity"]
         equity.append([c.ts, round(snap_equity, 2)])
         if len(state.orders) > 16:
             state.orders = {k: o for k, o in state.orders.items() if o.is_active}
@@ -163,7 +164,8 @@ def run_backtest(
         fee_rate = spec.taker_fee if settings.fees_enabled else 0.0
         per_unit = sd + c.close * 2 * fee_rate
         qty = snap_equity * risk_pct / 100 / per_unit
-        qty = min(qty, snap_equity * leverage / c.close * 0.95)
+        # cap by FREE margin — identical to equity when flat (always the case with max_open_positions = 1)
+        qty = min(qty, max(snap["free_margin"], 0.0) * leverage / c.close * 0.95)
         qty = spec.round_qty(qty)
         if qty < spec.min_qty:
             continue
