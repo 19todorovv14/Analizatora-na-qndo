@@ -66,6 +66,8 @@ HOURLY_LIMIT = 49
 SPARK_HOURS = 48
 SPARK_POINTS = 32
 MAX_ENTRIES = 5000
+MAX_DAILY_SERIES = 1500  # Binance per-symbol daily klines kept in memory
+CIRCUIT_SECONDS = 30.0  # after a provider-level failure (network, rate limit, 5xx) skip that provider briefly
 WARM_INTERVAL = 30.0  # seconds between warm-up passes (each pass refreshes snapshots older than TTL / 2)
 REQUEST_LIVE_FETCHES = 8  # synchronous Binance kline fetches allowed per request (the rest go to the background)
 LIST_SYNC_SECONDS = 1.5  # time a list request may spend computing missing (cheap) snapshots
@@ -112,6 +114,7 @@ QUOTE_FIELDS = (
 
 # ------------------------------------------------------------------ secrets in error texts
 _QUERY_STRING = re.compile(r"\?[^\s'\"]*=[^\s'\"]*")
+_PROVIDER_LEVEL = re.compile(r"request failed|rate limit|timed? ?out|error 5\d\d|http 5\d\d", re.IGNORECASE)
 _SECRET_PARAM = re.compile(r"(?i)\b(token|apikey|api_key|key|secret|password)=[^\s&'\"]+")
 
 
@@ -448,6 +451,7 @@ class QuoteEngine:
         self._entries: dict[str, Entry] = {}
         self._daily: dict[str, tuple[int, tuple, list[Candle]]] = {}
         self._regimes: OrderedDict[tuple, dict] = OrderedDict()
+        self._down: dict[tuple, tuple[float, str]] = {}  # circuit breaker: key → (monotonic until, message)
         self.background = Background(workers=workers)
         self._warm_thread: threading.Thread | None = None
         self._warm_stop = threading.Event()
@@ -470,6 +474,7 @@ class QuoteEngine:
             self._entries.clear()
             self._daily.clear()
             self._regimes.clear()
+            self._down.clear()
             running = self.warm_state.get("running", False)
             self.warm_state = self._initial_warm_state()
             self.warm_state["running"] = running
@@ -692,8 +697,26 @@ class QuoteEngine:
         return self._await(spec, r, fut, now, wait)
 
     # -------------------------------------------------------------- computation
+    # -------------------------------------------------------------- circuit breaker
+    @staticmethod
+    def is_provider_level(exc: Exception) -> bool:
+        """Network / rate-limit / 5xx failures concern the whole provider (not one symbol)."""
+        return bool(_PROVIDER_LEVEL.search(str(exc)))
+
+    def _guard(self, key: tuple) -> None:
+        hit = self._down.get(key)
+        if hit is not None and time.monotonic() < hit[0]:
+            raise MarketDataError(hit[1])
+
+    def _trip(self, key: tuple, exc: Exception) -> None:
+        if self.is_provider_level(exc):
+            with self._lock:
+                self._down[key] = (time.monotonic() + CIRCUIT_SECONDS, scrub_secrets(exc))
+
     def _compute(self, spec: AssetSpec, r: Route, now: int, budget: Budget | None) -> Entry:
         try:
+            if not r.is_demo:
+                self._guard(r.key)  # the provider failed moments ago → do not wait for another timeout
             if r.kind == KIND_BINANCE:
                 quote, extra, ttl = self._compute_binance(spec, r, now, budget)
             elif r.kind == KIND_RATE_LIMITED:
@@ -707,6 +730,8 @@ class QuoteEngine:
                 TTL_FAILED,
             )
         except MarketDataError as exc:
+            if not r.is_demo:
+                self._trip(r.key, exc)
             quote, extra, ttl = (
                 placeholder(
                     spec, status=STATUS_ERROR, reason=scrub_secrets(exc), code=CODE_ERROR, now=now, source=r.source
@@ -835,9 +860,18 @@ class QuoteEngine:
 
     def _fetch_binance_daily(self, spec: AssetSpec, r: Route, now: int) -> list[Candle]:
         assert r.provider is not None
-        rows = r.provider.get_candles(spec, "1d", limit=DAILY_CLOSED + 1, now=now)
+        key = (*r.key, "1d")
+        self._guard(key)
+        try:
+            rows = r.provider.get_candles(spec, "1d", limit=DAILY_CLOSED + 1, now=now)
+        except MarketDataError as exc:
+            self._trip(key, exc)
+            raise
         with self._lock:
             self._daily[spec.symbol] = (now, r.key, rows)
+            if len(self._daily) > MAX_DAILY_SERIES:
+                for sym, _ in sorted(self._daily.items(), key=lambda kv: kv[1][0])[: MAX_DAILY_SERIES // 10]:
+                    self._daily.pop(sym, None)
         return rows
 
     def _regime_1d(self, spec: AssetSpec, r: Route, daily: list[Candle]) -> dict | None:
