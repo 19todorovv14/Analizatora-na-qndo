@@ -19,7 +19,9 @@ Caching: per-instrument TTL (demo 60 s, live 30 s, Twelve Data 300 s — its quo
 has 800 credits/day), judged against the epoch ``now`` passed in, so tests with a fixed clock are deterministic.
 Lists may use snapshots up to 10 minutes old (every quote carries ``as_of``). A background warm-up thread
 (started from the markets router lifespan, setting ``MARKET_WARMUP``) precomputes the curated demo/Binance
-snapshots and keeps them fresh, so a request never computes a cold universe.
+snapshots and keeps them fresh (Binance every ~30 s, demo every ~4 min — see WARM_REFRESH_DEMO), so a request never
+computes a cold universe. A provider-level failure (network, rate limit, 5xx) opens a 30 s circuit breaker so an
+outage costs one timeout, not one per instrument.
 
 Quote statuses: ok | unavailable (DATA_NOT_AVAILABLE) | error (MARKET_DATA_ERROR, provider failure) |
 pending (being fetched in the background — poll again) | on_demand (rate-limited provider, only loaded on the
@@ -68,7 +70,11 @@ SPARK_POINTS = 32
 MAX_ENTRIES = 5000
 MAX_DAILY_SERIES = 1500  # Binance per-symbol daily klines kept in memory
 CIRCUIT_SECONDS = 30.0  # after a provider-level failure (network, rate limit, 5xx) skip that provider briefly
-WARM_INTERVAL = 30.0  # seconds between warm-up passes (each pass refreshes snapshots older than TTL / 2)
+WARM_INTERVAL = 30.0  # seconds between warm-up passes (each pass refreshes snapshots older than TTL / 2 …)
+# … except DEMO snapshots, refreshed every ~4 minutes: every demo tick materialises new intraday sub-candles in the
+# demo generator's LRU cache, so ticking ~300 instruments every 30 s would grow memory quickly. Lists accept
+# snapshots up to LIST_MAX_STALE; a single instrument (asset page, watchlist) is always recomputed after TTL_DEMO.
+WARM_REFRESH_DEMO = 240
 REQUEST_LIVE_FETCHES = 8  # synchronous Binance kline fetches allowed per request (the rest go to the background)
 LIST_SYNC_SECONDS = 1.5  # time a list request may spend computing missing (cheap) snapshots
 DAY = 86400
@@ -575,9 +581,11 @@ class QuoteEngine:
         now: int | None = None,
         fetch: str = "cheap",
         wait_total: float = 0.0,
+        max_age: int | None = None,
     ) -> dict[str, dict]:
         """Quotes of several instruments; rate-limited ones (fetch="on_demand") are fetched in parallel in the
-        background and awaited together for at most `wait_total` seconds."""
+        background and awaited together for at most `wait_total` seconds. `max_age` (e.g. LIST_MAX_STALE for list
+        rows) lets cached snapshots older than the TTL be reused instead of recomputed."""
         now = self.now(now)
         budget = Budget()
         out: dict[str, dict] = {}
@@ -600,7 +608,7 @@ class QuoteEngine:
                 else:
                     waiting[spec.symbol] = (spec, r, fut)
                 continue
-            out[spec.symbol] = self.entry(spec, now=now, fetch=fetch, budget=budget, r=r).quote
+            out[spec.symbol] = self.entry(spec, now=now, fetch=fetch, budget=budget, max_age=max_age, r=r).quote
         deadline = time.monotonic() + max(0.0, wait_total)
         for symbol, (spec, r, fut) in waiting.items():
             out[symbol] = self._await(spec, r, fut, now, max(0.0, deadline - time.monotonic())).quote
@@ -1026,7 +1034,8 @@ class QuoteEngine:
             if not r.list_capable:
                 counts["skipped_rate_limited"] += 1
                 continue
-            e = self.entry(spec, now=now, fetch="cheap", budget=budget, max_age=max(1, int(r.ttl * refresh_ratio)), r=r)
+            refresh = WARM_REFRESH_DEMO if r.is_demo else max(1, int(r.ttl * refresh_ratio))
+            e = self.entry(spec, now=now, fetch="cheap", budget=budget, max_age=refresh, r=r)
             counts[e.quote.get("status") or "unknown"] += 1
         try:
             from app.market import marketcap

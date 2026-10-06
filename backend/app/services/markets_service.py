@@ -289,7 +289,7 @@ def _ranked_list(kind: str, col: Collected, *, page: int, page_size: int) -> dic
 def _popular_list(specs: list[AssetSpec], *, page: int, page_size: int, now: int) -> dict:
     ordered = sorted(specs, key=_pk)
     chunk = ordered[(page - 1) * page_size : page * page_size]
-    quotes = ENGINE.quotes(chunk, now=now, fetch="cheap")
+    quotes = ENGINE.quotes(chunk, now=now, fetch="cheap", max_age=overview.LIST_MAX_STALE)
     return {
         "kind": "popular",
         **LIST_META["popular"],
@@ -333,7 +333,7 @@ def _category_block(cdef: dict, everything: list[AssetSpec], now: int) -> dict:
     ac, cat = cdef["filter"].get("asset_class"), cdef["filter"].get("category")
     members = [s for s in everything if _matches(s, ac, cat)]
     top = sorted(members, key=lambda s: (s.popularity, 0 if s.curated else 1, s.symbol))[:CATEGORY_ITEMS]
-    quotes = ENGINE.quotes(top, now=now, fetch="cheap")
+    quotes = ENGINE.quotes(top, now=now, fetch="cheap", max_age=overview.LIST_MAX_STALE)
     return {
         "key": cdef["key"],
         "label": cdef["label"],
@@ -384,7 +384,7 @@ def quotes_payload(tokens: list[str], now: int | None = None) -> dict:
         else:
             resolved[tok] = spec
     unique = list({s.symbol: s for s in resolved.values()}.values())
-    quotes = ENGINE.quotes(unique, now=now, fetch="cheap")
+    quotes = ENGINE.quotes(unique, now=now, fetch="cheap", max_age=overview.LIST_MAX_STALE)
     for tok, spec in resolved.items():
         out[tok] = quotes[spec.symbol]
     return {"quotes": {tok: out[tok] for tok in tokens}, "as_of": now}
@@ -539,7 +539,7 @@ def related_for(spec: AssetSpec, now: int, limit: int = RELATED_COUNT) -> list[d
         return (tier, s.popularity, s.symbol)
 
     pick = sorted((s for s in ASSETS if ok(s)), key=score)[:limit]
-    quotes = ENGINE.quotes(pick, now=now, fetch="cheap")
+    quotes = ENGINE.quotes(pick, now=now, fetch="cheap", max_age=overview.LIST_MAX_STALE)
     return [_item(s, quotes[s.symbol]) for s in pick]
 
 
@@ -583,8 +583,9 @@ def asset_payload(spec: AssetSpec, *, user: User | None, db: Session, now: int |
         regime_fut = ENGINE.background.submit(
             ("regime", spec.symbol, "1h", r.key), partial(market_service.regime_snapshot, spec.symbol, "1h", now)
         )
+    news_configured = news.is_configured()
     news_fut = None
-    if news.is_configured():
+    if news_configured:
         news_fut = ENGINE.background.submit(
             ("news", spec.symbol), partial(news.news_feed, symbol=spec.symbol, asset_class=spec.asset_class, now=now)
         )
@@ -616,8 +617,8 @@ def asset_payload(spec: AssetSpec, *, user: User | None, db: Session, now: int |
     else:
         regime_1d = _state(quote.get("status") or "unavailable", quote.get("reason"), quote.get("code"))
 
-    if news_fut is None:
-        news_block = news.news_feed(symbol=spec.symbol, asset_class=spec.asset_class, now=now)  # not configured
+    if not news_configured:  # → {available: false, reason: "Configure FINNHUB_API_KEY…"} without any request
+        news_block = news.news_feed(symbol=spec.symbol, asset_class=spec.asset_class, now=now)
     else:
         done, res, exc = _wait(news_fut, deadline)
         if exc is not None:
