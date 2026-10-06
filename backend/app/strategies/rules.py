@@ -15,6 +15,16 @@ A strategy is pure data (JSON). Example — "RSI < 30 AND Price > EMA 200 AND Vo
       "take_profit": {"type": "r_multiple", "value": 2}
     }
 
+DSL v2 (additive — every v1 definition parses and evaluates exactly as before):
+
+* operand kind "structure" — market structure from CONFIRMED swings (higher_high, higher_low, lower_high,
+  lower_low, uptrend, downtrend, break_above_swing_high, break_below_swing_low; params left/right, default 3/3)
+  and candle patterns (inside_bar, bullish_engulfing, bearish_engulfing, hammer, shooting_star). Each is a
+  1/0 series without lookahead (see app.strategies.structure_ops).
+* operators "is_true" (value > 0) / "is_false" (value <= 0) — the right operand is optional for them and is
+  ignored (it is normalised to the placeholder value 0 so stored definitions always have a `right`), e.g.
+  {"left": {"kind": "structure", "name": "higher_high"}, "op": "is_true"} → "Higher High".
+
 Evaluating a strategy only produces a *setup*; it never places a real order.
 """
 
@@ -26,14 +36,17 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app import indicators as ind
 from app.market.base import Candle
+from app.strategies import structure_ops
 
 PRICE_FIELDS = ("open", "high", "low", "close", "volume")
-OPS = ("<", ">", "<=", ">=", "crosses_above", "crosses_below")
+BOOL_OPS = ("is_true", "is_false")
+OPS = ("<", ">", "<=", ">=", "crosses_above", "crosses_below", *BOOL_OPS)
+OPERAND_KINDS = ("indicator", "price", "value", "structure")
 
 
 class Operand(BaseModel):
-    kind: Literal["indicator", "price", "value"]
-    name: str | None = None  # indicator name
+    kind: Literal["indicator", "price", "value", "structure"]
+    name: str | None = None  # indicator name / structure operand name
     params: dict[str, float] = Field(default_factory=dict)
     output: str = "value"
     field: str | None = None  # price field
@@ -55,6 +68,10 @@ class Operand(BaseModel):
         elif self.kind == "price":
             if self.field not in PRICE_FIELDS:
                 raise ValueError(f"Price field must be one of {PRICE_FIELDS}")
+        elif self.kind == "structure":
+            structure_ops.validate_params(self.name or "", self.params)
+            if self.output != "value":
+                raise ValueError("Structure operands have a single output 'value'")
         elif self.value is None:
             raise ValueError("Value operand needs a number")
         return self
@@ -64,6 +81,8 @@ class Operand(BaseModel):
             return f"{self.value:g}"
         if self.kind == "price":
             base = self.field.capitalize()
+        elif self.kind == "structure":
+            base = structure_ops.label(self.name, self.params)
         else:
             p = ",".join(f"{v:g}" for v in self.params.values())
             base = f"{self.name.upper()}({p})" if p else self.name.upper()
@@ -78,10 +97,27 @@ class Operand(BaseModel):
 
 class Condition(BaseModel):
     left: Operand
-    op: Literal["<", ">", "<=", ">=", "crosses_above", "crosses_below"]
-    right: Operand
+    op: Literal["<", ">", "<=", ">=", "crosses_above", "crosses_below", "is_true", "is_false"]
+    # Optional only for is_true / is_false; after validation it is ALWAYS set (placeholder value 0 for them).
+    right: Operand | None = None
+
+    @model_validator(mode="after")
+    def _right_operand(self):
+        if self.right is None:
+            if self.op not in BOOL_OPS:
+                raise ValueError(f"Операторът '{self.op}' изисква десен операнд.")
+            self.right = Operand(kind="value", value=0)
+        return self
+
+    @property
+    def is_boolean(self) -> bool:
+        return self.op in BOOL_OPS
 
     def label(self) -> str:
+        if self.op == "is_true":
+            return self.left.label()
+        if self.op == "is_false":
+            return f"НЕ {self.left.label()}"
         op = {"crosses_above": "пресича нагоре", "crosses_below": "пресича надолу"}.get(self.op, self.op)
         return f"{self.left.label()} {op} {self.right.label()}"
 
@@ -143,7 +179,7 @@ class StrategyDefinition(BaseModel):
             if not b:
                 continue
             for c in b.conditions:
-                for o in (c.left, c.right):
+                for o in (c.left,) if c.is_boolean else (c.left, c.right):
                     n += len(o.params) + (1 if o.kind == "value" else 0)
         return n
 
@@ -159,7 +195,20 @@ class IndicatorCache:
     def series(self, op: Operand) -> ind.Series:
         if op.kind == "price":
             return self._price[op.field]  # type: ignore[index]
+        if op.kind == "structure":
+            return self.structure(op.name, op.params)  # type: ignore[arg-type]
         return self.indicator(op.name, op.params, op.output)  # type: ignore[arg-type]
+
+    def structure(self, name: str, params: dict | None = None) -> ind.Series:
+        """1/0 structure / candle-pattern series (no lookahead), computed once per family and (left, right)."""
+        params = params or {}
+        if structure_ops.uses_swings(name):
+            key = ("__swings__", *structure_ops.swing_params(params))
+        else:
+            key = ("__patterns__",)
+        if key not in self._cache:
+            self._cache[key] = structure_ops.compute(self.candles, name, params)
+        return self._cache[key][name]
 
     def indicator(self, name: str, params: dict, output: str = "value") -> ind.Series:
         key = (name, tuple(sorted(params.items())))
@@ -178,6 +227,10 @@ class IndicatorCache:
 
 
 def _eval_condition(cond: Condition, cache: IndicatorCache, i: int) -> dict:
+    if cond.is_boolean:
+        lv = cache.value(cond.left, i)
+        ok = lv is not None and (lv > 0 if cond.op == "is_true" else lv <= 0)
+        return {"label": cond.label(), "left": lv, "right": None, "passed": ok}
     lv, rv = cache.value(cond.left, i), cache.value(cond.right, i)
     ok = False
     if lv is not None and rv is not None:
@@ -268,4 +321,6 @@ def describe(defn: StrategyDefinition) -> list[str]:
     }[tp.type]
     lines.append(f"TAKE PROFIT: {tp_txt}")
     lines.append(f"Риск на сделка: {defn.risk_per_trade_pct:g}% от сметката")
+    if defn.regime_filter:
+        lines.append("Режим филтър: само " + ", ".join(defn.regime_filter))
     return lines

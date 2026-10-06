@@ -92,3 +92,65 @@ def nearest_levels(lvls: list[dict], price: float, n: int = 2) -> tuple[list[dic
     supports = sorted((lv for lv in lvls if lv["price"] < price), key=lambda lv: price - lv["price"])[:n]
     resistances = sorted((lv for lv in lvls if lv["price"] > price), key=lambda lv: lv["price"] - price)[:n]
     return supports, resistances
+
+
+SWING_STATE_KEYS = (
+    "higher_high",
+    "higher_low",
+    "lower_high",
+    "lower_low",
+    "uptrend",
+    "downtrend",
+    "break_above_swing_high",
+    "break_below_swing_low",
+)
+
+
+def swing_state_series(candles: list[Candle], left: int = 3, right: int = 3) -> dict[str, list[float | None]]:
+    """Per-bar market-structure flags (1.0 / 0.0, None while not enough swings are known) WITHOUT lookahead.
+
+    A pivot at bar j needs `right` later bars, so it only becomes known at bar j + right. The value at bar i
+    therefore uses only the swings confirmed by the close of bar i — it equals what `find_swings(candles[: i + 1])`
+    would report, and appending future candles never changes it.
+
+    * higher_high / lower_high — label of the most recent confirmed swing high vs the previous one (HH / LH, as in
+      `find_swings`: an equal high counts as LH); higher_low / lower_low likewise for swing lows (HL / LL).
+    * uptrend — last swing high is HH AND last swing low is HL; downtrend — LH AND LL.
+    * break_above_swing_high — the close of bar i is above the most recent confirmed swing high while the previous
+      close was not (the breakout bar); break_below_swing_low mirrors it.
+    """
+    n = len(candles)
+    out: dict[str, list[float | None]] = {k: [None] * n for k in SWING_STATE_KEYS}
+    if n == 0:
+        return out
+    confirmed_at: dict[int, list[Swing]] = {}
+    for s in find_swings(candles, left, right):
+        confirmed_at.setdefault(s.index + right, []).append(s)
+    last_high: Swing | None = None
+    last_low: Swing | None = None
+    for i in range(n):
+        for s in confirmed_at.get(i, ()):
+            if s.kind == "high":
+                last_high = s
+            else:
+                last_low = s
+        hl_known = last_high is not None and last_high.label is not None
+        ll_known = last_low is not None and last_low.label is not None
+        if hl_known:
+            out["higher_high"][i] = 1.0 if last_high.label == "HH" else 0.0
+            out["lower_high"][i] = 1.0 if last_high.label == "LH" else 0.0
+        if ll_known:
+            out["higher_low"][i] = 1.0 if last_low.label == "HL" else 0.0
+            out["lower_low"][i] = 1.0 if last_low.label == "LL" else 0.0
+        if hl_known and ll_known:
+            out["uptrend"][i] = 1.0 if (last_high.label == "HH" and last_low.label == "HL") else 0.0
+            out["downtrend"][i] = 1.0 if (last_high.label == "LH" and last_low.label == "LL") else 0.0
+        if i > 0:
+            close, prev_close = candles[i].close, candles[i - 1].close
+            if last_high is not None:
+                lvl = last_high.price
+                out["break_above_swing_high"][i] = 1.0 if close > lvl >= prev_close else 0.0
+            if last_low is not None:
+                lvl = last_low.price
+                out["break_below_swing_low"][i] = 1.0 if close < lvl <= prev_close else 0.0
+    return out
