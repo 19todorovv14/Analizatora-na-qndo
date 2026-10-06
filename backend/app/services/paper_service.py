@@ -17,7 +17,7 @@ from app import indicators as ind
 from app.analysis.signal import analyze
 from app.backtesting.metrics import trade_metrics
 from app.market.base import MarketDataError
-from app.market.catalog import ASSETS_BY_SYMBOL, get_asset
+from app.market.catalog import SPECS, get_asset
 from app.market.timeframes import align
 from app.models import PaperAccount, PaperEvent, PaperOrder, PaperPosition, PaperTrade, RiskEvent, User
 from app.paper_engine.broker import PaperBroker
@@ -150,7 +150,7 @@ def load_broker(db: Session, acc: PaperAccount) -> PaperBroker:
         select(PaperPosition).where(PaperPosition.account_id == acc.id, PaperPosition.status == "open")
     ):
         state.positions[r.id] = _pos_from_row(r)
-    return PaperBroker(state, ASSETS_BY_SYMBOL, ExecutionConfig.from_dict(acc.execution), seed=f"acct:{acc.id}")
+    return PaperBroker(state, SPECS, ExecutionConfig.from_dict(acc.execution), seed=f"acct:{acc.id}")
 
 
 def save_broker(db: Session, acc: PaperAccount, broker: PaperBroker, user_id: int | None = None) -> None:

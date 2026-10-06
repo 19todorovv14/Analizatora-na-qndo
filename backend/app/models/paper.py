@@ -133,3 +133,27 @@ class ReplaySession(Base):
     end_ts: Mapped[int] = mapped_column(BigInteger)
     status: Mapped[str] = mapped_column(String(12), default="active")  # active | finished
     created_ts: Mapped[int] = mapped_column(BigInteger, default=now_ts)
+    # --- V2 (0002_v2) ---
+    mode: Mapped[str] = mapped_column(String(12), default="trade", server_default="trade")  # trade | predict
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    review: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    strategy_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class ReplayDecision(Base):
+    """A LONG / SHORT / WAIT decision taken on one revealed replay bar (with optional stop/target)."""
+
+    __tablename__ = "replay_decisions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("replay_sessions.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    bar_ts: Mapped[int] = mapped_column(BigInteger)
+    action: Mapped[str] = mapped_column(String(6))  # long | short | wait
+    entry_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stop: Mapped[float | None] = mapped_column(Float, nullable=True)
+    target: Mapped[float | None] = mapped_column(Float, nullable=True)
+    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    outcome: Mapped[dict] = mapped_column(JSON, default=dict)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_ts: Mapped[int] = mapped_column(BigInteger, default=now_ts)

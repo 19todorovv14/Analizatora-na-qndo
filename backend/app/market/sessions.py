@@ -68,7 +68,10 @@ CALENDARS: dict[str, Calendar] = {
             "CME Globex: неделя 18:00 – петък 17:00 Ню Йорк, дневна пауза 17:00–18:00",
             {
                 6: ((_hm("18:00"), 1440, OPEN),),
-                **{wd: ((0, _hm("17:00"), OPEN), (_hm("17:00"), _hm("18:00"), BREAK), (_hm("18:00"), 1440, OPEN)) for wd in range(4)},
+                **{
+                    wd: ((0, _hm("17:00"), OPEN), (_hm("17:00"), _hm("18:00"), BREAK), (_hm("18:00"), 1440, OPEN))
+                    for wd in range(4)
+                },
                 4: ((0, _hm("17:00"), OPEN),),
             },
             break_label="Дневна пауза",

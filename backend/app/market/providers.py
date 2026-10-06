@@ -74,7 +74,8 @@ class AssetClassProvider(MarketDataProvider):
     @classmethod
     def chain_from_settings(cls, settings) -> tuple[str, ...]:
         value = getattr(settings, cls.setting, None)
-        if value is None and cls.fallback_setting:
+        if (value is None or not str(value).strip()) and cls.fallback_setting:
+            # unset or blank (docker-compose passes unset variables as "") → use the fallback chain
             value = getattr(settings, cls.fallback_setting, None)
         return parse_chain(value)
 

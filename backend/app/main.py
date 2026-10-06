@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import academy, ai, auth, market, misc, paper, risk, strategies
+from app.api import academy, ai, auth, learn, market, markets, misc, paper, replay, risk, strategies, teacher
 from app.config import get_settings
 from app.database import SessionLocal, init_db
 from app.exchange.base import LiveTradingDisabledError
@@ -92,6 +92,10 @@ for r in (
     ai.router,
     strategies.router,
     misc.router,
+    replay.router,  # /replay… (moved out of misc; work package S5)
+    markets.router,  # markets explorer (S1)
+    learn.router,  # learning path & labs (S3)
+    teacher.router,  # AI teacher modes (S4)
 ):
     app.include_router(r, prefix="/api")
 
@@ -103,7 +107,14 @@ def health():
         "status": "ok",
         "execution_mode": "paper",
         "live_trading": False,
-        "market_data": {"crypto": s.market_data_crypto, "fx": s.market_data_fx, "stocks": s.market_data_stocks},
+        "market_data": {
+            "crypto": s.market_data_crypto,
+            "fx": s.market_data_fx,
+            "stocks": s.market_data_stocks,
+            "etf": s.market_data_etf or s.market_data_stocks,
+            "indices": s.market_data_indices or s.market_data_stocks,
+            "commodities": s.market_data_commodities or s.market_data_stocks,
+        },
         "ai_provider": s.ai_provider,
         "celery": s.use_celery,
     }

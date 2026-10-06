@@ -5,6 +5,7 @@ import { useCallback, useRef, useState } from "react";
 import useSWR from "swr";
 
 import { ChartWorkspace } from "@/components/charts/ChartWorkspace";
+import { captureChart } from "@/components/charts/capture";
 import { OrderPanel } from "@/components/trading/OrderPanel";
 import { AccountMetrics, OrdersTable, PositionsTable, TradesTable } from "@/components/trading/Tables";
 import { Badge, Card, Loading, Tabs } from "@/components/ui";
@@ -40,13 +41,7 @@ export default function PaperPage() {
     mutateTrades();
   };
 
-  const capture = () => {
-    try {
-      return chartApi.current?.takeScreenshot().toDataURL("image/jpeg", 0.8) ?? null;
-    } catch {
-      return null;
-    }
-  };
+  const capture = () => (chartApi.current ? captureChart(chartApi.current, "image/jpeg", 0.8) : null);
 
   if (!view) return <Loading />;
 

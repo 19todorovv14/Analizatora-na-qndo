@@ -161,8 +161,8 @@ class BinancePublicProvider(MarketDataProvider):
             symbol=asset.symbol,
             price=float(data["lastPrice"]),
             ts=int(now or time.time()),
-            change_24h_pct=float(data.get("priceChangePercent", 0.0)),
-            volume_24h=float(data.get("volume", 0.0)),
+            change_24h_pct=_num(data.get("priceChangePercent")),  # missing → None, never invented
+            volume_24h=_num(data.get("volume")),
             source=self.source.id,
         )
         self.cache.set(key, t, ttl=2)
@@ -321,8 +321,8 @@ class TwelveDataProvider(MarketDataProvider):
             symbol=asset.symbol,
             price=float(data["close"]),
             ts=int(now or time.time()),
-            change_24h_pct=float(data.get("percent_change") or 0.0),
-            volume_24h=float(data.get("volume") or 0.0),
+            change_24h_pct=_num(data.get("percent_change")),  # missing → None, never invented
+            volume_24h=_num(data.get("volume")),  # forex has no volume → None
             source=self.source.id,
         )
         self.cache.set(key, t, ttl=15)

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.analysis.regime import RegimeInputs, classify_at
 from app.backtesting.metrics import trade_metrics
 from app.market.base import MarketDataError
-from app.market.catalog import ASSETS_BY_SYMBOL, get_asset
+from app.market.catalog import SPECS, get_asset
 from app.market.timeframes import align, tf_seconds
 from app.models import Bot, BotLog, BotRun, PaperAccount, PaperPosition, Strategy, User
 from app.paper_engine.models import BUY, MARKET, SELL, Bar
@@ -54,7 +54,7 @@ def create_bot(db: Session, user: User, data: dict) -> Bot:
         kind="bot",
         name=f"Bot: {data['name']}",
         balance=float(config["initial_balance"]),
-        leverage=min(2.0, ASSETS_BY_SYMBOL[data["symbol"]].max_leverage),
+        leverage=min(2.0, SPECS[data["symbol"]].max_leverage),
     )
     bot = Bot(
         user_id=user.id,

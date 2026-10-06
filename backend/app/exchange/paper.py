@@ -54,3 +54,7 @@ class PaperExchangeAdapter(ExchangeAdapter):
 
     def cancel_order(self, order_id: str) -> dict:
         return paper_service.cancel_order(self.db, self.user, self.account, order_id, self._now())
+
+
+class PaperExecutionAdapter(PaperExchangeAdapter):
+    """V2 name of the paper execution venue (identical behaviour: simulated fills, virtual funds only)."""

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.analysis.regime import classify
 from app.market.base import AssetSpec, Candle, MarketDataError, Ticker
 from app.market.catalog import ASSETS, get_asset
+from app.market.registry import availability as provider_availability
 from app.market.registry import provider_for
 from app.market.timeframes import tf_seconds
 from app.models import Candle as CandleRow
@@ -151,21 +152,33 @@ def watch_row(symbol: str, now: int | None = None) -> dict:
         return {"symbol": symbol, "name": asset.name, "asset_class": asset.asset_class, "error": str(exc)}
 
 
+def availability(symbol: str) -> dict:
+    """{available, provider_id, reason, source} for an instrument — cheap, no network."""
+    return provider_availability(get_asset(symbol))
+
+
 def asset_list() -> list[dict]:
-    return [
-        {
-            "symbol": a.symbol,
-            "name": a.name,
-            "asset_class": a.asset_class,
-            "price_precision": a.price_precision,
-            "qty_step": a.qty_step,
-            "min_qty": a.min_qty,
-            "spread_bps": a.spread_bps,
-            "maker_fee": a.maker_fee,
-            "taker_fee": a.taker_fee,
-            "max_leverage": a.max_leverage,
-            "description": a.description,
-            "source": provider_for(a).source.to_dict(),
-        }
-        for a in ASSETS
-    ]
+    """All curated instruments. An instrument no configured provider supports gets source=None and
+    available=False (with the reason) instead of failing the whole list."""
+    out = []
+    for a in ASSETS:
+        av = provider_availability(a)
+        out.append(
+            {
+                "symbol": a.symbol,
+                "name": a.name,
+                "asset_class": a.asset_class,
+                "price_precision": a.price_precision,
+                "qty_step": a.qty_step,
+                "min_qty": a.min_qty,
+                "spread_bps": a.spread_bps,
+                "maker_fee": a.maker_fee,
+                "taker_fee": a.taker_fee,
+                "max_leverage": a.max_leverage,
+                "description": a.description,
+                "source": av["source"],
+                "available": av["available"],
+                "unavailable_reason": av["reason"],
+            }
+        )
+    return out

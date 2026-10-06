@@ -16,6 +16,7 @@ class AISession(Base):
     context: Mapped[dict] = mapped_column(JSON, default=dict)
     provider: Mapped[str] = mapped_column(String(20), default="offline")
     created_ts: Mapped[int] = mapped_column(BigInteger, default=now_ts)
+    mode: Mapped[str | None] = mapped_column(String(20), nullable=True)  # V2 teacher mode name (0002_v2)
 
 
 class AIMessage(Base):

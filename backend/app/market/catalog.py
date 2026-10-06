@@ -460,7 +460,7 @@ class _SyncedRegistry:
             base_slug = slug = spec.slug or slug_for(spec.symbol)
             if slug in CURATED_BY_SLUG or slug in by_slug:
                 # deterministic short suffix (independent of load order)
-                digest = hashlib.blake2b(f"{spec.source}|{spec.symbol}".encode(), digest_size=3).hexdigest()
+                digest = hashlib.blake2b(f"{spec.source}|{spec.symbol}".encode(), digest_size=3).hexdigest().upper()
                 slug, n = f"{base_slug}-{digest}", 2
                 while slug in CURATED_BY_SLUG or slug in by_slug:
                     slug, n = f"{base_slug}-{digest}{n}", n + 1
@@ -477,7 +477,7 @@ class _SyncedRegistry:
         return list(by_symbol.values())
 
     def ensure(self) -> None:
-        if self.loaded:
+        if self.loaded or self.loader is None:  # lock-free fast path
             return
         with self.lock:
             if self.loaded:
@@ -553,16 +553,16 @@ def resolve_asset(symbol_or_slug: str) -> AssetSpec:
     text = (symbol_or_slug or "").strip()
     if not text:
         raise UnknownAssetError(symbol_or_slug)
-    for candidate in (text, text.upper()):
-        try:
-            return get_asset(candidate)
-        except UnknownAssetError:
-            pass
-    slug = slug_for(text)
-    spec = CURATED_BY_SLUG.get(slug) or _SYNCED.by_slug.get(slug)
+    slug, upper, key = slug_for(text), text.upper(), compact_key(text)
+    # curated instruments win every lenient step (a URL slug such as "BTC-USDT" must open BTC/USDT
+    # even if a synced instrument is literally called "BTC-USDT"; that one has a suffixed slug)
+    spec = ASSETS_BY_SYMBOL.get(text) or CURATED_BY_SLUG.get(slug) or ASSETS_BY_SYMBOL.get(upper)
     if spec is not None:
         return spec
-    key = compact_key(text)
+    _SYNCED.ensure()
+    spec = _SYNCED.by_symbol.get(text) or _SYNCED.by_slug.get(slug) or _SYNCED.by_symbol.get(upper)
+    if spec is not None:
+        return spec
     spec = _CURATED_BY_COMPACT.get(key) or _SYNCED.by_compact.get(key)
     if spec is not None:
         return spec
@@ -588,6 +588,7 @@ class _SpecsView(Mapping[str, AssetSpec]):
         return True
 
     def __iter__(self) -> Iterator[str]:
+        _SYNCED.ensure()
         yield from ASSETS_BY_SYMBOL
         yield from list(_SYNCED.by_symbol)
 

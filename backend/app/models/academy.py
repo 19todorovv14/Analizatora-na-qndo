@@ -56,3 +56,20 @@ class ChallengeProgress(Base):
     status: Mapped[str] = mapped_column(String(12), default="in_progress")  # in_progress | completed
     progress: Mapped[dict] = mapped_column(JSON, default=dict)
     completed_ts: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+
+class StructureAttempt(Base):
+    """A market-structure lab attempt: the user's marks (swing highs/lows, BOS…) on a candle window and the grade."""
+
+    __tablename__ = "structure_attempts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    symbol: Mapped[str] = mapped_column(String(40))
+    timeframe: Mapped[str] = mapped_column(String(8))
+    start_ts: Mapped[int] = mapped_column(BigInteger)
+    end_ts: Mapped[int] = mapped_column(BigInteger)
+    marks: Mapped[list] = mapped_column(JSON, default=list)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    score: Mapped[float] = mapped_column(Float, default=0.0)
+    created_ts: Mapped[int] = mapped_column(BigInteger, default=now_ts)

@@ -1,7 +1,9 @@
 "use client";
 
-import { AreaSeries, ColorType, createChart, type IChartApi, type IPriceLine, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
+import { AreaSeries, LineStyle, createChart, type IChartApi, type IPriceLine, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
 import { useEffect, useRef } from "react";
+
+import { CHART, baseChartOptions, repaintWhenFontsReady } from "@/lib/theme";
 
 /** Simple equity curve (time, value) rendered with Lightweight Charts. */
 export function EquityChart({ points, height = 220, baseline }: { points: [number, number][]; height?: number; baseline?: number }) {
@@ -12,20 +14,16 @@ export function EquityChart({ points, height = 220, baseline }: { points: [numbe
 
   useEffect(() => {
     if (!el.current) return;
-    const c = createChart(el.current, {
-      autoSize: true,
-      layout: { background: { type: ColorType.Solid, color: "#131722" }, textColor: "#b2b5be", fontSize: 11, attributionLogo: false },
-      grid: { vertLines: { color: "#1b1f2b" }, horzLines: { color: "#1b1f2b" } },
-      localization: { locale: "en-US" },
-      rightPriceScale: { borderColor: "#2a2e39" },
-      timeScale: { borderColor: "#2a2e39", timeVisible: true },
-    });
+    const c = createChart(el.current, baseChartOptions());
+    repaintWhenFontsReady(c);
     series.current = c.addSeries(AreaSeries, {
-      lineColor: "#2962ff",
-      topColor: "rgba(41,98,255,0.35)",
-      bottomColor: "rgba(41,98,255,0.02)",
+      lineColor: CHART.areaLine,
+      topColor: CHART.areaTop,
+      bottomColor: CHART.areaBottom,
       lineWidth: 2,
       priceLineVisible: false,
+      crosshairMarkerBorderColor: CHART.surface,
+      crosshairMarkerBackgroundColor: CHART.areaLine,
     });
     chart.current = c;
     return () => c.remove();
@@ -42,7 +40,14 @@ export function EquityChart({ points, height = 220, baseline }: { points: [numbe
     if (base.current) series.current.removePriceLine(base.current);
     base.current = null;
     if (baseline !== undefined) {
-      base.current = series.current.createPriceLine({ price: baseline, color: "#5d6273", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "start" });
+      base.current = series.current.createPriceLine({
+        price: baseline,
+        color: CHART.baseline,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: "start",
+      });
     }
     chart.current.timeScale().fitContent();
   }, [points, baseline]);

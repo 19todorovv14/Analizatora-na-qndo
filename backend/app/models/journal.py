@@ -30,3 +30,9 @@ class JournalEntry(Base):
     screenshot: Mapped[str | None] = mapped_column(Text, nullable=True)  # PNG data URL
     created_ts: Mapped[int] = mapped_column(BigInteger, default=now_ts)
     updated_ts: Mapped[int] = mapped_column(BigInteger, default=now_ts)
+    # --- V2 (0002_v2) ---
+    exit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    strategy: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    risk_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_review: Mapped[dict | None] = mapped_column(JSON, nullable=True)
