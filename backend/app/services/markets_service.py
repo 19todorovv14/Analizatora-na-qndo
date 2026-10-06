@@ -112,6 +112,7 @@ MAX_LESSONS = 5
 ASSET_PAGE_WAIT = 6.0  # seconds an asset page may wait for on-demand (rate-limited) data
 WATCHLIST_WAIT = 2.5
 AI_TTL = 300  # AI status cache per symbol (5 minutes)
+AI_CACHE_MAX = 5000
 AI_SYNC_SECONDS = 2.0  # demo AI statuses computed synchronously within this budget, the rest in the background
 AI_CANDLES = 400
 
@@ -719,6 +720,10 @@ def compute_ai_status(
 def _ai_job(key: tuple, spec: AssetSpec, now: int, min_rr: float, news_risk: bool, price: float | None) -> dict:
     res = compute_ai_status(spec, now=now, min_rr=min_rr, news_risk=news_risk, price=price)
     _ai_cache[key] = (now, res)
+    if len(_ai_cache) > AI_CACHE_MAX:  # drop expired statuses (bounded memory)
+        for k, (ts, _) in list(_ai_cache.items()):
+            if not 0 <= now - ts < AI_TTL:
+                _ai_cache.pop(k, None)
     return res
 
 

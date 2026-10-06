@@ -4,6 +4,7 @@ never in lists), CoinGecko market caps for the heatmap."""
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 
 import httpx
@@ -356,3 +357,24 @@ def test_heatmap_falls_back_to_volume_when_coingecko_fails(settings, monkeypatch
     monkeypatch.setattr(settings, "market_cap_provider", "something")
     h2 = markets_service.heatmap_payload("crypto", now=NOW)
     assert "Unknown MARKET_CAP_PROVIDER 'something'" in h2["note"]
+
+
+def test_provider_outage_does_not_multiply_timeouts(monkeypatch):
+    """A failing bulk ticker trips a short circuit breaker: one request, not one timeout per instrument."""
+    calls = {"n": 0}
+
+    def down(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        raise httpx.ConnectError("connection refused")
+
+    p = BinancePublicProvider("https://binance.test", client=httpx.Client(transport=httpx.MockTransport(down)))
+    set_provider_override(p)
+    col = ENGINE.collect(BINANCE_CRYPTO, now=NOW, seconds=30)
+    assert calls["n"] == 1
+    assert col.items and all(q["status"] == "error" and "Binance request failed" in q["reason"] for _, q in col.items)
+    monkeypatch.setattr(overview, "CIRCUIT_SECONDS", 0.05)
+    ENGINE.reset()
+    ENGINE.quote(get_asset("BTC/USDT"), now=NOW)
+    time.sleep(0.1)  # circuit closes again → the provider is retried
+    ENGINE.quote(get_asset("ETH/USDT"), now=NOW)
+    assert calls["n"] == 3
