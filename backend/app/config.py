@@ -42,12 +42,20 @@ class Settings(BaseSettings):
     # demo        -> deterministic synthetic data, clearly labelled as DEMO
     # binance     -> Binance public market-data endpoints (no API key, read-only)
     # twelvedata  -> Twelve Data REST API (requires TWELVEDATA_API_KEY)
+    # Each value is a comma-separated CHAIN, e.g. "binance,twelvedata": the first provider in the
+    # chain that SUPPORTS an instrument serves it (chosen statically by support, never because of an
+    # outage — provider errors are raised, never silently replaced by demo data).
     market_data_crypto: str = "demo"
     market_data_fx: str = "demo"
-    market_data_stocks: str = "demo"  # stocks, indices, commodities
+    market_data_stocks: str = "demo"  # stocks (+ ETFs, indices, commodities unless set below)
+    market_data_etf: str | None = None  # None -> market_data_stocks
+    market_data_indices: str | None = None  # None -> market_data_stocks
+    market_data_commodities: str | None = None  # None -> market_data_stocks
     binance_base_url: str = "https://data-api.binance.vision"
     twelvedata_api_key: str | None = None
     twelvedata_base_url: str = "https://api.twelvedata.com"
+    # Twelve Data's basic plans deliver delayed quotes for many exchanges; set true on a real-time plan.
+    twelvedata_realtime: bool = False
     market_http_timeout: float = 10.0
 
     # --- News (optional) ----------------------------------------------------

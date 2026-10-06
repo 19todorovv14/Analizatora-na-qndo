@@ -23,8 +23,8 @@ from functools import lru_cache
 
 import numpy as np
 
-from app.market.base import AssetSpec, Candle, DataSource, MarketDataProvider, Ticker
-from app.market.catalog import ASSETS_BY_SYMBOL
+from app.market.base import AssetSpec, Candle, DataNotAvailableError, DataSource, MarketDataProvider, Ticker
+from app.market.catalog import get_asset
 from app.market.timeframes import align, tf_seconds
 
 GENESIS = 1514764800  # 2018-01-01 00:00 UTC (Monday)
@@ -60,6 +60,7 @@ _PROFILES = {
     "commodity": [0.6, 0.9, 1.2, 1.5, 1.1, 0.7],
     "index": [0.4, 0.5, 0.9, 1.6, 1.8, 0.8],
     "stock": [0.3, 0.4, 0.8, 1.7, 2.0, 0.8],
+    "etf": [0.3, 0.4, 0.8, 1.7, 2.0, 0.8],  # same as stock
 }
 
 DEMO_SOURCE = DataSource(
@@ -70,6 +71,7 @@ DEMO_SOURCE = DataSource(
         "Синтетични, детерминистично генерирани данни за обучение. Не са реални пазарни цени "
         "и не трябва да се използват за реални решения."
     ),
+    status="demo",
 )
 
 
@@ -88,9 +90,9 @@ class _Daily:
     regime: np.ndarray
 
 
-@lru_cache(maxsize=64)
+@lru_cache(maxsize=512)  # ≥ curated catalog size, so a sweep over all instruments never thrashes
 def _daily(symbol: str) -> _Daily:
-    spec = ASSETS_BY_SYMBOL[symbol]
+    spec = get_asset(symbol)
     rng = np.random.default_rng(_seed(symbol, "daily-v1"))
     n = HORIZON_DAYS
     vol = spec.daily_vol
@@ -159,7 +161,7 @@ def _interp_map(lo_src: float, lo_oc: float, hi_oc: float, hi_src: float, low: f
 @lru_cache(maxsize=250_000)
 def _children(symbol: str, parent_tf: str, parent: tuple) -> tuple[tuple, ...]:
     """Split a parent candle into children whose aggregate reproduces it exactly."""
-    spec = ASSETS_BY_SYMBOL[symbol]
+    spec = get_asset(symbol)
     child_tf, k = CHILDREN[parent_tf]
     ts, o, h, l, c, v = parent  # noqa: E741
     sec = tf_seconds(child_tf)
@@ -211,7 +213,14 @@ class DemoMarketDataProvider(MarketDataProvider):
         self._clock = clock
 
     def supports(self, asset: AssetSpec) -> bool:
-        return asset.symbol in ASSETS_BY_SYMBOL
+        # Curated instruments all carry demo parameters; synced ones don't (→ DATA_NOT_AVAILABLE in demo mode).
+        return asset.demo_capable
+
+    def _check(self, asset: AssetSpec) -> None:
+        if not asset.demo_capable:
+            raise DataNotAvailableError(
+                f"Demo data is not available for {asset.symbol} (no demo parameters)", symbol=asset.symbol
+            )
 
     # ------------------------------------------------------------------ series
     def _daily_tuple(self, symbol: str, idx: int) -> tuple:
@@ -293,6 +302,7 @@ class DemoMarketDataProvider(MarketDataProvider):
         now: int | None = None,
         include_partial: bool = True,
     ) -> list[Candle]:
+        self._check(asset)
         now = int(now if now is not None else self._clock())
         sec = tf_seconds(timeframe)
         end = now if end is None else min(end, now)
@@ -311,6 +321,7 @@ class DemoMarketDataProvider(MarketDataProvider):
         return [Candle(*r) for r in rows]
 
     def get_ticker(self, asset: AssetSpec, *, now: int | None = None) -> Ticker:
+        self._check(asset)
         now = int(now if now is not None else self._clock())
         last = self.get_candles(asset, "1m", limit=2, now=now)
         price = last[-1].close

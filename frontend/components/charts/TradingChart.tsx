@@ -2,7 +2,6 @@
 
 import {
   CandlestickSeries,
-  ColorType,
   CrosshairMode,
   HistogramSeries,
   LineSeries,
@@ -22,6 +21,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DRAW_COLORS, type DPoint, type Drawing, type Tool } from "@/components/charts/drawings";
 import { cx, fmtDuration, fmtPrice } from "@/lib/format";
+import { CHART, baseChartOptions, repaintWhenFontsReady, withAlpha } from "@/lib/theme";
 import type { Candle, Point } from "@/lib/types";
 
 export type LineDef = { id: string; data: Point[]; color: string; width?: number; dashed?: boolean };
@@ -37,8 +37,8 @@ export type MarkerDef = {
 export type PriceLineDef = { id: string; price: number; color: string; title?: string; dashed?: boolean };
 export type ZoneDef = { id: string; low: number; high: number; color: string; label?: string };
 
-const UP = "#26a69a";
-const DOWN = "#ef5350";
+const UP = CHART.up;
+const DOWN = CHART.down;
 
 type Props = {
   candles: Candle[];
@@ -163,22 +163,9 @@ export default function TradingChart({
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const chart = createChart(el, {
-      autoSize: true,
-      layout: {
-        background: { type: ColorType.Solid, color: "#131722" },
-        textColor: "#b2b5be",
-        fontSize: 11,
-        attributionLogo: false,
-        panes: { separatorColor: "#2a2e39", separatorHoverColor: "rgba(41,98,255,0.35)", enableResize: true },
-      },
-      grid: { vertLines: { color: "#1b1f2b" }, horzLines: { color: "#1b1f2b" } },
-      crosshair: { mode: CrosshairMode.Normal },
-      // explicit locale: some browsers report tags like "en-US@posix" that Intl rejects
-      localization: { locale: "en-US" },
-      rightPriceScale: { borderColor: "#2a2e39" },
-      timeScale: { borderColor: "#2a2e39", timeVisible: true, secondsVisible: false, rightOffset: 8, visible: !hideTimeAxis },
-    });
+    const base = baseChartOptions({ hideTimeAxis });
+    const chart = createChart(el, { ...base, timeScale: { ...base.timeScale, rightOffset: 8 } });
+    repaintWhenFontsReady(chart);
     const series = chart.addSeries(CandlestickSeries, {
       upColor: UP,
       downColor: DOWN,
@@ -273,7 +260,7 @@ export default function TradingChart({
         candles.map((c) => ({
           time: ts(c.time),
           value: c.volume,
-          color: c.close >= c.open ? "rgba(38,166,154,0.35)" : "rgba(239,83,80,0.35)",
+          color: c.close >= c.open ? CHART.volUp : CHART.volDown,
         })),
       );
     } else if (volRef.current) {
@@ -526,8 +513,8 @@ export default function TradingChart({
         <g key={d.id}>
           <line x1={0} x2={W} y1={y1} y2={y1} {...common} />
           {hit({ x1: 0, x2: W, y1, y2: y1 })}
-          <rect x={W - 74} y={y1 - 9} width={72} height={18} rx={3} fill={d.color} />
-          <text x={W - 38} y={y1 + 4} fontSize={11} textAnchor="middle" fill="#0b0e14" fontWeight={600}>
+          <rect x={W - 74} y={y1 - 9} width={72} height={18} rx={4} fill={d.color} />
+          <text x={W - 38} y={y1 + 4} fontSize={11} textAnchor="middle" fill={CHART.overlayLabelInk} fontWeight={600}>
             {fmtPrice(d.p1.price, precision)}
           </text>
         </g>
@@ -587,7 +574,7 @@ export default function TradingChart({
         <g key={`zone-${z.id}`}>
           <rect x={0} y={Math.min(yTop, yBot)} width={W} height={Math.abs(yBot - yTop)} fill={z.color} />
           {z.label && (
-            <text x={8} y={Math.min(yTop, yBot) + 13} fontSize={11} fill="#d1d4dc">
+            <text x={8} y={Math.min(yTop, yBot) + 13} fontSize={11} fill={CHART.textStrong}>
               {z.label}
             </text>
           )}
@@ -618,7 +605,7 @@ export default function TradingChart({
     });
     if (draft) {
       const type = tool === "measure" ? "rect" : (tool as Drawing["type"]);
-      const node = renderDrawing({ id: "draft", type, p1: draft.p1, p2: draft.p2, color: tool === "measure" ? "#42a5f5" : drawColor }, true);
+      const node = renderDrawing({ id: "draft", type, p1: draft.p1, p2: draft.p2, color: tool === "measure" ? CHART.info : drawColor }, true);
       if (node) shapes.push(node);
     }
     if (measure) {
@@ -633,14 +620,14 @@ export default function TradingChart({
         const col = dp >= 0 ? UP : DOWN;
         shapes.push(
           <g key="measure">
-            <rect x={Math.min(x1, x2)} y={Math.min(y1, y2)} width={Math.abs(x2 - x1)} height={Math.abs(y2 - y1)} fill={`${col}26`} stroke={col} strokeDasharray="4 3" />
-            <rect x={(x1 + x2) / 2 - 78} y={Math.min(y1, y2) - 42} width={156} height={36} rx={4} fill="#1a1e2b" stroke={col} />
+            <rect x={Math.min(x1, x2)} y={Math.min(y1, y2)} width={Math.abs(x2 - x1)} height={Math.abs(y2 - y1)} fill={withAlpha(col, 0.15)} stroke={col} strokeDasharray="4 3" />
+            <rect x={(x1 + x2) / 2 - 78} y={Math.min(y1, y2) - 42} width={156} height={36} rx={8} fill={CHART.overlayLabelBg} stroke={withAlpha(col, 0.6)} />
             <text x={(x1 + x2) / 2} y={Math.min(y1, y2) - 27} fontSize={11} textAnchor="middle" fill={col} fontWeight={600}>
               {dp >= 0 ? "+" : ""}
               {fmtPrice(dp, precision)} ({pct >= 0 ? "+" : ""}
               {pct.toFixed(2)}%)
             </text>
-            <text x={(x1 + x2) / 2} y={Math.min(y1, y2) - 13} fontSize={10.5} textAnchor="middle" fill="#b2b5be">
+            <text x={(x1 + x2) / 2} y={Math.min(y1, y2) - 13} fontSize={10.5} textAnchor="middle" fill={CHART.text}>
               {bars} свещи · {fmtDuration(Math.abs(measure.p2.time - measure.p1.time))}
             </text>
           </g>,

@@ -1,88 +1,244 @@
 @import "tailwindcss";
 
-/* Dark, TradingView-inspired palette. All colours are tokens → usable as Tailwind classes (bg-panel, text-muted…). */
+/*
+ * "Crystal Terminal" design system.
+ *
+ * All colours are tokens → usable as Tailwind classes (bg-panel, text-muted, border-line…).
+ * Token NAMES are a contract used across the app — retune values, never rename.
+ * Surfaces are translucent glass layered over a deep navy gradient mesh (see body::before).
+ *
+ * Elevation / z-index ladder used by components/ui:
+ *   sticky chrome z-20..40 · Drawer z-[80] · GuidedTour z-[90] · Modal z-[100] · Popover z-[110] · Tooltip z-[120]
+ */
+
+/* Colours are `static` so every one of them is always emitted as a CSS variable — JS (chart
+ * capture, inline SVG styles) can read var(--color-*) even when no utility uses that colour. */
+@theme static {
+  /* ── surfaces ─────────────────────────────────────────────── */
+  --color-bg: #060912;
+  --color-surface: #0b111e; /* opaque: chart capture bg, sticky headers */
+  --color-surface2: #101828; /* opaque, one step raised */
+  --color-popover: rgb(12 18 32 / 0.97);
+  --color-overlay: rgb(2 4 10 / 0.62);
+  --color-panel: rgb(148 163 184 / 0.045);
+  --color-panel2: rgb(148 163 184 / 0.075);
+  --color-panel3: rgb(148 163 184 / 0.11);
+  --color-line: rgb(148 163 184 / 0.13);
+  --color-line2: rgb(148 163 184 / 0.22);
+
+  /* ── text ─────────────────────────────────────────────────── */
+  --color-text: #e7ebf3;
+  --color-muted: #94a0b8;
+  /* #6f7b95 instead of #5d6880: keeps ≥4.5:1 contrast on the page background for tertiary text */
+  --color-faint: #6f7b95;
+
+  /* ── accents & semantic ───────────────────────────────────── */
+  --color-accent: #3b82f6;
+  --color-accent2: #8ab4ff;
+  --color-up: #22c79e;
+  --color-down: #f2555c;
+  --color-warn: #f5b84a;
+  --color-info: #56c2ff;
+  --color-violet: #a78bfa;
+  --color-gold: #f2c94c;
+  --color-ring: rgb(96 165 250 / 0.8);
+  --color-glow: rgb(59 130 246 / 0.18);
+}
+
 @theme {
-  --color-bg: #0b0e14;
-  --color-panel: #131722;
-  --color-panel2: #1a1e2b;
-  --color-panel3: #222736;
-  --color-line: #2a2e39;
-  --color-text: #d1d4dc;
-  --color-muted: #8b90a0;
-  --color-faint: #5d6273;
-  --color-accent: #2962ff;
-  --color-accent2: #5b8cff;
-  --color-up: #26a69a;
-  --color-down: #ef5350;
-  --color-warn: #f5a623;
-  --color-info: #42a5f5;
-  --color-violet: #ab47bc;
-  --color-gold: #f5c542;
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+  /* ── type ─────────────────────────────────────────────────── */
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+
+  /* ── layout sizes (shell) ─────────────────────────────────── */
+  --spacing-topbar: 3.5rem; /* 56px → h-topbar, top-topbar */
+  --spacing-sidebar: 15.5rem; /* 248px → w-sidebar */
+  --spacing-rail: 4.25rem; /* 68px → w-rail */
+
+  /* ── radii (one consistent scale) ─────────────────────────────
+   * chips 6 · small controls 8 · buttons/inputs 10 · cards 14 · dialogs 18 */
+  --radius: 6px;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-2xl: 18px;
+
+  /* ── elevation (tuned for a dark UI) ──────────────────────── */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.35);
+  --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.45), 0 2px 4px -2px rgb(0 0 0 / 0.35);
+  --shadow-lg: 0 12px 28px -8px rgb(0 0 0 / 0.55), 0 4px 8px -4px rgb(0 0 0 / 0.4);
+  --shadow-xl: 0 20px 44px -12px rgb(0 0 0 / 0.6), 0 8px 16px -8px rgb(0 0 0 / 0.45);
+  --shadow-2xl: 0 32px 72px -20px rgb(0 0 0 / 0.75);
+  --shadow-glass: inset 0 1px 0 0 rgb(255 255 255 / 0.05), 0 1px 2px 0 rgb(0 0 0 / 0.3), 0 12px 32px -14px rgb(0 0 0 / 0.6);
+  --shadow-pop: 0 0 0 1px rgb(255 255 255 / 0.02), 0 16px 40px -10px rgb(0 0 0 / 0.7), 0 4px 12px -4px rgb(0 0 0 / 0.45);
+  --shadow-modal: inset 0 1px 0 0 rgb(255 255 255 / 0.06), 0 40px 100px -30px rgb(0 0 0 / 0.85), 0 16px 32px -16px rgb(0 0 0 / 0.55);
+  --shadow-glow: 0 0 0 1px rgb(59 130 246 / 0.25), 0 8px 24px -8px rgb(59 130 246 / 0.35);
+  --shadow-btn: inset 0 1px 0 0 rgb(255 255 255 / 0.16), 0 1px 2px 0 rgb(0 0 0 / 0.4);
+
+  /* ── motion ───────────────────────────────────────────────── */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-snappy: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+  --animate-fade-up: fade-up 220ms cubic-bezier(0.25, 1, 0.5, 1);
+  --animate-fade-in: fade-in-plain 160ms ease-out;
+  --animate-fade-out: fade-out-plain 140ms ease-in forwards;
+  --animate-scale-in: scale-in 170ms cubic-bezier(0.25, 1, 0.5, 1);
+  --animate-scale-out: scale-out 130ms ease-in forwards;
+  --animate-pop-in: pop-in 130ms cubic-bezier(0.25, 1, 0.5, 1);
+  --animate-slide-in-left: slide-in-left 240ms cubic-bezier(0.25, 1, 0.5, 1);
+  --animate-slide-out-left: slide-out-left 180ms ease-in forwards;
+  --animate-slide-in-right: slide-in-right 240ms cubic-bezier(0.25, 1, 0.5, 1);
+  --animate-slide-out-right: slide-out-right 180ms ease-in forwards;
+  --animate-slide-in-up: slide-in-up 260ms cubic-bezier(0.25, 1, 0.5, 1);
+  --animate-slide-out-down: slide-out-down 180ms ease-in forwards;
+  --animate-pulse-soft: pulse-soft 2.4s ease-in-out infinite;
+  --animate-flash-up: flash-up 900ms ease-out;
+  --animate-flash-down: flash-down 900ms ease-out;
+
+  @keyframes shimmer {
+    0% {
+      background-position: 150% 0;
+    }
+    100% {
+      background-position: -50% 0;
+    }
+  }
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes fade-in-plain {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes fade-out-plain {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes scale-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes scale-out {
+    from {
+      opacity: 1;
+      transform: none;
+    }
+    to {
+      opacity: 0;
+      transform: translateY(4px) scale(0.985);
+    }
+  }
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes slide-in-left {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: none;
+    }
+  }
+  @keyframes slide-out-left {
+    from {
+      transform: none;
+    }
+    to {
+      transform: translateX(-100%);
+    }
+  }
+  @keyframes slide-in-right {
+    from {
+      transform: translateX(100%);
+    }
+    to {
+      transform: none;
+    }
+  }
+  @keyframes slide-out-right {
+    from {
+      transform: none;
+    }
+    to {
+      transform: translateX(100%);
+    }
+  }
+  @keyframes slide-in-up {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: none;
+    }
+  }
+  @keyframes slide-out-down {
+    from {
+      transform: none;
+    }
+    to {
+      transform: translateY(100%);
+    }
+  }
+  @keyframes pulse-soft {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.45;
+    }
+  }
+  @keyframes flash-up {
+    from {
+      background-color: rgb(34 199 158 / 0.22);
+    }
+    to {
+      background-color: transparent;
+    }
+  }
+  @keyframes flash-down {
+    from {
+      background-color: rgb(242 85 92 / 0.22);
+    }
+    to {
+      background-color: transparent;
+    }
+  }
 }
 
-:root {
-  color-scheme: dark;
-}
-
-html,
-body {
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-family: var(--font-sans);
-}
-
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #2a2e39 transparent;
-}
-
-.num {
-  font-variant-numeric: tabular-nums;
-  font-family: var(--font-mono);
-}
-
-.card {
-  background: var(--color-panel);
-  border: 1px solid var(--color-line);
-  border-radius: 10px;
-}
-
-.input {
-  background: var(--color-panel2);
-  border: 1px solid var(--color-line);
-  border-radius: 6px;
-  padding: 6px 10px;
-  color: var(--color-text);
-  outline: none;
-  width: 100%;
-  font-size: 0.875rem;
-}
-.input:focus {
-  border-color: var(--color-accent);
-}
-.input:disabled {
-  opacity: 0.5;
-}
-
-.label {
-  display: block;
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-muted);
-  margin-bottom: 4px;
-}
-
-.prose-lesson p {
-  margin: 0.6rem 0;
-  line-height: 1.7;
-}
-.prose-lesson li {
-  margin: 0.25rem 0;
-}
-
+/* Legacy keyframe kept for the .fade-in class used across pages. */
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -93,6 +249,340 @@ body {
     transform: none;
   }
 }
-.fade-in {
-  animation: fade-in 0.25s ease-out;
+
+/* ─────────────────────────────────────────────────────────────── base */
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  /* v3-compatible default border colour (v4 defaults to currentColor). */
+  *,
+  ::before,
+  ::after,
+  ::backdrop {
+    border-color: var(--color-line);
+  }
+
+  html {
+    background-color: var(--color-bg);
+    -webkit-tap-highlight-color: transparent;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    /* Inter: open 4 / 6 / 9 — easier to tell digits apart in dense numbers */
+    font-feature-settings: "cv02", "cv03", "cv04";
+    line-height: 1.5;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Fixed gradient mesh behind everything (cheaper than background-attachment: fixed). */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(1200px 600px at 8% -10%, rgb(59 130 246 / 0.14), transparent 60%),
+      radial-gradient(900px 520px at 100% 0%, rgb(99 102 241 / 0.1), transparent 55%),
+      radial-gradient(800px 600px at 50% 120%, rgb(14 165 233 / 0.06), transparent 60%),
+      linear-gradient(180deg, #070b15, #060912);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.012em;
+  }
+
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background: rgb(59 130 246 / 0.35);
+    color: #fff;
+  }
+
+  :where(a, button, summary, [role="button"], [role="switch"], [role="separator"], [tabindex]:not([tabindex="-1"])):focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+
+  input[type="checkbox"],
+  input[type="radio"],
+  input[type="range"],
+  progress {
+    accent-color: var(--color-accent);
+  }
+
+  select option,
+  select optgroup {
+    background: #0e1424;
+    color: var(--color-text);
+  }
+
+  /* thin, quiet scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(148 163 184 / 0.22) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: rgb(148 163 184 / 0.22);
+    background-clip: padding-box;
+    border: 3px solid transparent;
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(148 163 184 / 0.36);
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
+
+/* ───────────────────────────────────────────────────────── components
+ * Layered (not unlayered) so that utilities passed next to them — `card p-4 bg-accent/10`,
+ * `input w-auto text-xs` — win as expected.
+ */
+@layer components {
+  /* Glass panel: the default container. */
+  .card,
+  .glass {
+    background: linear-gradient(180deg, rgb(255 255 255 / 0.05), rgb(255 255 255 / 0.025));
+    border: 1px solid rgb(255 255 255 / 0.08);
+    border-radius: 14px;
+    box-shadow: var(--shadow-glass);
+  }
+
+  /* Opaque variant for dense data surfaces (tables over charts, sticky regions). */
+  .card-solid {
+    background: linear-gradient(180deg, var(--color-surface2), var(--color-surface));
+    border: 1px solid rgb(255 255 255 / 0.07);
+    border-radius: 14px;
+    box-shadow: var(--shadow-glass);
+  }
+
+  /* Heavier glass with blur. Use ONLY for sticky header, sidebar, popovers, modals and the
+   * command palette — backdrop-filter everywhere is expensive. No radius on purpose. */
+  .glass-strong {
+    background: linear-gradient(180deg, rgb(18 26 44 / 0.8), rgb(10 15 28 / 0.86));
+    border: 1px solid rgb(255 255 255 / 0.08);
+    box-shadow: var(--shadow-pop);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    backdrop-filter: blur(18px) saturate(140%);
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .glass-strong {
+      background: var(--color-popover);
+    }
+  }
+
+  /* Recessed well (input groups, code, nested stats). */
+  .glass-inset {
+    background: rgb(2 6 16 / 0.28);
+    border: 1px solid rgb(255 255 255 / 0.05);
+    border-radius: 10px;
+    box-shadow: inset 0 1px 2px 0 rgb(0 0 0 / 0.35);
+  }
+
+  /* Text fields, selects and read-only value boxes. 36px tall at the default size. */
+  .input {
+    width: 100%;
+    min-width: 0;
+    padding: 7px 11px;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    color: var(--color-text);
+    background-color: rgb(4 8 18 / 0.45);
+    border: 1px solid rgb(148 163 184 / 0.16);
+    border-radius: 10px;
+    box-shadow: inset 0 1px 1px 0 rgb(0 0 0 / 0.25);
+    outline: none;
+    transition:
+      border-color 150ms ease,
+      box-shadow 150ms ease,
+      background-color 150ms ease;
+  }
+  .input::placeholder {
+    color: var(--color-faint);
+  }
+  .input:hover:not(:focus):not(:disabled) {
+    border-color: rgb(148 163 184 / 0.28);
+  }
+  .input:focus,
+  .input:focus-visible {
+    border-color: rgb(59 130 246 / 0.75);
+    background-color: rgb(4 8 18 / 0.6);
+    box-shadow:
+      0 0 0 3px rgb(59 130 246 / 0.22),
+      inset 0 1px 1px 0 rgb(0 0 0 / 0.25);
+    outline: none;
+  }
+  .input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .input[aria-invalid="true"] {
+    border-color: rgb(242 85 92 / 0.6);
+  }
+  textarea.input {
+    line-height: 1.5;
+    resize: vertical;
+  }
+  select.input {
+    appearance: none;
+    cursor: pointer;
+    padding-right: 30px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a0b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 9px center;
+    background-size: 14px 14px;
+  }
+  /* number spinners add noise in dense forms */
+  .input[type="number"]::-webkit-inner-spin-button,
+  .input[type="number"]::-webkit-outer-spin-button {
+    opacity: 0.4;
+  }
+
+  .label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 0.6875rem;
+    line-height: 1rem;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+
+  /* Numbers: monospace, tabular. */
+  .num {
+    font-family: var(--font-mono);
+    font-feature-settings: normal;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  .prose-lesson p {
+    margin: 0.65rem 0;
+    line-height: 1.75;
+  }
+  .prose-lesson ul {
+    margin: 0.5rem 0;
+  }
+  .prose-lesson li {
+    margin: 0.3rem 0;
+    line-height: 1.7;
+  }
+  .prose-lesson li::marker {
+    color: var(--color-faint);
+  }
+  .prose-lesson strong {
+    color: var(--color-text);
+    font-weight: 600;
+  }
+
+  .fade-in {
+    animation: fade-in 0.25s ease-out;
+  }
+
+  .page-enter {
+    animation: var(--animate-fade-up);
+  }
+
+  .skeleton {
+    display: block;
+    border-radius: 6px;
+    background-color: rgb(148 163 184 / 0.07);
+    background-image: linear-gradient(90deg, transparent 0%, rgb(148 163 184 / 0.09) 50%, transparent 100%);
+    background-size: 200% 100%;
+    background-repeat: no-repeat;
+    animation: var(--animate-shimmer);
+  }
+
+  .hover-lift {
+    transition:
+      transform 180ms var(--ease-out-quart),
+      box-shadow 180ms ease,
+      border-color 180ms ease,
+      background-color 180ms ease;
+  }
+  .hover-lift:hover {
+    transform: translateY(-1px);
+    border-color: rgb(255 255 255 / 0.14);
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 0.06),
+      0 18px 40px -18px rgb(0 0 0 / 0.75),
+      0 0 0 1px rgb(59 130 246 / 0.06);
+  }
+
+  .focus-ring:focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+
+  /* Price tick flash (PriceText flash). */
+  .flash-up {
+    animation: var(--animate-flash-up);
+  }
+  .flash-down {
+    animation: var(--animate-flash-down);
+  }
+
+  /* Soft white→silver heading fill (hero titles). */
+  .text-gradient {
+    background: linear-gradient(180deg, #ffffff 20%, #b8c4da);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Faint technical grid, faded at the edges (hero / empty canvases). */
+  .grid-mesh {
+    background-image:
+      linear-gradient(rgb(148 163 184 / 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(148 163 184 / 0.05) 1px, transparent 1px);
+    background-size: 32px 32px;
+    -webkit-mask-image: radial-gradient(ellipse at center, #000 30%, transparent 75%);
+    mask-image: radial-gradient(ellipse at center, #000 30%, transparent 75%);
+  }
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Respect reduced motion: drop non-essential animation, keep spinners (state feedback). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-spin {
+    animation-duration: 1.4s !important;
+    animation-iteration-count: infinite !important;
+  }
+  .skeleton {
+    animation: none !important;
+  }
 }

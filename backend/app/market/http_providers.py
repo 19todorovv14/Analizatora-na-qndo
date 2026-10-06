@@ -11,6 +11,7 @@ raise MarketDataError — the platform never silently replaces real data with de
 
 from __future__ import annotations
 
+import dataclasses
 import threading
 import time
 from datetime import UTC, datetime
@@ -19,6 +20,16 @@ import httpx
 
 from app.market.base import AssetSpec, Candle, DataSource, MarketDataError, MarketDataProvider, Ticker
 from app.market.timeframes import align, tf_seconds
+
+
+def _num(value) -> float | None:
+    """Parse a provider number; missing/invalid → None (never invent a value)."""
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 class RateLimiter:
@@ -73,6 +84,7 @@ class BinancePublicProvider(MarketDataProvider):
         name="Binance public market data",
         is_live=True,
         disclaimer="Реални публични пазарни данни (read-only). Изпълнението на сделки остава PAPER (виртуално).",
+        status="live",
     )
     _INTERVALS = {"1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1h", "4h": "4h", "1d": "1d", "1w": "1w"}
 
@@ -81,6 +93,7 @@ class BinancePublicProvider(MarketDataProvider):
         self.client = client or httpx.Client(timeout=timeout)
         self.limiter = RateLimiter(rate_per_sec=8, burst=16)  # far below Binance's published weight limits
         self.cache = _TTLCache()
+        self._bulk_lock = threading.Lock()
 
     def supports(self, asset: AssetSpec) -> bool:
         return "binance" in asset.provider_symbols
@@ -155,6 +168,41 @@ class BinancePublicProvider(MarketDataProvider):
         self.cache.set(key, t, ttl=2)
         return t
 
+    TICKERS_TTL = 30.0
+
+    def tickers_24h(self) -> dict[str, dict]:
+        """24h statistics of ALL Binance spot symbols from ONE request to /api/v3/ticker/24hr (cached 30 s).
+
+        Returns {binance_symbol: {last, change_pct, high, low, base_volume, quote_volume}}; a value the
+        exchange did not send is None (never invented). Used by market lists (read-only).
+        """
+        key = ("tickers_24h",)
+        cached = self.cache.get(key)
+        if cached is not None:
+            return cached
+        with self._bulk_lock:  # concurrent callers share one request
+            cached = self.cache.get(key)
+            if cached is not None:
+                return cached
+            data = self._get("/api/v3/ticker/24hr", {})
+            if not isinstance(data, list):
+                raise MarketDataError("Unexpected response from Binance /api/v3/ticker/24hr")
+            out: dict[str, dict] = {}
+            for row in data:
+                sym = row.get("symbol") if isinstance(row, dict) else None
+                if not sym:
+                    continue
+                out[sym] = {
+                    "last": _num(row.get("lastPrice")),
+                    "change_pct": _num(row.get("priceChangePercent")),
+                    "high": _num(row.get("highPrice")),
+                    "low": _num(row.get("lowPrice")),
+                    "base_volume": _num(row.get("volume")),
+                    "quote_volume": _num(row.get("quoteVolume")),
+                }
+            self.cache.set(key, out, ttl=self.TICKERS_TTL)
+            return out
+
 
 def _parse_dt(value: str) -> int:
     value = value.strip()
@@ -173,6 +221,7 @@ class TwelveDataProvider(MarketDataProvider):
         is_live=True,
         disclaimer="Реални пазарни данни от Twelve Data (read-only, може да има закъснение според плана). "
         "Изпълнението остава PAPER.",
+        status="delayed",
     )
     _INTERVALS = {
         "1m": "1min",
@@ -185,7 +234,16 @@ class TwelveDataProvider(MarketDataProvider):
         "1w": "1week",
     }
 
-    def __init__(self, api_key: str | None, base_url: str, timeout: float = 10.0, client: httpx.Client | None = None):
+    def __init__(
+        self,
+        api_key: str | None,
+        base_url: str,
+        timeout: float = 10.0,
+        client: httpx.Client | None = None,
+        realtime: bool = False,
+    ):
+        if realtime:  # instance-level label for real-time plans
+            self.source = dataclasses.replace(type(self).source, status="live")
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.client = client or httpx.Client(timeout=timeout)
@@ -195,9 +253,15 @@ class TwelveDataProvider(MarketDataProvider):
     def supports(self, asset: AssetSpec) -> bool:
         return "twelvedata" in asset.provider_symbols
 
-    def _get(self, path: str, params: dict):
+    def config_problem(self) -> str | None:
         if not self.api_key:
-            raise MarketDataError("TWELVEDATA_API_KEY is not set. Add it to backend .env to use Twelve Data.")
+            return "TWELVEDATA_API_KEY is not set. Add it to backend .env to use Twelve Data."
+        return None
+
+    def _get(self, path: str, params: dict):
+        problem = self.config_problem()
+        if problem:
+            raise MarketDataError(problem)
         self.limiter.acquire(timeout=30)
         try:
             resp = self.client.get(f"{self.base_url}{path}", params={**params, "apikey": self.api_key})
