@@ -18,8 +18,20 @@ from datetime import UTC, datetime
 
 import httpx
 
-from app.market.base import AssetSpec, Candle, DataSource, MarketDataError, MarketDataProvider, Ticker
+from app.market.base import (
+    AssetSpec,
+    Candle,
+    DataNotAvailableError,
+    DataSource,
+    MarketDataError,
+    MarketDataProvider,
+    Ticker,
+    install_http_log_redaction,
+    redact_secrets,
+)
 from app.market.timeframes import align, tf_seconds
+
+install_http_log_redaction()  # never log ?apikey=… request URLs (also covers the news provider's ?token=)
 
 
 def _num(value) -> float | None:
@@ -108,7 +120,10 @@ class BinancePublicProvider(MarketDataProvider):
             raise MarketDataError("Binance rate limit reached — slowing down.")
         if resp.status_code >= 400:
             raise MarketDataError(f"Binance error {resp.status_code}: {resp.text[:200]}")
-        return resp.json()
+        try:
+            return resp.json()
+        except ValueError as exc:  # e.g. an HTML error page from a proxy → 503, not a 500
+            raise MarketDataError(f"Binance returned a non-JSON response (HTTP {resp.status_code})") from exc
 
     def get_candles(self, asset, timeframe, *, start=None, end=None, limit=500, now=None, include_partial=True):
         if not self.supports(asset):
@@ -261,15 +276,20 @@ class TwelveDataProvider(MarketDataProvider):
     def _get(self, path: str, params: dict):
         problem = self.config_problem()
         if problem:
-            raise MarketDataError(problem)
+            # configuration, not an outage: the same DATA_NOT_AVAILABLE answer availability() gives
+            raise DataNotAvailableError(problem)
         self.limiter.acquire(timeout=30)
         try:
             resp = self.client.get(f"{self.base_url}{path}", params={**params, "apikey": self.api_key})
         except httpx.HTTPError as exc:
-            raise MarketDataError(f"Twelve Data request failed: {exc}") from exc
-        data = resp.json() if resp.content else {}
+            raise MarketDataError(redact_secrets(f"Twelve Data request failed: {exc}")) from exc
+        try:
+            data = resp.json() if resp.content else {}
+        except ValueError as exc:  # e.g. an HTML 502/504 gateway page → 503 MARKET_DATA_ERROR, not a 500
+            raise MarketDataError(f"Twelve Data returned a non-JSON response (HTTP {resp.status_code})") from exc
         if resp.status_code >= 400 or (isinstance(data, dict) and data.get("status") == "error"):
-            raise MarketDataError(f"Twelve Data error: {data.get('message', resp.status_code)}")
+            message = data.get("message") if isinstance(data, dict) else None
+            raise MarketDataError(redact_secrets(f"Twelve Data error: {message or resp.status_code}"))
         return data
 
     def get_candles(self, asset, timeframe, *, start=None, end=None, limit=500, now=None, include_partial=True):

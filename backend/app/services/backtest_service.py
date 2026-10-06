@@ -8,7 +8,7 @@ import time
 from sqlalchemy.orm import Session
 
 from app.backtesting.engine import BacktestSettings, run_backtest
-from app.backtesting.metrics import json_safe
+from app.backtesting.metrics import drawdown_curve, json_safe
 from app.backtesting.validation import validate
 from app.market.catalog import get_asset
 from app.market.timeframes import tf_seconds
@@ -45,7 +45,8 @@ def execute(db: Session, backtest_id: int) -> Backtest:
         defn = StrategyDefinition(**bt.strategy_snapshot)
         res = run_backtest(candles, spec, defn, settings, bt.timeframe)
         bt.validation = json_safe(validate(candles, spec, defn, settings, bt.timeframe, res))
-        bt.metrics = json_safe(res["metrics"])
+        # the drawdown curve is stored with the metrics (no extra column) and served top-level by to_dict
+        bt.metrics = json_safe({**res["metrics"], "drawdown_curve": res["drawdown_curve"]})
         bt.equity_curve = res["equity_curve"]
         bt.data_source = market_service.source_of(bt.symbol)["id"]
         db.query(BacktestTrade).filter(BacktestTrade.backtest_id == bt.id).delete()
@@ -76,7 +77,15 @@ def execute(db: Session, backtest_id: int) -> Backtest:
     return bt
 
 
+def _drawdown_curve(bt: Backtest) -> list:
+    stored = (bt.metrics or {}).get("drawdown_curve")
+    if stored is not None:
+        return stored
+    return drawdown_curve(bt.equity_curve or [])  # backtests stored before v2: derive from the equity curve
+
+
 def to_dict(bt: Backtest, with_trades: bool = False, db: Session | None = None) -> dict:
+    metrics = {k: v for k, v in (bt.metrics or {}).items() if k != "drawdown_curve"} if bt.metrics else bt.metrics
     out = {
         "id": bt.id,
         "strategy_id": bt.strategy_id,
@@ -87,7 +96,7 @@ def to_dict(bt: Backtest, with_trades: bool = False, db: Session | None = None) 
         "end_ts": bt.end_ts,
         "settings": bt.settings,
         "status": bt.status,
-        "metrics": bt.metrics,
+        "metrics": metrics,
         "validation": bt.validation,
         "error": bt.error,
         "data_source": bt.data_source,
@@ -96,6 +105,7 @@ def to_dict(bt: Backtest, with_trades: bool = False, db: Session | None = None) 
     }
     if with_trades and db is not None:
         out["equity_curve"] = bt.equity_curve
+        out["drawdown_curve"] = _drawdown_curve(bt)
         try:
             out["strategy_description"] = describe(StrategyDefinition(**bt.strategy_snapshot))
         except ValueError:

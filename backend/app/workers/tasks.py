@@ -15,6 +15,11 @@ from app.workers.celery_app import celery_app
 
 log = logging.getLogger(__name__)
 
+# Worker processes never run the FastAPI lifespan: install the (lazy) DB loader of provider-synced
+# instruments here, otherwise paper accounts / bots / backtests on synced symbols fail with
+# UnknownAssetError in the worker. Nothing is read from the database until the first synced lookup.
+discovery.ensure_db_loader()
+
 
 @celery_app.task(name="app.workers.tasks.run_backtest")
 def run_backtest_task(backtest_id: int) -> str:

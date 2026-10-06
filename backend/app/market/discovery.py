@@ -755,6 +755,12 @@ def _run(db: Session, provider: str, kind: str, fetch_items: Callable[[], list[d
     run = _start_run(db, provider, kind)
     try:
         items = fetch_items()
+        if not items:
+            # an empty/changed provider response must not deactivate every instrument of this kind
+            raise MarketDataError(
+                f"{provider}/{kind}: the provider list produced no instruments — nothing was changed "
+                "(check the provider response and the CATALOG_* settings)"
+            )
         stats = upsert_items(db, provider, (kind,), items)
     except Exception as exc:  # noqa: BLE001 - every failure is recorded on the catalog_syncs row
         db.rollback()
@@ -928,6 +934,13 @@ def synced_version() -> int:
 def install_db_loader(check_every: float = 300.0) -> None:
     """Load synced instruments lazily from the database (and re-check every `check_every` seconds)."""
     catalog.set_synced_loader(load_synced_specs, version=synced_version, check_every=check_every)
+
+
+def ensure_db_loader() -> None:
+    """install_db_loader() unless a loader is already installed (processes without the FastAPI lifespan,
+    e.g. Celery workers: paper-account sync, bots and backtests must resolve synced symbols too)."""
+    if catalog.synced_loader() is None:
+        install_db_loader()
 
 
 # ------------------------------------------------------------------------------- CLI

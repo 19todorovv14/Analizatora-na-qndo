@@ -8,6 +8,80 @@ from statistics import mean, pstdev
 from app.risk.engine import max_drawdown
 
 INFINITE_PF = 1e9
+SECONDS_PER_MONTH = 30.44 * 86400
+SECONDS_PER_YEAR = 365.25 * 86400
+
+
+def drawdown_series(values: list[float]) -> list[float]:
+    """Percent below the running peak for every point (0 at a new high, negative below it)."""
+    out: list[float] = []
+    peak = None
+    for v in values:
+        if peak is None or v > peak:
+            peak = v
+        out.append((v - peak) / peak * 100 if peak and peak > 0 else 0.0)
+    return out
+
+
+def drawdown_curve(points: list[list]) -> list[list]:
+    """[[ts, equity], ...] → [[ts, dd_pct], ...] with dd_pct <= 0 (rounded to 0.001 %)."""
+    dd = drawdown_series([p[1] for p in points])
+    return [[p[0], round(d, 3)] for p, d in zip(points, dd, strict=True)]
+
+
+def max_drawdown_duration(values: list[float]) -> int:
+    """Longest stretch (in points of the curve — bars for a backtest) spent below a previous peak,
+    from the peak until equity recovers to it (or until the end if it never does)."""
+    longest = current = 0
+    peak = None
+    for v in values:
+        if peak is None or v >= peak:
+            peak = v
+            current = 0
+        else:
+            current += 1
+            longest = max(longest, current)
+    return longest
+
+
+def streaks(nets: list[float]) -> tuple[int, int]:
+    """(longest winning streak, longest losing streak); a trade with net P/L <= 0 counts as a loss."""
+    win = loss = best_win = best_loss = 0
+    for x in nets:
+        if x > 0:
+            win, loss = win + 1, 0
+        else:
+            win, loss = 0, loss + 1
+        best_win, best_loss = max(best_win, win), max(best_loss, loss)
+    return best_win, best_loss
+
+
+def trade_ref(t: dict) -> dict:
+    """Compact description of one trade (best / worst trade tiles)."""
+    return {
+        "pnl": t["net_pnl"],
+        "r": t.get("r_multiple"),
+        "entry_ts": t.get("entry_ts", t.get("opened_ts")),
+        "exit_ts": t.get("exit_ts", t.get("closed_ts")),
+        "side": t.get("side"),
+        "exit_reason": t.get("exit_reason"),
+    }
+
+
+def sharpe_like(values: list[float], timestamps: list[int]) -> float | None:
+    """Annualised mean/stdev of per-point equity returns. 'Sharpe-like': no risk-free rate, and the number of
+    points per year is estimated from the timestamps (so 24/7 and session-based data are both handled)."""
+    if len(values) < 3 or len(values) != len(timestamps):
+        return None
+    rets = [b / a - 1 for a, b in zip(values, values[1:]) if a > 0]
+    span = timestamps[-1] - timestamps[0]
+    if len(rets) < 2 or span <= 0:
+        return None
+    sd = pstdev(rets)
+    if sd <= 0:
+        return None
+    per_year = len(rets) / (span / SECONDS_PER_YEAR)
+    return mean(rets) / sd * math.sqrt(per_year)
 
 
 def trade_metrics(
@@ -27,6 +101,14 @@ def trade_metrics(
     for x in nets:
         streak = streak + 1 if x <= 0 else 0
         worst_streak = max(worst_streak, streak)
+    win_streak, loss_streak = streaks(nets)
+    best = max(trades, key=lambda t: t["net_pnl"]) if trades else None
+    worst = min(trades, key=lambda t: t["net_pnl"]) if trades else None
+    opens = [t.get("opened_ts") or t.get("entry_ts") for t in trades]
+    closes = [t.get("closed_ts") or t.get("exit_ts") for t in trades]
+    opens = [x for x in opens if x]
+    closes = [x for x in closes if x]
+    span = (max(closes) - min(opens)) if opens and closes else 0
 
     if equity_curve is None and initial_balance is not None:
         equity_curve = [initial_balance]
@@ -63,6 +145,18 @@ def trade_metrics(
         "average_holding_seconds": mean(holds) if holds else None,
         "max_consecutive_losses": worst_streak,
         "sqn": sqn,
+        # v2 (additive)
+        "avg_win_r": mean([r for r in rs if r > 0]) if any(r > 0 for r in rs) else None,
+        "avg_loss_r": mean([r for r in rs if r <= 0]) if any(r <= 0 for r in rs) else None,
+        "longest_win_streak": win_streak,
+        "longest_loss_streak": loss_streak,
+        "best_trade": trade_ref(best) if best else None,
+        "worst_trade": trade_ref(worst) if worst else None,
+        "max_drawdown_duration_bars": max_drawdown_duration(equity_curve or []),
+        # trades per ~30.4 days over the span of the trades (a backtest overrides it with the test period)
+        "trades_per_month": n / (span / SECONDS_PER_MONTH) if n and span > 0 else None,
+        # share of time with an open position — only known per bar (set by the backtest engine)
+        "exposure_pct": None,
     }
 
 

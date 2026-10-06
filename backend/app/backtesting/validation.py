@@ -2,6 +2,9 @@
 
 Checks: sample size, market-regime coverage, drawdown, transaction costs, slippage
 stress, in-sample vs out-of-sample, and parameter sensitivity (overfitting).
+V2 adds an explicit overfitting-risk assessment (LOW / MEDIUM / HIGH + score + reasons), an
+in-sample vs out-of-sample comparison table and a walk-forward evaluation of the FIXED rules over
+consecutive windows (no re-optimisation).
 The verdict text never claims that a strategy "is profitable".
 """
 
@@ -12,10 +15,24 @@ from collections import Counter, defaultdict
 
 from app.analysis.regime import regime_series
 from app.backtesting.engine import BacktestSettings, run_backtest
+from app.backtesting.metrics import INFINITE_PF
 from app.market.base import AssetSpec, Candle
 from app.strategies.rules import StrategyDefinition
 
 PAST_PERFORMANCE = "Past backtest performance does not guarantee future results."
+WALK_FORWARD_METHOD = "walk-forward evaluation of fixed rules"
+WF_MAX_WINDOWS = 4
+WF_MIN_WINDOW_BARS = 50
+
+COMPARISON_ROWS = (
+    ("total_trades", "Trades"),
+    ("win_rate", "Win rate %"),
+    ("profit_factor", "Profit factor"),
+    ("expectancy_r", "Expectancy (R)"),
+    ("net_pnl", "Net P/L"),
+    ("return_pct", "Return %"),
+    ("max_drawdown_pct", "Max drawdown %"),
+)
 
 
 def _summary(m: dict) -> dict:
@@ -33,6 +50,8 @@ def _variants(defn: StrategyDefinition) -> list[tuple[str, StrategyDefinition]]:
         if not block:
             continue
         for ci, cond in enumerate(block["conditions"]):
+            if cond["op"] in ("is_true", "is_false"):
+                continue  # boolean structure checks: the right operand is ignored, nothing to perturb
             for side in ("left", "right"):
                 op = cond[side]
                 if op["kind"] == "value" and op["value"]:
@@ -172,13 +191,16 @@ def validate(
     split = int(len(candles) * 0.7)
     warm = settings.warmup_bars
     oos = None
+    oos_pair: tuple[float | None, float | None] = (None, None)
     if split > warm + 50 and len(candles) - split > 50:
         is_res = run_backtest(candles[:split], spec, defn, settings, timeframe, with_regimes=False)["metrics"]
         oos_res = run_backtest(candles[max(0, split - warm) :], spec, defn, settings, timeframe, with_regimes=False)[
             "metrics"
         ]
         oos = {"in_sample": _summary(is_res), "out_of_sample": _summary(oos_res), "split_ts": candles[split].ts}
+        oos.update(_is_oos_details(candles, split, warm, is_res, oos_res))
         ie, oe = is_res.get("expectancy_r"), oos_res.get("expectancy_r")
+        oos_pair = (ie, oe)
         if ie is not None and oe is not None:
             if ie > 0 and oe <= 0:
                 warn(
@@ -210,6 +232,9 @@ def validate(
                 f"{flips} от {len(signs)} малки промени в параметрите обръщат резултата в загуба — "
                 "стратегията е крехка (вероятен overfitting).",
             )
+    # 8) walk-forward evaluation of the same (fixed) rules — one extra full pass
+    wf = walk_forward(candles, spec, defn, settings, timeframe, m.get("warmup_bars"))
+
     complexity = defn.condition_count()
     if complexity >= 5 and n < 100:
         warn(
@@ -248,4 +273,231 @@ def validate(
         "sensitivity": sens,
         "complexity": {"conditions": complexity, "parameters": defn.numeric_parameters()},
         "warnings": warnings,
+        # v2 (additive)
+        "overfitting": overfitting_assessment(defn, m, oos_pair, sens, wf),
+        "walk_forward": wf,
+    }
+
+
+def _is_oos_details(candles: list[Candle], split: int, warm: int, is_m: dict, oos_m: dict) -> dict:
+    """Comparison table + degradation verdict for the existing 70/30 split (additive keys)."""
+    rows = []
+    for key, label in COMPARISON_ROWS:
+        a, b = is_m.get(key), oos_m.get(key)
+        delta = b - a if isinstance(a, int | float) and isinstance(b, int | float) else None
+        if delta is not None and (abs(a) >= INFINITE_PF or abs(b) >= INFINITE_PF):
+            delta = None
+        rows.append({"key": key, "label": label, "in_sample": a, "out_of_sample": b, "delta": delta})
+    ie, oe = is_m.get("expectancy_r"), oos_m.get("expectancy_r")
+    if ie is None or oe is None:
+        verdict, text = "n/a", "Няма достатъчно сделки в единия период за сравнение."
+    elif ie > 0 and oe <= 0:
+        verdict, text = "reversed", "Out-of-sample резултатът обръща знака — правилата не се пренасят върху нови данни."
+    elif ie > 0 and oe < ie * 0.5:
+        verdict, text = "much_weaker", "Out-of-sample expectancy е под половината от in-sample — силно влошаване."
+    elif oe < ie:
+        verdict, text = "weaker", "Out-of-sample е по-слаб от in-sample — нормално до известна степен; следи разликата."
+    else:
+        verdict, text = "similar_or_better", "Out-of-sample не е по-слаб от in-sample на тази извадка."
+    is_start = min(int(is_m.get("warmup_bars") or 0), split - 1)
+    oos_start = min(max(0, split - warm) + int(oos_m.get("warmup_bars") or 0), len(candles) - 1)
+    return {
+        # trading periods (each run uses the bars before its start only as indicator warm-up)
+        "in_sample_period": {"start_ts": candles[is_start].ts, "end_ts": candles[split - 1].ts},
+        "out_of_sample_period": {"start_ts": candles[oos_start].ts, "end_ts": candles[-1].ts},
+        "comparison": rows,
+        "degradation": {"verdict": verdict, "text": text},
+    }
+
+
+def walk_forward(
+    candles: list[Candle],
+    spec: AssetSpec,
+    defn: StrategyDefinition,
+    settings: BacktestSettings,
+    timeframe: str,
+    warmup: int | None = None,
+) -> dict:
+    """Split the tested period (after warm-up) into up to 4 consecutive windows and evaluate the SAME rules on
+    each one (no optimisation). Costs one extra full pass: indicators use the whole history, open positions are
+    closed at every window end so trades never straddle windows."""
+    base = {
+        "method": WALK_FORWARD_METHOD,
+        "note": "Правилата НЕ се оптимизират за всеки прозорец — едни и същи фиксирани правила се оценяват "
+        "последователно върху няколко периода, за да се види дали резултатът е стабилен във времето.",
+        "disclaimer": PAST_PERFORMANCE,
+    }
+    if warmup is None:
+        warmup = min(settings.warmup_bars, max(len(candles) // 4, 30))
+    test_bars = len(candles) - warmup
+    k = min(WF_MAX_WINDOWS, test_bars // WF_MIN_WINDOW_BARS)
+    if k < 2:
+        return {
+            **base,
+            "available": False,
+            "k": 0,
+            "windows": [],
+            "windows_with_trades": 0,
+            "profitable_windows": 0,
+            "profitable_fraction": None,
+            "verdict": "insufficient",
+            "text": f"Периодът е твърде кратък за walk-forward (нужни са поне {2 * WF_MIN_WINDOW_BARS} свещи "
+            "след warm-up).",
+        }
+    size = test_bars // k
+    segments = [warmup + w * size for w in range(1, k)]
+    res = run_backtest(candles, spec, defn, settings, timeframe, with_regimes=False, segments=segments)
+    windows = res.get("windows") or []
+    with_trades = [w for w in windows if w["trades"] > 0]
+    profitable = sum(1 for w in windows if w["profitable"])
+    fraction = profitable / len(windows) if windows else None
+    if len(with_trades) < 2:
+        verdict = "insufficient"
+        text = "Твърде малко прозорци със сделки — стабилността във времето не може да се оцени."
+    else:
+        pos_share = sum(1 for w in with_trades if w["net_pnl"] > 0) / len(with_trades)
+        if pos_share >= 0.75:
+            verdict = "consistent"
+            text = (
+                f"Последователно: {profitable} от {len(windows)} прозореца са положителни при едни и същи правила. "
+                "Това е по-добър знак от един общ резултат, но не е гаранция."
+            )
+        elif pos_share <= 0.25:
+            verdict = "consistent"
+            text = (
+                f"Последователно отрицателен резултат: само {profitable} от {len(windows)} прозореца са положителни — "
+                "правилата не показват предимство в нито един от периодите."
+            )
+        else:
+            verdict = "inconsistent"
+            text = (
+                f"Нестабилно: {profitable} от {len(windows)} прозореца са положителни — резултатът сменя знака "
+                "между периодите и вероятно зависи от пазарния режим."
+            )
+    return {
+        **base,
+        "available": True,
+        "k": len(windows),
+        "windows": windows,
+        "windows_with_trades": len(with_trades),
+        "profitable_windows": profitable,
+        "profitable_fraction": fraction,
+        "verdict": verdict,
+        "text": text,
+    }
+
+
+def overfitting_assessment(
+    defn: StrategyDefinition,
+    m: dict,
+    oos_pair: tuple[float | None, float | None],
+    sensitivity: list[dict],
+    wf: dict | None = None,
+) -> dict:
+    """OVERFITTING RISK: LOW / MEDIUM / HIGH with a 0–100 score and the reasons behind it.
+
+    Points: parameter count (numeric parameters + conditions) up to 25 and < 10 trades per parameter 10;
+    sample size (< 30 trades 60 → always HIGH, < 100 trades 15); extreme performance (profit factor > 3, win rate
+    > 80 %, Sharpe-like > 3: 15 each); out-of-sample much worse than in-sample (reversal 25, < 50 % 15);
+    sensitivity instability (≥ 1/3 of the small parameter changes flip the sign 20, very wide expectancy spread
+    10); inconsistent walk-forward windows 10. Score ≥ 60 → HIGH, ≥ 30 → MEDIUM, else LOW.
+    """
+    factors: list[dict] = []
+
+    def add(key: str, points: int, text: str) -> None:
+        factors.append({"key": key, "points": points, "text": text})
+
+    n = m.get("total_trades") or 0
+    params = defn.numeric_parameters()
+    conds = defn.condition_count()
+    degrees = params + conds
+    if degrees >= 16:
+        add("parameters", 25, f"{params} числови параметъра и {conds} условия — много степени на свобода за напасване.")
+    elif degrees >= 11:
+        add("parameters", 15, f"{params} числови параметъра и {conds} условия — сравнително сложна стратегия.")
+    elif degrees >= 8:
+        add("parameters", 5, f"{params} числови параметъра и {conds} условия — умерена сложност.")
+    if 0 < n < 10 * params:
+        add("trades_per_parameter", 10, f"Само {n / params:.1f} сделки на параметър (желателно е поне 10).")
+
+    if n < 30:
+        add("sample_size", 60, f"Само {n} сделки — под 30 сделки резултатът е статистически ненадежден.")
+    elif n < 100:
+        add("sample_size", 15, f"{n} сделки — ограничена извадка.")
+
+    pf, wr, sh = m.get("profit_factor"), m.get("win_rate"), m.get("sharpe_like")
+    if pf is not None and pf > 3:
+        add(
+            "extreme_profit_factor",
+            15,
+            "Няма губещи сделки (profit factor ∞) — нереалистично гладък резултат."
+            if pf >= INFINITE_PF
+            else f"Profit factor {pf:.2f} > 3 — необичайно висок; често признак на напасване към шума.",
+        )
+    if wr is not None and wr > 80:
+        add("extreme_win_rate", 15, f"Win rate {wr:.0f}% > 80% — необичайно висок за правилова стратегия.")
+    if sh is not None and sh > 3:
+        add("extreme_sharpe", 15, f"Sharpe-like {sh:.2f} > 3 — твърде гладка крива на капитала за реални пазари.")
+
+    ie, oe = oos_pair
+    if ie is not None and oe is not None:
+        if ie > 0 and oe <= 0:
+            add("out_of_sample", 25, "In-sample е положителен, out-of-sample — отрицателен (класически overfitting).")
+        elif ie > 0 and oe < ie * 0.5:
+            add("out_of_sample", 15, "Out-of-sample expectancy е с над 50% по-слаб от in-sample.")
+
+    flips = 0
+    if sensitivity:
+        base_sign = 1 if (m.get("net_pnl") or 0) > 0 else -1
+        flips = sum(1 for s in sensitivity if (1 if (s.get("net_pnl") or 0) > 0 else -1) != base_sign)
+        if flips >= max(1, len(sensitivity) / 3):
+            add(
+                "sensitivity",
+                20,
+                f"{flips} от {len(sensitivity)} малки промени в параметрите обръщат знака на резултата — крехка стратегия.",
+            )
+        exps = [s["expectancy_r"] for s in sensitivity if s.get("expectancy_r") is not None]
+        base_exp = m.get("expectancy_r")
+        if base_exp is not None and len(exps) >= 2:
+            spread = max([*exps, base_exp]) - min([*exps, base_exp])
+            if spread > max(2 * abs(base_exp), 0.3):
+                add(
+                    "sensitivity_spread",
+                    10,
+                    f"Expectancy варира от {min([*exps, base_exp]):+.2f}R до {max([*exps, base_exp]):+.2f}R "
+                    "при малки промени — резултатът зависи силно от точните параметри.",
+                )
+
+    if wf and wf.get("verdict") == "inconsistent":
+        add("walk_forward", 10, "Walk-forward прозорците дават противоположни резултати — нестабилност във времето.")
+
+    score = min(100, sum(f["points"] for f in factors))
+    risk = "HIGH" if score >= 60 or n < 30 else "MEDIUM" if score >= 30 else "LOW"
+    reasons = [f["text"] for f in factors]
+    if not reasons:
+        reasons = ["Няма силни признаци на overfitting в тези проверки — това не доказва реално предимство."]
+    text = {
+        "HIGH": "Висок риск от overfitting — резултатът вероятно не е надежден за бъдещи данни.",
+        "MEDIUM": "Умерен риск от overfitting — нужни са още проверки (повече данни, forward test).",
+        "LOW": "Нисък риск от overfitting по тези проверки — следващата стъпка е forward test (paper bot).",
+    }[risk]
+    return {
+        "risk": risk,
+        "score": score,
+        "reasons": reasons,
+        "factors": factors,
+        "text": text,
+        "inputs": {
+            "parameters": params,
+            "conditions": conds,
+            "trades": n,
+            "profit_factor": pf,
+            "win_rate": wr,
+            "sharpe_like": sh,
+            "in_sample_expectancy_r": ie,
+            "out_of_sample_expectancy_r": oe,
+            "sensitivity_flips": flips,
+            "sensitivity_variants": len(sensitivity),
+        },
+        "disclaimer": PAST_PERFORMANCE,
     }

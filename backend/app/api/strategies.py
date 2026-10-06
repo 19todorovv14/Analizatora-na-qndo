@@ -5,14 +5,16 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app import indicators as ind
+from app.analysis.regime import RegimeInputs, classify_at
 from app.api.deps import current_user, now_ts, symbol_param, timeframe_param
+from app.bots.coach import bot_coach
 from app.config import get_settings
 from app.database import SessionLocal, get_db
+from app.market.base import Candle
 from app.models import Backtest, Bot, Strategy, User
 from app.services import backtest_service, bot_service, market_service, user_service
-from app.strategies.rules import OPS, PRICE_FIELDS, IndicatorCache, StrategyDefinition, describe, evaluate
-from app.strategies.templates import TEMPLATES
+from app.strategies.meta import SETUP_DISCLAIMER, builder_meta
+from app.strategies.rules import IndicatorCache, StrategyDefinition, describe, evaluate
 
 router = APIRouter(tags=["strategies"])
 
@@ -56,11 +58,41 @@ def _get_strategy(db: Session, user: User, strategy_id: int, *, writable: bool =
 
 @router.get("/strategies/meta")
 def meta():
+    """Builder metadata: indicators, operators (+ operator_info), structure operands, presets, templates, …"""
+    return builder_meta()
+
+
+class DefinitionIn(BaseModel):
+    definition: dict
+
+
+def _errors(exc: ValidationError) -> list[dict]:
+    return [{"loc": ".".join(map(str, e["loc"])), "msg": e["msg"]} for e in exc.errors()[:10]]
+
+
+@router.post("/strategies/describe")
+def describe_definition(body: DefinitionIn):
+    """Validate an (unsaved) definition and return its plain-language summary — for live builder previews.
+    Always 200: `valid` false + `errors` for an invalid definition."""
+    try:
+        defn = StrategyDefinition(**body.definition)
+    except ValidationError as exc:
+        return {"valid": False, "errors": _errors(exc), "summary": [], "conditions": 0, "parameters": 0}
+    except (TypeError, ValueError) as exc:
+        return {
+            "valid": False,
+            "errors": [{"loc": "", "msg": str(exc)}],
+            "summary": [],
+            "conditions": 0,
+            "parameters": 0,
+        }
     return {
-        "indicators": ind.INDICATOR_CATALOG,
-        "operators": OPS,
-        "price_fields": PRICE_FIELDS,
-        "templates": [{"key": t["key"], "name": t["name"], "description": t["description"]} for t in TEMPLATES],
+        "valid": True,
+        "errors": [],
+        "summary": describe(defn),
+        "conditions": defn.condition_count(),
+        "parameters": defn.numeric_parameters(),
+        "definition": defn.model_dump(),
     }
 
 
@@ -144,6 +176,33 @@ def copy_strategy(strategy_id: int, user: User = Depends(current_user), db: Sess
     return _strategy_out(new)
 
 
+def _signal_payload(defn: StrategyDefinition, rows: list[Candle]) -> dict:
+    if not rows:
+        raise HTTPException(status_code=503, detail="Няма затворени свещи за оценка.")
+    i = len(rows) - 1
+    ev = evaluate(defn, IndicatorCache(rows), i)
+    signal = (
+        "LONG SETUP"
+        if ev["entry_long"]["passed"] and not ev["entry_short"]["passed"]
+        else "SHORT SETUP"
+        if ev["entry_short"]["passed"] and not ev["entry_long"]["passed"]
+        else "NO TRADE"
+    )
+    regime = classify_at(RegimeInputs.from_candles(rows), i)
+    allowed = None if not defn.regime_filter else regime["regime"] in defn.regime_filter
+    return {
+        "signal": signal,  # raw rule result (the regime filter is reported separately in regime_allowed)
+        "evaluation": ev,
+        "time": rows[-1].ts,
+        # v2 (additive)
+        "regime": {"regime": regime["regime"], "reasons": regime["reasons"]},
+        "regime_filter": defn.regime_filter,
+        "regime_allowed": allowed,
+        "summary": describe(defn),
+        "disclaimer": SETUP_DISCLAIMER,
+    }
+
+
 @router.get("/strategies/{strategy_id}/signal")
 def strategy_signal(
     strategy_id: int, symbol: str, timeframe: str, user: User = Depends(current_user), db: Session = Depends(get_db)
@@ -153,15 +212,26 @@ def strategy_signal(
     symbol_param(symbol)
     tf = timeframe_param(timeframe)
     rows = market_service.candles(symbol, tf, limit=400, now=now_ts(), include_partial=False)
-    ev = evaluate(StrategyDefinition(**s.definition), IndicatorCache(rows), len(rows) - 1)
-    signal = (
-        "LONG SETUP"
-        if ev["entry_long"]["passed"] and not ev["entry_short"]["passed"]
-        else "SHORT SETUP"
-        if ev["entry_short"]["passed"] and not ev["entry_long"]["passed"]
-        else "NO TRADE"
-    )
-    return {"signal": signal, "evaluation": ev, "time": rows[-1].ts if rows else None}
+    return _signal_payload(StrategyDefinition(**s.definition), rows)
+
+
+class CheckIn(BaseModel):
+    definition: dict
+    symbol: str = "BTC/USDT"
+    timeframe: str = "1h"
+
+
+@router.post("/strategies/check")
+def check_definition(body: CheckIn, user: User = Depends(current_user)):
+    """ "Check current signal" for an UNSAVED builder definition (same shape as /strategies/{id}/signal)."""
+    try:
+        defn = StrategyDefinition(**body.definition)
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=_validation_message(exc)) from exc
+    symbol_param(body.symbol)
+    tf = timeframe_param(body.timeframe)
+    rows = market_service.candles(body.symbol, tf, limit=400, now=now_ts(), include_partial=False)
+    return _signal_payload(defn, rows)
 
 
 def _validation_message(exc: ValidationError) -> str:
@@ -184,6 +254,7 @@ class BacktestIn(BaseModel):
     allow_short: bool = True
     leverage: float | None = Field(None, ge=1, le=30)
     intrabar_policy: str = Field("worst_case", pattern="^(worst_case|path)$")
+    max_open_positions: int = Field(1, ge=1, le=10)  # v2 (additive)
 
 
 def _run_inline(backtest_id: int) -> None:
@@ -259,6 +330,7 @@ class BotIn(BaseModel):
     stop: dict | None = None
     take_profit: dict | None = None
     config: dict = Field(default_factory=dict)
+    max_positions: int | None = Field(None, ge=1, le=10)  # v2 alias of config.max_open_positions
 
 
 def _bot(db: Session, user: User, bot_id: int) -> Bot:
@@ -268,33 +340,21 @@ def _bot(db: Session, user: User, bot_id: int) -> Bot:
     return bot
 
 
+def _catch_up(db: Session, bot: Bot, now: int) -> None:
+    """Without Celery the API is the only driver of bots, so GETs process newly closed candles — cheaply: a bot
+    with no new closed candle is skipped before any data fetch. With Celery, beat runs the bots every 30 s and
+    reads never run them synchronously."""
+    if not get_settings().use_celery:
+        bot_service.run_bot(db, bot, now)
+
+
 @router.get("/bots")
 def list_bots(user: User = Depends(current_user), db: Session = Depends(get_db)):
     now = now_ts()
     out = []
     for b in db.scalars(select(Bot).where(Bot.user_id == user.id).order_by(Bot.id.desc())):
-        bot_service.run_bot(db, b, now)
-        v = bot_service.bot_view(db, b, now)
-        out.append(
-            {
-                k: v[k]
-                for k in (
-                    "id",
-                    "name",
-                    "symbol",
-                    "timeframe",
-                    "status",
-                    "pause_reason",
-                    "equity",
-                    "pnl",
-                    "drawdown_pct",
-                    "regime",
-                    "last_signal",
-                    "run_mode",
-                )
-            }
-            | {"trades": v["metrics"]["total_trades"], "win_rate": v["metrics"]["win_rate"]}
-        )
+        _catch_up(db, b, now)
+        out.append(bot_service.bot_summary(db, b, now))
     return {"bots": out}
 
 
@@ -313,8 +373,15 @@ def create_bot(body: BotIn, user: User = Depends(current_user), db: Session = De
 def get_bot(bot_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     bot = _bot(db, user, bot_id)
     now = now_ts()
-    bot_service.run_bot(db, bot, now)
+    _catch_up(db, bot, now)
     return bot_service.bot_view(db, bot, now)
+
+
+@router.get("/bots/{bot_id}/coach")
+def get_bot_coach(bot_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """BOT AI COACH — setups funnel, blockers, losing context, regimes, insights (past simulated behaviour)."""
+    bot = _bot(db, user, bot_id)
+    return bot_coach(db, bot, now_ts())
 
 
 @router.post("/bots/{bot_id}/{action}")

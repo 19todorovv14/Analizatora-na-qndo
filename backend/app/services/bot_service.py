@@ -3,17 +3,20 @@ their own virtual account. A bot can never reach a real exchange."""
 
 from __future__ import annotations
 
+import copy
 import time
 from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.analysis.regime import RegimeInputs, classify_at
-from app.backtesting.metrics import trade_metrics
+from app.backtesting.metrics import drawdown_series, trade_metrics
+from app.bots import stats as bot_stats
 from app.market.base import MarketDataError
 from app.market.catalog import SPECS, get_asset
-from app.market.timeframes import align, tf_seconds
+from app.market.timeframes import align, last_closed_open, tf_seconds
 from app.models import Bot, BotLog, BotRun, PaperAccount, PaperPosition, Strategy, User
 from app.paper_engine.models import BUY, MARKET, SELL, Bar
 from app.services import market_service, paper_service
@@ -47,6 +50,9 @@ def create_bot(db: Session, user: User, data: dict) -> Bot:
         definition["take_profit"] = data["take_profit"]
     StrategyDefinition(**definition)  # validate
     config = {**DEFAULT_CONFIG, **{k: v for k, v in (data.get("config") or {}).items() if k in DEFAULT_CONFIG}}
+    if data.get("max_positions") is not None:  # v2 alias of config.max_open_positions
+        config["max_open_positions"] = int(data["max_positions"])
+    config["max_open_positions"] = max(1, int(config["max_open_positions"]))
     get_asset(data["symbol"])
     acc = paper_service.create_account(
         db,
@@ -148,11 +154,18 @@ def _in_hours(cfg: dict, ts: int) -> bool:
     return dt.weekday() in days and in_window
 
 
+def has_new_candle(bot: Bot, now: int) -> bool:
+    """Cheap check (no data fetch): can a candle newer than the last processed one have closed by `now`?"""
+    return bot.last_processed_ts is None or last_closed_open(now, bot.timeframe) > bot.last_processed_ts
+
+
 def run_bot(db: Session, bot: Bot, now: int | None = None) -> int:
     """Process all newly closed candles. Returns the number of candles processed."""
     if bot.status not in ("RUNNING", "PAUSED"):
         return 0
     now = int(now or time.time())
+    if not has_new_candle(bot, now):
+        return 0  # nothing can have closed since the last run — skip the candle fetch entirely
     sec = tf_seconds(bot.timeframe)
     spec = get_asset(bot.symbol)
     cfg = {**DEFAULT_CONFIG, **(bot.config or {})}
@@ -177,7 +190,8 @@ def run_bot(db: Session, bot: Bot, now: int | None = None) -> int:
         broker.set_mark(bot.symbol, rows[new_idx[0] - 1].close)
     cache = IndicatorCache(rows)
     rx = RegimeInputs.from_candles(rows)
-    runtime = dict(bot.runtime or {})
+    runtime = copy.deepcopy(bot.runtime or {})
+    stats = bot_stats.normalise(runtime.get("stats"))
     processed = 0
     last_signal = bot.last_signal or {}
     regime = bot.regime
@@ -207,7 +221,7 @@ def run_bot(db: Session, bot: Bot, now: int | None = None) -> int:
         snap = broker.snapshot()
         day = datetime.fromtimestamp(close_ts, UTC).strftime("%Y-%m-%d")
         if runtime.get("day") != day:
-            runtime = {"day": day, "start_equity": snap["equity"]}
+            runtime = {**runtime, "day": day, "start_equity": snap["equity"]}
             if bot.status == "PAUSED" and bot.pause_reason and bot.pause_reason.startswith("Daily loss limit"):
                 bot.status = "RUNNING"
                 bot.pause_reason = None
@@ -215,6 +229,7 @@ def run_bot(db: Session, bot: Bot, now: int | None = None) -> int:
 
         ev = evaluate(defn, cache, i)
         regime = classify_at(rx, i)["regime"]
+        met = bot_stats.record_bar(stats, ev, close_ts)
         open_pos = broker.open_positions(bot.symbol)
         for p in open_pos:
             if (p.side == "long" and ev["exit_long"]["passed"]) or (p.side == "short" and ev["exit_short"]["passed"]):
@@ -226,8 +241,13 @@ def run_bot(db: Session, bot: Bot, now: int | None = None) -> int:
             side = BUY
         elif ev["entry_short"]["passed"] and not ev["entry_long"]["passed"] and cfg.get("allow_short", True):
             side = SELL
+        if met.get("long") and met.get("short"):
+            bot_stats.record_filter(stats, "conflict")
+        elif met.get("short") and side is None:
+            bot_stats.record_filter(stats, "short_disabled")
         signal = "LONG SETUP" if side == BUY else "SHORT SETUP" if side == SELL else "WAIT"
         reason = None
+        filter_key = None
         day_loss_pct = (
             (runtime["start_equity"] - snap["equity"]) / runtime["start_equity"] * 100
             if runtime.get("start_equity")
@@ -236,21 +256,28 @@ def run_bot(db: Session, bot: Bot, now: int | None = None) -> int:
         if side:
             if bot.status == "PAUSED":
                 reason = f"Ботът е на пауза ({bot.pause_reason})"
+                filter_key = "daily_loss" if (bot.pause_reason or "").startswith("Daily loss limit") else "paused"
             elif day_loss_pct >= float(cfg["daily_loss_limit_pct"]):
                 reason = "Daily loss limit reached"
+                filter_key = "daily_loss"
                 bot.status = "PAUSED"
                 bot.pause_reason = f"Daily loss limit reached ({day_loss_pct:.2f}% ≥ {cfg['daily_loss_limit_pct']}%)"
                 log(db, bot, "warn", f"{bot.pause_reason}. Нови сделки до края на деня няма да има.", close_ts)
             elif not _in_hours(cfg, close_ts):
                 reason = "Извън зададените trading hours"
+                filter_key = "trading_hours"
             elif len(open_pos) >= int(cfg["max_open_positions"]):
                 reason = f"Max open positions ({cfg['max_open_positions']}) достигнат"
+                filter_key = "max_positions"
             elif any(o.is_active and not o.reduce_only for o in broker.s.orders.values()):
                 reason = "Има чакаща поръчка"
+                filter_key = "pending_order"
             elif defn.regime_filter and regime not in defn.regime_filter:
                 reason = f"Режим {regime} не е разрешен от филтъра"
+                filter_key = "regime"
         if side and reason:
             signal = "NO TRADE"
+            bot_stats.record_filter(stats, filter_key or "paused")
         last_signal = {
             "ts": close_ts,
             "signal": signal,
@@ -261,6 +288,7 @@ def run_bot(db: Session, bot: Bot, now: int | None = None) -> int:
         if side and not reason:
             sd = stop_distance(defn, cache, i, side)
             if not sd:
+                bot_stats.record_filter(stats, "stop_unavailable")
                 log(db, bot, "warn", "Не може да се изчисли stop distance (липсва ATR) — пропускам.", close_ts)
                 continue
             td = target_distance(defn, cache, i, sd)
@@ -269,8 +297,11 @@ def run_bot(db: Session, bot: Bot, now: int | None = None) -> int:
             qty = snap["equity"] * risk_pct / 100 / per_unit
             qty = spec.round_qty(min(qty, snap["equity"] * broker.leverage_for(bot.symbol) / c.close * 0.95))
             if qty < spec.min_qty:
+                bot_stats.record_filter(stats, "position_size")
                 log(db, bot, "warn", "Изчисленото количество е под минималното — сделката е пропусната.", close_ts)
                 continue
+            atr_pct = rx.atr_pct[i]
+            bot_stats.record_entry(stats, "long" if side == BUY else "short")
             broker.place_order(
                 symbol=bot.symbol,
                 side=side,
@@ -288,6 +319,11 @@ def run_bot(db: Session, bot: Bot, now: int | None = None) -> int:
                     "timeframe": bot.timeframe,
                     "setup": "strategy",
                     "entry_context": {"regime": regime, "decision": signal},
+                    # v2: context at the signal bar, used by the BOT AI COACH breakdowns
+                    "regime": regime,
+                    "atr_pct": round(atr_pct, 4) if atr_pct is not None else None,
+                    "signal_ts": close_ts,
+                    "strategy_id": bot.strategy_id,
                 },
             )
             log(
@@ -302,7 +338,9 @@ def run_bot(db: Session, bot: Bot, now: int | None = None) -> int:
         elif side and reason:
             log(db, bot, "signal", f"Сигнал игнориран: {reason}", close_ts)
 
+    runtime["stats"] = stats
     bot.runtime = runtime
+    flag_modified(bot, "runtime")
     bot.last_signal = last_signal
     bot.regime = regime
     if processed and rows:
@@ -319,7 +357,16 @@ def run_all_bots(db: Session, now: int | None = None) -> int:
     return total
 
 
-def bot_view(db: Session, bot: Bot, now: int | None = None) -> dict:
+def max_positions(bot: Bot) -> int:
+    return int({**DEFAULT_CONFIG, **(bot.config or {})}["max_open_positions"])
+
+
+def evaluation_stats(bot: Bot) -> dict:
+    """Per-bar evaluation counters (setups, all conditions met, rejected, filters, entries)."""
+    return bot_stats.normalise((bot.runtime or {}).get("stats"))
+
+
+def _account_state(db: Session, bot: Bot, now: int | None) -> tuple[PaperAccount, object, dict, list[dict], dict]:
     acc = db.get(PaperAccount, bot.paper_account_id)
     broker = paper_service.load_broker(db, acc)
     try:
@@ -332,6 +379,42 @@ def bot_view(db: Session, bot: Bot, now: int | None = None) -> dict:
     for t in trades:
         equity.append(equity[-1] + t["net_pnl"])
     metrics = trade_metrics(trades, equity, acc.initial_balance)
+    return acc, broker, snap, trades, metrics
+
+
+def bot_summary(db: Session, bot: Bot, now: int | None = None) -> dict:
+    """Light row for the bot list (no logs / runs / positions)."""
+    acc, _broker, snap, _trades, metrics = _account_state(db, bot, now)
+    stats = evaluation_stats(bot)
+    return {
+        "id": bot.id,
+        "name": bot.name,
+        "symbol": bot.symbol,
+        "timeframe": bot.timeframe,
+        "status": bot.status,
+        "pause_reason": bot.pause_reason,
+        "equity": snap["equity"],
+        "pnl": snap["equity"] - acc.initial_balance,
+        "drawdown_pct": metrics["max_drawdown_pct"],
+        "regime": bot.regime,
+        "last_signal": bot.last_signal,
+        "run_mode": bot.run_mode,
+        "trades": metrics["total_trades"],
+        "win_rate": metrics["win_rate"],
+        # v2 (additive)
+        "strategy_id": bot.strategy_id,
+        "max_positions": max_positions(bot),
+        "average_r": metrics["average_r"],
+        "last_processed_ts": bot.last_processed_ts,
+        "setups_generated": stats["setups_generated"],
+        "all_conditions_met": stats["all_conditions_met"],
+        "rejected": stats["rejected"],
+        "coach_headline": bot_stats.headline(stats),
+    }
+
+
+def bot_view(db: Session, bot: Bot, now: int | None = None) -> dict:
+    acc, broker, snap, trades, metrics = _account_state(db, bot, now)
     logs = db.scalars(select(BotLog).where(BotLog.bot_id == bot.id).order_by(BotLog.id.desc()).limit(80))
     errors = db.scalars(
         select(BotLog).where(BotLog.bot_id == bot.id, BotLog.level == "error").order_by(BotLog.id.desc()).limit(10)
@@ -339,6 +422,11 @@ def bot_view(db: Session, bot: Bot, now: int | None = None) -> dict:
     runs = db.scalars(select(BotRun).where(BotRun.bot_id == bot.id).order_by(BotRun.id.desc()).limit(10))
     defn = StrategyDefinition(**bot.strategy_snapshot)
     from app.strategies.rules import describe
+
+    stats = evaluation_stats(bot)
+    equity_values = [acc.initial_balance]
+    for t in trades:
+        equity_values.append(equity_values[-1] + t["net_pnl"])
 
     return {
         "id": bot.id,
@@ -361,7 +449,7 @@ def bot_view(db: Session, bot: Bot, now: int | None = None) -> dict:
         "drawdown_pct": metrics["max_drawdown_pct"],
         "positions": [paper_service.position_to_dict(p, broker) for p in broker.open_positions()],
         "trades": trades[-50:][::-1],
-        "equity_curve": [[t["closed_ts"], round(v, 2)] for t, v in zip(trades, equity[1:], strict=False)],
+        "equity_curve": [[t["closed_ts"], round(v, 2)] for t, v in zip(trades, equity_values[1:], strict=False)],
         "last_signal": bot.last_signal,
         "regime": bot.regime,
         "last_processed_ts": bot.last_processed_ts,
@@ -379,6 +467,14 @@ def bot_view(db: Session, bot: Bot, now: int | None = None) -> dict:
             for r in runs
         ],
         "paper_only_notice": "Този бот работи САМО в paper-trading среда с виртуални пари.",
+        # v2 (additive)
+        "max_positions": max_positions(bot),
+        # same time axis as equity_curve; the peak includes the initial balance
+        "drawdown_curve": [
+            [t["closed_ts"], round(d, 3)] for t, d in zip(trades, drawdown_series(equity_values)[1:], strict=False)
+        ],
+        "evaluation_stats": stats,
+        "coach_headline": bot_stats.headline(stats),
     }
 
 

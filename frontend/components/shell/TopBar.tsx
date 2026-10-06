@@ -249,7 +249,7 @@ export function TopBar({
           <WorkspaceSwitch />
         </div>
 
-        {/* global search trigger */}
+        {/* search trigger (opens the command palette) */}
         <div data-tour="search" className="flex min-w-0 @xl:max-w-[420px] @xl:flex-1">
           <button
             type="button"

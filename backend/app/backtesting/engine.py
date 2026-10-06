@@ -14,7 +14,7 @@ import dataclasses
 from dataclasses import dataclass, fields
 
 from app.analysis.regime import RegimeInputs, classify_at
-from app.backtesting.metrics import trade_metrics
+from app.backtesting.metrics import SECONDS_PER_MONTH, drawdown_curve, sharpe_like, trade_metrics
 from app.market.base import AssetSpec, Candle
 from app.market.timeframes import tf_seconds
 from app.paper_engine.broker import PaperBroker
@@ -64,7 +64,17 @@ def run_backtest(
     timeframe: str,
     *,
     with_regimes: bool = True,
+    segments: list[int] | None = None,
 ) -> dict:
+    """Run one backtest.
+
+    `segments` (optional, walk-forward): candle indices where a new evaluation window starts. At the last bar of
+    each window every open position is closed at that bar's close (exit_reason "end_of_window") and no new signal
+    is taken, so trades never straddle windows; the result then has `windows` with per-window metrics. The rules
+    are NOT re-optimised per window. Without `segments` the result is exactly the classic single-period run.
+    A strategy with a regime filter always gets regimes computed (the filter needs them), even when
+    `with_regimes` is False.
+    """
     if len(candles) < 30:
         raise ValueError("Нужни са поне 30 свещи за backtest.")
     if settings.fee_bps is not None:
@@ -87,13 +97,17 @@ def run_backtest(
     state = AccountState(cash=settings.initial_balance, leverage=leverage)
     broker = PaperBroker(state, {sym: spec}, cfg, seed=f"bt:{sym}:{candles[0].ts}")
     cache = IndicatorCache(candles)
-    regime_x = RegimeInputs.from_candles(candles) if with_regimes else None
+    regime_x = RegimeInputs.from_candles(candles) if (with_regimes or defn.regime_filter) else None
     sec = tf_seconds(timeframe)
     warmup = min(settings.warmup_bars, max(len(candles) // 4, 30))
 
     equity: list[list] = []
     signals = 0
+    in_market_bars = 0
     last_idx = len(candles) - 1
+    seg_starts = sorted({int(x) for x in (segments or []) if warmup < int(x) <= last_idx})
+    window_last_bars = {x - 1 for x in seg_starts}
+    boundaries: list[tuple[int, int]] = []  # (closed trades so far, in-market bars so far) at each window end
 
     for i, c in enumerate(candles):
         bar = Bar(c.ts, c.open, c.high, c.low, c.close, c.volume, sec)
@@ -107,11 +121,23 @@ def run_backtest(
         if len(state.orders) > 16:
             state.orders = {k: o for k, o in state.orders.items() if o.is_active}
             state.positions = {k: p for k, p in state.positions.items() if p.is_open}
-        if i < warmup or i == last_idx:
+        if i < warmup:
+            continue
+        open_pos = broker.open_positions(sym)
+        if open_pos:
+            in_market_bars += 1
+        if i in window_last_bars:
+            for p in open_pos:
+                broker.close_position(p.id, ts=c.ts + sec, reason="end_of_window")
+            for o in broker.active_orders(sym):
+                broker.cancel_order(o.id, c.ts + sec)
+            equity[-1][1] = round(broker.snapshot()["equity"], 2)
+            boundaries.append((len(broker.new_trades), in_market_bars))
+            continue
+        if i == last_idx:
             continue
 
         ev = evaluate(defn, cache, i)
-        open_pos = broker.open_positions(sym)
         for p in open_pos:
             if (p.side == "long" and ev["exit_long"]["passed"]) or (p.side == "short" and ev["exit_short"]["passed"]):
                 broker.close_position(p.id, ts=c.ts, reason="exit_signal", fill_mode="next_bar")
@@ -158,6 +184,7 @@ def run_backtest(
         broker.close_position(p.id, ts=candles[-1].ts + sec, reason="end_of_test")
     if equity:
         equity[-1][1] = round(broker.snapshot()["equity"], 2)
+    dd_curve = drawdown_curve(equity)
 
     trades = []
     for t in broker.new_trades:
@@ -193,4 +220,64 @@ def run_backtest(
     held = sum(max(t["closed_ts"] - t["opened_ts"], 0) for t in trades)
     span = candles[-1].ts - candles[warmup].ts if len(candles) > warmup else 0
     metrics["time_in_market_pct"] = min(held / span * 100, 100.0) if span else None
-    return {"trades": trades, "equity_curve": _downsample(equity), "metrics": metrics}
+    # v2 metrics that need the per-bar curve
+    test_bars = len(candles) - warmup
+    metrics["exposure_pct"] = in_market_bars / test_bars * 100 if test_bars > 0 else None
+    period = candles[-1].ts + sec - candles[warmup].ts if len(candles) > warmup else 0
+    metrics["trades_per_month"] = len(trades) / (period / SECONDS_PER_MONTH) if period > 0 else None
+    metrics["test_bars"] = test_bars
+    tail = equity[warmup:] if len(equity) > warmup else equity
+    metrics["sharpe_like"] = sharpe_like([e[1] for e in tail], [e[0] for e in tail])
+    out = {
+        "trades": trades,
+        "equity_curve": _downsample(equity),
+        # same length as `equity` → same downsampling indices → identical time axis
+        "drawdown_curve": _downsample(dd_curve),
+        "metrics": metrics,
+    }
+    if seg_starts:
+        out["windows"] = _window_metrics(candles, sec, warmup, seg_starts, boundaries, equity, trades, in_market_bars)
+    return out
+
+
+def _window_metrics(
+    candles: list[Candle],
+    sec: int,
+    warmup: int,
+    seg_starts: list[int],
+    boundaries: list[tuple[int, int]],
+    equity: list[list],
+    trades: list[dict],
+    in_market_total: int,
+) -> list[dict]:
+    starts = [warmup, *seg_starts]
+    ends = [*seg_starts, len(candles)]
+    trade_marks = [0, *(b[0] for b in boundaries), len(trades)]
+    market_marks = [0, *(b[1] for b in boundaries), in_market_total]
+    out = []
+    for w, (s, e) in enumerate(zip(starts, ends, strict=True)):
+        eq = [p[1] for p in equity[s - 1 : e]]  # equity at the close before the window, then every window bar
+        wt = trades[trade_marks[w] : trade_marks[w + 1]]
+        m = trade_metrics(wt, eq, eq[0])
+        bars = e - s
+        ret = (eq[-1] / eq[0] - 1) * 100 if eq[0] else None
+        out.append(
+            {
+                "index": w + 1,
+                "start_ts": candles[s].ts,
+                "end_ts": candles[e - 1].ts + sec,
+                "bars": bars,
+                "start_equity": eq[0],
+                "end_equity": eq[-1],
+                "trades": m["total_trades"],
+                "net_pnl": m["net_pnl"],
+                "return_pct": ret,
+                "win_rate": m["win_rate"],
+                "profit_factor": m["profit_factor"],
+                "expectancy_r": m["expectancy_r"],
+                "max_drawdown_pct": m["max_drawdown_pct"],
+                "exposure_pct": (market_marks[w + 1] - market_marks[w]) / bars * 100 if bars else None,
+                "profitable": m["total_trades"] > 0 and m["net_pnl"] > 0,
+            }
+        )
+    return out

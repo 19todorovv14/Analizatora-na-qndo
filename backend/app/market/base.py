@@ -6,9 +6,47 @@ execution lives exclusively in app.paper_engine (simulation).
 
 from __future__ import annotations
 
+import logging
 import re
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
+
+# ------------------------------------------------------------------ secret redaction
+# Query parameters that carry credentials (Twelve Data `apikey`, Finnhub `token`, …). Their values must
+# never reach logs or API error messages.
+_SECRET_PARAM = re.compile(
+    r"(?i)([?&;](?:api[_-]?key|apikey|token|access[_-]?token|key|secret|password|signature)=)[^&\s'\"#]+"
+)
+
+
+def redact_secrets(text: object) -> str:
+    """`text` with the values of credential query parameters replaced by "***" (URLs stay readable)."""
+    return _SECRET_PARAM.sub(r"\1***", str(text))
+
+
+class _RedactSecretsFilter(logging.Filter):
+    """Logging filter that removes credential query parameters from a record's final message."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+        except Exception:  # noqa: BLE001 - a malformed record is left to the logging module
+            return True
+        redacted = redact_secrets(message)
+        if redacted != message:
+            record.msg, record.args = redacted, ()
+        return True
+
+
+def install_http_log_redaction() -> None:
+    """httpx logs every request URL at INFO ("HTTP Request: GET https://…?apikey=…"); with the app's
+    INFO logging that would write provider API keys to the logs. Idempotent."""
+    logger = logging.getLogger("httpx")
+    if not any(isinstance(f, _RedactSecretsFilter) for f in logger.filters):
+        logger.addFilter(_RedactSecretsFilter())
+
+
+install_http_log_redaction()
 
 
 @dataclass(frozen=True, slots=True)

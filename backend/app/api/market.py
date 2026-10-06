@@ -55,6 +55,7 @@ def _parse_indicators(spec: str | None) -> list[tuple[str, dict]]:
 
 @router.get("/assets")
 def assets(symbol: str | None = Query(None, description="Return only this instrument (curated or synced)")):
+    symbol = _blank_to_none(symbol)  # "?symbol=" (blank) → the full list, as before the filter existed
     if symbol is not None:
         symbol_param(symbol)  # 404 for unknown symbols
     return {

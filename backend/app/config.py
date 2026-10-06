@@ -66,8 +66,18 @@ class Settings(BaseSettings):
     # Twelve Data stocks / ETFs are synced only for these countries (comma separated, Twelve Data names)
     catalog_twelvedata_countries: str = "United States"
 
+    # --- Markets explorer (quote snapshots, heatmap) -------------------------
+    # true: a background thread precomputes the quote snapshots of the curated demo/Binance instruments at
+    # startup and keeps them fresh, so market lists never compute a cold universe inside a request
+    market_warmup: bool = True
+    # market capitalisation for the crypto heatmap: none | coingecko (public read-only API; never invented)
+    market_cap_provider: str = "none"
+    coingecko_base_url: str = "https://api.coingecko.com/api/v3"
+    coingecko_api_key: str | None = None  # optional CoinGecko demo key (sent as the x-cg-demo-api-key header)
+
     # --- News (optional) ----------------------------------------------------
     finnhub_api_key: str | None = None
+    finnhub_base_url: str = "https://finnhub.io/api/v1"
 
     # --- AI -----------------------------------------------------------------
     # offline   -> deterministic rule-based teacher, works without any key

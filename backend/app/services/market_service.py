@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.analysis.regime import classify
-from app.market.base import AssetSpec, Candle, DataNotAvailableError, MarketDataError, Ticker, slug_for
+from app.market.base import AssetSpec, Candle, DataNotAvailableError, MarketDataError, Ticker, redact_secrets, slug_for
 from app.market.catalog import ASSETS, UnknownAssetError, get_asset
 from app.market.registry import availability as provider_availability
 from app.market.registry import provider_for
@@ -165,7 +165,7 @@ def watch_row(symbol: str, now: int | None = None) -> dict:
             "symbol": symbol,
             "name": asset.name,
             "asset_class": asset.asset_class,
-            "error": str(exc),
+            "error": redact_secrets(exc),  # never echo provider credentials
             "code": getattr(exc, "code", "MARKET_DATA_ERROR"),
         }
 

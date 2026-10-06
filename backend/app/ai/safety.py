@@ -46,6 +46,35 @@ def find_violations(text: str) -> list[str]:
     return hits
 
 
+SAFETY_NOTE = (
+    "Safety filter: премахнато е твърдение за гарантиран/безрисков резултат или команда за покупка/продажба. "
+    "В trading-а такова нещо няма."
+)
+
+
+def sanitize_lines(lines) -> tuple[list[str], list[str]]:
+    """Sentence-level filter for structured output (lists of short lines).
+
+    Same rules as `sanitize`, but no notice is appended to the text (the caller shows one
+    `SAFETY_NOTE` for the whole answer) and lines that become empty are dropped.
+    Returns (clean_lines, removed_phrases)."""
+    removed: list[str] = []
+    out: list[str] = []
+    for line in lines or []:
+        text = line if isinstance(line, str) else str(line)
+        kept: list[str] = []
+        for part in _SENTENCE.findall(text):
+            hits = find_violations(part)
+            if hits:
+                removed.extend(hits)
+                continue
+            kept.append(part)
+        clean = re.sub(r"\s{2,}", " ", "".join(kept)).strip()
+        if clean:
+            out.append(clean)
+    return out, removed
+
+
 def sanitize(text: str, *, add_disclaimer: bool = False) -> tuple[str, list[str]]:
     """Drop sentences that promise certainty. Returns (clean_text, removed_phrases)."""
     removed: list[str] = []

@@ -2,7 +2,7 @@ from app.academy.content._base import lesson, q
 
 MODULE = {
     "key": "strategy",
-    "title": "Strategy & Backtesting",
+    "title": "Strategies",
     "category": "Strategy",
     "description": "Как се изгражда, тества и валидира стратегия — и защо положителният backtest не е доказателство.",
     "lessons": [

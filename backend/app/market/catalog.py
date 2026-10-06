@@ -565,6 +565,11 @@ def set_synced_loader(
         _SYNCED.loaded = False
 
 
+def synced_loader() -> Callable[[], Iterable[AssetSpec]] | None:
+    """The installed synced-instrument loader (None when nothing is installed)."""
+    return _SYNCED.loader
+
+
 def set_synced_assets(specs: Iterable[AssetSpec]) -> list[AssetSpec]:
     """Replace the synced registry. Curated symbols are skipped; colliding slugs get a short suffix.
 
