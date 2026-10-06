@@ -1009,7 +1009,7 @@ def test_demo_horizon_fails_with_market_data_error():
     from app.market.demo import HORIZON_END, DemoMarketDataProvider
 
     demo = DemoMarketDataProvider()
-    late = HORIZON_END + 30 * 86400
+    late = HORIZON_END + 400 * 86400
     last_hour = HORIZON_END - 3600
     for sym in ("BTC/USDT", "SPY"):
         a = get_asset(sym)
