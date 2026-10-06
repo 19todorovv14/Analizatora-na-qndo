@@ -129,6 +129,10 @@ def scrub_secrets(text: object, *, limit: int = 300) -> str:
     return out[:limit]
 
 
+class CircuitOpenError(MarketDataError):
+    """The provider failed moments ago (network / rate limit / 5xx); it is skipped for CIRCUIT_SECONDS."""
+
+
 # ------------------------------------------------------------------ small numeric helpers
 def _r(value: float | None, digits: int) -> float | None:
     if value is None:
@@ -706,10 +710,10 @@ class QuoteEngine:
     def _guard(self, key: tuple) -> None:
         hit = self._down.get(key)
         if hit is not None and time.monotonic() < hit[0]:
-            raise MarketDataError(hit[1])
+            raise CircuitOpenError(hit[1])
 
     def _trip(self, key: tuple, exc: Exception) -> None:
-        if self.is_provider_level(exc):
+        if not isinstance(exc, CircuitOpenError) and self.is_provider_level(exc):
             with self._lock:
                 self._down[key] = (time.monotonic() + CIRCUIT_SECONDS, scrub_secrets(exc))
 
