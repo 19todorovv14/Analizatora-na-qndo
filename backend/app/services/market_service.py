@@ -9,10 +9,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.analysis.regime import classify
-from app.market.base import AssetSpec, Candle, MarketDataError, Ticker
-from app.market.catalog import ASSETS, get_asset
+from app.market.base import AssetSpec, Candle, DataNotAvailableError, MarketDataError, Ticker, slug_for
+from app.market.catalog import ASSETS, UnknownAssetError, get_asset
 from app.market.registry import availability as provider_availability
 from app.market.registry import provider_for
+from app.market.sessions import market_status
 from app.market.timeframes import tf_seconds
 from app.models import Candle as CandleRow
 from app.models import MarketData
@@ -131,7 +132,18 @@ def regime_snapshot(symbol: str, timeframe: str = "1h", now: int | None = None) 
 
 
 def watch_row(symbol: str, now: int | None = None) -> dict:
-    asset = get_asset(symbol)
+    """One watchlist row. A stale/unknown symbol or unavailable data gives an {error, code} row instead of
+    failing the whole watchlist."""
+    try:
+        asset = get_asset(symbol)
+    except UnknownAssetError:
+        return {
+            "symbol": symbol,
+            "name": symbol,
+            "asset_class": None,
+            "error": f"Непознат инструмент: {symbol} (вече не е в каталога)",
+            "code": "UNKNOWN_INSTRUMENT",
+        }
     try:
         t = ticker(symbol, now=now)
         snap = regime_snapshot(symbol, "1h", now=now)
@@ -149,7 +161,13 @@ def watch_row(symbol: str, now: int | None = None) -> dict:
             "precision": asset.price_precision,
         }
     except MarketDataError as exc:
-        return {"symbol": symbol, "name": asset.name, "asset_class": asset.asset_class, "error": str(exc)}
+        return {
+            "symbol": symbol,
+            "name": asset.name,
+            "asset_class": asset.asset_class,
+            "error": str(exc),
+            "code": getattr(exc, "code", "MARKET_DATA_ERROR"),
+        }
 
 
 def availability(symbol: str) -> dict:
@@ -157,28 +175,122 @@ def availability(symbol: str) -> dict:
     return provider_availability(get_asset(symbol))
 
 
-def asset_list() -> list[dict]:
-    """All curated instruments. An instrument no configured provider supports gets source=None and
-    available=False (with the reason) instead of failing the whole list."""
-    out = []
-    for a in ASSETS:
-        av = provider_availability(a)
-        out.append(
-            {
-                "symbol": a.symbol,
-                "name": a.name,
-                "asset_class": a.asset_class,
-                "price_precision": a.price_precision,
-                "qty_step": a.qty_step,
-                "min_qty": a.min_qty,
-                "spread_bps": a.spread_bps,
-                "maker_fee": a.maker_fee,
-                "taker_fee": a.taker_fee,
-                "max_leverage": a.max_leverage,
-                "description": a.description,
-                "source": av["source"],
-                "available": av["available"],
-                "unavailable_reason": av["reason"],
-            }
-        )
+def asset_row(a: AssetSpec) -> dict:
+    """Row of GET /api/market/assets (shape unchanged since V1, plus availability)."""
+    av = provider_availability(a)
+    return {
+        "symbol": a.symbol,
+        "name": a.name,
+        "asset_class": a.asset_class,
+        "price_precision": a.price_precision,
+        "qty_step": a.qty_step,
+        "min_qty": a.min_qty,
+        "spread_bps": a.spread_bps,
+        "maker_fee": a.maker_fee,
+        "taker_fee": a.taker_fee,
+        "max_leverage": a.max_leverage,
+        "description": a.description,
+        "source": av["source"],
+        "available": av["available"],
+        "unavailable_reason": av["reason"],
+    }
+
+
+def asset_list(symbol: str | None = None) -> list[dict]:
+    """All curated instruments (or just `symbol`, curated or synced). An instrument no configured provider
+    supports gets source=None and available=False (with the reason) instead of failing the whole list."""
+    if symbol is not None:
+        return [asset_row(get_asset(symbol))]
+    return [asset_row(a) for a in ASSETS]
+
+
+# ------------------------------------------------------------------ catalog payloads (V2)
+UNKNOWN_INSTRUMENT_REASON = "Инструментът вече не е в каталога."
+
+
+def asset_summary(spec: AssetSpec, av: dict | None = None) -> dict:
+    """Compact instrument description used by search, catalog, favorites, recent and market lists.
+
+    `source` is the DataSource dict of the provider that would serve the instrument (None when no
+    configured provider supports it); `catalog_source` says where the instrument definition came from
+    (curated | binance | twelvedata). Cheap: no network, no market data.
+    """
+    av = av if av is not None else provider_availability(spec)
+    return {
+        "symbol": spec.symbol,
+        "slug": spec.slug,
+        "name": spec.name,
+        "asset_class": spec.asset_class,
+        "category": spec.category,
+        "sector": spec.sector,
+        "exchange": spec.exchange,
+        "country": spec.country,
+        "currency": spec.currency,
+        "base": spec.base,
+        "popularity": spec.popularity,
+        "curated": spec.curated,
+        "catalog_source": spec.source,
+        "available": av["available"],
+        "unavailable_reason": av["reason"],
+        "source": av["source"],
+        "price_precision": spec.price_precision,
+        "max_leverage": spec.max_leverage,
+    }
+
+
+def unknown_summary(symbol: str) -> dict:
+    """asset_summary-shaped row for a stored symbol that is no longer in the catalog (stale favorite …)."""
+    return {
+        "symbol": symbol,
+        "slug": slug_for(symbol),
+        "name": symbol,
+        "asset_class": None,
+        "category": "",
+        "sector": "",
+        "exchange": "",
+        "country": "",
+        "currency": None,
+        "base": "",
+        "popularity": None,
+        "curated": False,
+        "catalog_source": None,
+        "available": False,
+        "unavailable_reason": UNKNOWN_INSTRUMENT_REASON,
+        "source": None,
+        "price_precision": None,
+        "max_leverage": None,
+        "code": "UNKNOWN_INSTRUMENT",
+    }
+
+
+def summary_for_symbol(symbol: str) -> dict:
+    """asset_summary of a stored symbol, or unknown_summary when it left the catalog."""
+    try:
+        return asset_summary(get_asset(symbol))
+    except UnknownAssetError:
+        return unknown_summary(symbol)
+
+
+def instrument_payload(spec: AssetSpec, now: int | None = None) -> dict:
+    """asset_summary + trading spec fields + market_status (GET /api/market/instrument/{slug})."""
+    av = provider_availability(spec)
+    out = asset_summary(spec, av)
+    out.update(
+        {
+            "industry": spec.industry,
+            "qty_step": spec.qty_step,
+            "min_qty": spec.min_qty,
+            "spread_bps": spec.spread_bps,
+            "maker_fee": spec.maker_fee,
+            "taker_fee": spec.taker_fee,
+            "description": spec.description,
+            "aliases": list(spec.aliases),
+            "provider_symbols": dict(spec.provider_symbols),
+            "session": spec.session,
+            "demo_capable": spec.demo_capable,
+            "market_status": market_status(spec, now, demo=av.get("provider_id") == "demo"),
+        }
+    )
+    if not av["available"]:
+        out["code"] = DataNotAvailableError.code
     return out

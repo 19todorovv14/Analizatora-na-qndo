@@ -402,6 +402,7 @@
   .input {
     width: 100%;
     min-width: 0;
+    max-width: 100%; /* `input w-auto` (natural width) must never outgrow its container */
     padding: 7px 11px;
     font-size: 0.875rem;
     line-height: 1.25rem;

@@ -58,6 +58,14 @@ class Settings(BaseSettings):
     twelvedata_realtime: bool = False
     market_http_timeout: float = 10.0
 
+    # --- Instrument catalog discovery (app.market.discovery, read-only reference lists) ---------
+    # true: Celery beat syncs the provider instrument lists daily (needs USE_CELERY + beat)
+    catalog_auto_sync: bool = False
+    # Binance spot pairs are synced only for these quote assets (comma separated)
+    catalog_binance_quotes: str = "USDT,USDC,FDUSD,BTC,ETH,EUR"
+    # Twelve Data stocks / ETFs are synced only for these countries (comma separated, Twelve Data names)
+    catalog_twelvedata_countries: str = "United States"
+
     # --- News (optional) ----------------------------------------------------
     finnhub_api_key: str | None = None
 
@@ -78,6 +86,23 @@ class Settings(BaseSettings):
             return [o.strip() for o in v.split(",") if o.strip()]
         return v
 
+    @field_validator("catalog_binance_quotes", "catalog_twelvedata_countries", mode="before")
+    @classmethod
+    def _blank_catalog_lists(cls, v, info):  # docker-compose passes unset variables as ""
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return cls.model_fields[info.field_name].default
+        return v
+
+    @property
+    def catalog_quotes(self) -> list[str]:
+        """CATALOG_BINANCE_QUOTES as a de-duplicated, upper-case list (order kept)."""
+        return _csv(self.catalog_binance_quotes, upper=True)
+
+    @property
+    def catalog_countries(self) -> list[str]:
+        """CATALOG_TWELVEDATA_COUNTRIES as a de-duplicated list (order kept)."""
+        return _csv(self.catalog_twelvedata_countries)
+
     @property
     def is_sqlite(self) -> bool:
         return self.database_url.startswith("sqlite")
@@ -85,6 +110,15 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.app_env == "production"
+
+
+def _csv(value: str, *, upper: bool = False) -> list[str]:
+    out: list[str] = []
+    for part in (value or "").split(","):
+        item = part.strip().upper() if upper else part.strip()
+        if item and item not in out:
+            out.append(item)
+    return out
 
 
 @lru_cache

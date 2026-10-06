@@ -160,7 +160,9 @@ def test_core_specs_unchanged():
     )
     assert eur.provider_symbols == {"twelvedata": "EUR/USD"}
     ger = ASSETS_BY_SYMBOL["GER40"]
-    assert (ger.price_precision, ger.anchor_price, ger.provider_symbols) == (1, 20_000, {"twelvedata": "DAX"})
+    # provider_symbols were corrected against Twelve Data's /indices list (they never affect demo data)
+    assert (ger.price_precision, ger.anchor_price, ger.provider_symbols) == (1, 20_000, {"twelvedata": "GDAXI"})
+    assert ASSETS_BY_SYMBOL["SPX"].provider_symbols == ASSETS_BY_SYMBOL["NDX"].provider_symbols == {}
     nvda = ASSETS_BY_SYMBOL["NVDA"]
     assert (nvda.maker_fee, nvda.max_leverage, nvda.anchor_price, nvda.daily_vol) == (0.0005, 5, 140, 0.030)
     # metadata was added (metadata fields only)

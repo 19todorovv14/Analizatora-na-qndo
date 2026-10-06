@@ -217,12 +217,10 @@ export function Popover({
     closeRef.current = onClose;
   }, [onClose]);
 
-  useAnchoredPosition(open && isClient, anchorLike, floatEl, side, align, offset);
+  useAnchoredPosition(open && isClient, anchorLike, floatEl, side, align, offset, matchAnchorWidth);
 
   useEffect(() => {
     if (!open || !floatEl) return;
-    const a = resolveAnchor(anchorLike);
-    if (matchAnchorWidth && a) floatEl.style.minWidth = `${a.getBoundingClientRect().width}px`;
     const onDown = (e: PointerEvent) => {
       const t = e.target as Node;
       if (floatEl.contains(t) || resolveAnchor(anchorLike)?.contains(t)) return;
@@ -249,7 +247,7 @@ export function Popover({
       document.removeEventListener("keydown", onKey);
       if (t !== undefined) window.clearTimeout(t);
     };
-  }, [open, floatEl, anchorLike, autoFocus, matchAnchorWidth]);
+  }, [open, floatEl, anchorLike, autoFocus]);
 
   const panel =
     open && isClient

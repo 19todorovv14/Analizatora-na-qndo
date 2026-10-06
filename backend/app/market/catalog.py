@@ -25,6 +25,7 @@ import dataclasses
 import hashlib
 import logging
 import threading
+import time
 from collections.abc import Callable, Iterable, Iterator, Mapping
 
 from app.market.base import AssetSpec, slug_for
@@ -216,7 +217,8 @@ _CORE_ASSETS: list[AssetSpec] = [
         daily_vol=0.010,
         daily_volume_usd=2.0e10,
         drift=0.0003,
-        provider_symbols={"twelvedata": "SPX"},
+        # Twelve Data's /indices list has no US indices (validated 2026-10): demo-only until a valid symbol exists
+        provider_symbols={},
         description="Индекс на 500 големи американски компании (CFD, $1 на точка).",
     ),
     AssetSpec(
@@ -233,7 +235,7 @@ _CORE_ASSETS: list[AssetSpec] = [
         daily_vol=0.013,
         daily_volume_usd=1.5e10,
         drift=0.0004,
-        provider_symbols={"twelvedata": "NDX"},
+        provider_symbols={},  # not in Twelve Data's /indices list (see SPX)
         description="Технологично натоварен индекс на 100 компании (CFD, $1 на точка).",
     ),
     AssetSpec(
@@ -250,7 +252,7 @@ _CORE_ASSETS: list[AssetSpec] = [
         daily_vol=0.011,
         daily_volume_usd=5.0e9,
         drift=0.0003,
-        provider_symbols={"twelvedata": "DAX"},
+        provider_symbols={"twelvedata": "GDAXI"},  # "DAX PERFORMANCE-INDEX" in Twelve Data's /indices list
         description="Германският индекс DAX (CFD, котиран в USD за симулацията).",
     ),
     AssetSpec(
@@ -440,30 +442,56 @@ del _a
 
 
 # ----------------------------------------------------------------- synced registry
+def suffixed_slug(base_slug: str, source: str, symbol: str, taken: Callable[[str], bool]) -> str:
+    """`base_slug` if it is free, else `base_slug-XXXXXX` (deterministic: blake2b of source|symbol).
+
+    Used by the in-memory registry and by app.market.discovery for the `assets.slug` column, so a
+    synced instrument gets the same slug in the database and in memory.
+    """
+    if not taken(base_slug):
+        return base_slug
+    digest = hashlib.blake2b(f"{source}|{symbol}".encode(), digest_size=3).hexdigest().upper()
+    slug, n = f"{base_slug}-{digest}", 2
+    while taken(slug):
+        slug, n = f"{base_slug}-{digest}{n}", n + 1
+    return slug
+
+
 class _SyncedRegistry:
-    """In-memory registry of provider-synced (non-curated) instruments, loaded lazily."""
+    """In-memory registry of provider-synced (non-curated) instruments, loaded lazily.
+
+    When the installed loader comes with a `version` function (cheap, e.g. the id of the newest
+    successful catalog sync), a registry that was filled by the loader re-checks that version at most
+    every `check_every` seconds and reloads when it changed — so API processes pick up a sync that ran
+    in another process (Celery worker, CLI). Registries filled with set_synced_assets() never reload
+    on their own.
+    """
 
     def __init__(self) -> None:
         self.by_symbol: dict[str, AssetSpec] = {}
         self.by_slug: dict[str, AssetSpec] = {}
         self.by_compact: dict[str, AssetSpec] = {}
         self.loader: Callable[[], Iterable[AssetSpec]] | None = None
+        self.version_fn: Callable[[], object] | None = None
+        self.check_every = 300.0
         self.loaded = False
+        self.from_loader = False
+        self.loaded_version: object = None
+        self.next_check = 0.0
+        self.generation = 0  # bumped on every change (search index cache key)
         self.lock = threading.RLock()
 
-    def replace(self, specs: Iterable[AssetSpec]) -> list[AssetSpec]:
+    def replace(self, specs: Iterable[AssetSpec], *, from_loader: bool = False) -> list[AssetSpec]:
         by_symbol: dict[str, AssetSpec] = {}
         by_slug: dict[str, AssetSpec] = {}
+
+        def taken(slug: str) -> bool:
+            return slug in CURATED_BY_SLUG or slug in by_slug
+
         for spec in specs:
             if spec.symbol in ASSETS_BY_SYMBOL or spec.symbol in by_symbol:
                 continue  # curated wins; first synced definition wins
-            base_slug = slug = spec.slug or slug_for(spec.symbol)
-            if slug in CURATED_BY_SLUG or slug in by_slug:
-                # deterministic short suffix (independent of load order)
-                digest = hashlib.blake2b(f"{spec.source}|{spec.symbol}".encode(), digest_size=3).hexdigest().upper()
-                slug, n = f"{base_slug}-{digest}", 2
-                while slug in CURATED_BY_SLUG or slug in by_slug:
-                    slug, n = f"{base_slug}-{digest}{n}", n + 1
+            slug = suffixed_slug(spec.slug or slug_for(spec.symbol), spec.source, spec.symbol, taken)
             if slug != spec.slug or spec.curated:
                 spec = dataclasses.replace(spec, slug=slug, curated=False)
             by_symbol[spec.symbol] = spec
@@ -474,32 +502,66 @@ class _SyncedRegistry:
         with self.lock:
             self.by_symbol, self.by_slug, self.by_compact = by_symbol, by_slug, by_compact
             self.loaded = True
+            self.from_loader = from_loader
+            self.generation += 1
         return list(by_symbol.values())
 
+    def _version(self) -> object:
+        if self.version_fn is None:
+            return None
+        try:
+            return self.version_fn()
+        except Exception:  # noqa: BLE001 - a failing version probe keeps the current registry
+            log.debug("Synced catalog version check failed", exc_info=True)
+            return self.loaded_version
+
     def ensure(self) -> None:
-        if self.loaded or self.loader is None:  # lock-free fast path
+        # lock-free fast path
+        if self.loaded and (not self.from_loader or self.version_fn is None or time.monotonic() < self.next_check):
             return
+        if self.loader is None:
+            return  # nothing installed yet (e.g. tests, demo-only setups)
         with self.lock:
-            if self.loaded:
-                return
             loader = self.loader
             if loader is None:
-                return  # nothing installed yet (e.g. tests, demo-only setups)
+                return
+            if self.loaded:
+                if not self.from_loader or self.version_fn is None or time.monotonic() < self.next_check:
+                    return
+                self.next_check = time.monotonic() + self.check_every
+                version = self._version()
+                if version == self.loaded_version:
+                    return
+            else:
+                version = self._version()
             try:
                 specs = list(loader())
             except Exception:  # noqa: BLE001 - a missing table must not break curated lookups
                 log.warning("Could not load synced instruments; continuing with the curated catalog", exc_info=True)
                 specs = []
-            self.replace(specs)
+            self.replace(specs, from_loader=True)
+            self.loaded_version = version
+            self.next_check = time.monotonic() + self.check_every
 
 
 _SYNCED = _SyncedRegistry()
 
 
-def set_synced_loader(loader: Callable[[], Iterable[AssetSpec]] | None) -> None:
-    """Install the function that loads synced instruments (called lazily, once, on first use)."""
+def set_synced_loader(
+    loader: Callable[[], Iterable[AssetSpec]] | None,
+    *,
+    version: Callable[[], object] | None = None,
+    check_every: float = 300.0,
+) -> None:
+    """Install the function that loads synced instruments (called lazily, once, on first use).
+
+    `version` (optional, cheap) lets a loaded registry notice changes made by other processes: it is
+    probed at most every `check_every` seconds and the loader re-runs when the value changed.
+    """
     with _SYNCED.lock:
         _SYNCED.loader = loader
+        _SYNCED.version_fn = version
+        _SYNCED.check_every = float(check_every)
         _SYNCED.loaded = False
 
 
@@ -512,11 +574,18 @@ def set_synced_assets(specs: Iterable[AssetSpec]) -> list[AssetSpec]:
 
 
 def reload_synced() -> int:
-    """Re-run the installed loader (after a discovery sync). Returns the number of synced instruments."""
+    """Re-run the installed loader now (after a discovery sync). Returns the number of synced instruments."""
     with _SYNCED.lock:
         _SYNCED.loaded = False
     _SYNCED.ensure()
     return len(_SYNCED.by_symbol)
+
+
+def mark_synced_stale() -> None:
+    """Make the next lookup re-run the installed loader (cheap; nothing is loaded now)."""
+    with _SYNCED.lock:
+        if _SYNCED.loader is not None:
+            _SYNCED.loaded = False
 
 
 def clear_synced() -> None:
@@ -524,11 +593,20 @@ def clear_synced() -> None:
     with _SYNCED.lock:
         _SYNCED.by_symbol, _SYNCED.by_slug, _SYNCED.by_compact = {}, {}, {}
         _SYNCED.loaded = False
+        _SYNCED.from_loader = False
+        _SYNCED.generation += 1
 
 
 def synced_assets() -> list[AssetSpec]:
     _SYNCED.ensure()
     return list(_SYNCED.by_symbol.values())
+
+
+def synced_state() -> tuple[int, list[AssetSpec]]:
+    """(generation, synced specs) — the generation changes whenever the registry content changes."""
+    _SYNCED.ensure()
+    with _SYNCED.lock:
+        return _SYNCED.generation, list(_SYNCED.by_symbol.values())
 
 
 def all_assets() -> list[AssetSpec]:

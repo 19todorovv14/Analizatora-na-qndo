@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useAssets } from "@/components/charts/ChartControls";
-import { Badge, Button, ErrorText, Field, InfoTip, Notice } from "@/components/ui";
+import { Badge, Button, ErrorText, Field, InfoTip, Notice, Term } from "@/components/ui";
 import { errorMessage, post } from "@/lib/api";
 import { cx, fmtMoney, fmtPct, fmtPrice } from "@/lib/format";
 import { useDebounced } from "@/lib/hooks";
@@ -166,10 +166,10 @@ export function OrderPanel({ symbol, price, precision, equity, timeframe, onPlac
             <input className="input num" value={entry} onChange={(e) => setEntry(e.target.value)} placeholder={fmtPrice(price, precision)} />
           )}
         </Field>
-        <Field label="Stop Loss" hint="Къде идеята ти е ГРЕШНА. Определя максималната загуба и размера на позицията.">
+        <Field label={<Term k="stoploss">Stop Loss</Term>} hint="Къде идеята ти е ГРЕШНА. Определя максималната загуба и размера на позицията.">
           <input className="input num" value={stop} onChange={(e) => setStop(e.target.value)} placeholder="задължителен за risk sizing" />
         </Field>
-        <Field label="Take Profit">
+        <Field label={<Term k="takeprofit">Take Profit</Term>}>
           <input className="input num" value={target} onChange={(e) => setTarget(e.target.value)} placeholder="по избор" />
         </Field>
       </div>
@@ -228,11 +228,17 @@ export function OrderPanel({ symbol, price, precision, equity, timeframe, onPlac
           <span className="num text-right text-up">{fmtMoney(plan.potential_profit)}</span>
           <span className="text-muted">Potential loss</span>
           <span className="num text-right text-down">{plan.potential_loss !== null ? fmtMoney(-plan.potential_loss) : "∞ (няма стоп!)"}</span>
-          <span className="text-muted">Risk/Reward</span>
+          <span className="text-muted">
+            <Term k="rr">Risk/Reward</Term>
+          </span>
           <span className="num text-right">{plan.reward_risk ? `1 : ${plan.reward_risk.toFixed(2)}` : "—"}</span>
-          <span className="text-muted">Margin ({shown.leverage}x)</span>
+          <span className="text-muted">
+            <Term k="margin">Margin</Term> (<Term k="leverage">{shown.leverage}x</Term>)
+          </span>
           <span className="num text-right">{fmtMoney(shown.margin_required)}</span>
-          <span className="text-muted">Spread · fee</span>
+          <span className="text-muted">
+            <Term k="spread">Spread</Term> · <Term k="fees">fee</Term>
+          </span>
           <span className="num text-right">
             {fmtPrice(shown.spread, precision)} · {fmtMoney(shown.fee_estimate)}
           </span>

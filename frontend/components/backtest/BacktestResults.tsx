@@ -206,7 +206,7 @@ export function BacktestResults({ bt, beginner }: { bt: BacktestDetail; beginner
       <Card title={`Trade list (${bt.trades?.length ?? 0})`}>
         <div className="max-h-96 overflow-auto">
           <table className="w-full text-xs">
-            <thead className="sticky top-0 bg-panel text-left uppercase text-muted">
+            <thead className="sticky top-0 bg-surface text-left uppercase text-muted">
               <tr>
                 <th className="py-1">Entry</th>
                 <th>Side</th>

@@ -7,6 +7,7 @@ import logging
 from sqlalchemy import select
 
 from app.database import SessionLocal
+from app.market import discovery
 from app.models import PaperAccount, PaperOrder, PaperPosition
 from app.paper_engine.models import ACTIVE_ORDER_STATUSES
 from app.services import backtest_service, bot_service, paper_service
@@ -43,3 +44,17 @@ def sync_paper_accounts() -> int:
 def run_bots() -> int:
     with SessionLocal() as db:
         return bot_service.run_all_bots(db)
+
+
+@celery_app.task(name="app.workers.tasks.sync_catalog")
+def sync_catalog(provider: str = "all", kinds: list[str] | None = None) -> list[dict]:
+    """Sync provider instrument lists into the catalog (read-only reference endpoints).
+
+    Scheduled daily by beat only when CATALOG_AUTO_SYNC=true. Every (provider, kind) run is recorded in
+    catalog_syncs; API processes pick the new instruments up within a few minutes (registry version check).
+    """
+    with SessionLocal() as db:
+        results = discovery.run_sync(db, provider, tuple(kinds) if kinds else None)
+    for r in results:
+        log.info("catalog sync %s/%s: %s (%s)", r["provider"], r["kind"], r["status"], r["message"])
+    return results

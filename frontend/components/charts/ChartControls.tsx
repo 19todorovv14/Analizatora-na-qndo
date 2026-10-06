@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 
 import { DRAW_COLORS, TOOL_INFO, type Tool } from "@/components/charts/drawings";
-import { InfoTip } from "@/components/ui";
+import { InfoTip, Term } from "@/components/ui";
 import { fetcher } from "@/lib/api";
 import { TF_LABEL, TIMEFRAMES, cx, fmtPrice } from "@/lib/format";
 import { INDICATORS, INDICATOR_BY_KEY, lastValue } from "@/lib/indicators";
@@ -71,7 +71,7 @@ export function IndicatorMenu({ active, onChange }: { active: string[]; onChange
         ƒx Indicators <span className="rounded bg-panel3 px-1 text-[10px]">{active.length}</span>
       </button>
       {open && (
-        <div className="absolute left-0 top-9 z-50 w-72 rounded-md border border-line bg-panel3 p-1.5 shadow-2xl">
+        <div className="glass-strong absolute left-0 top-9 z-50 w-72 rounded-xl p-1.5">
           {INDICATORS.map((d) => (
             <label key={d.key} className="flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 hover:bg-panel2">
               <input type="checkbox" checked={active.includes(d.key)} onChange={() => toggle(d.key)} className="mt-0.5" />
@@ -158,12 +158,17 @@ export function ChartLegend({
     <div className="pointer-events-none flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px]">
       {(["open", "high", "low", "close"] as const).map((k) => (
         <span key={k}>
-          <span className="text-muted">{k[0].toUpperCase()}</span>{" "}
+          <span className="pointer-events-auto text-muted">
+            <Term k={k}>{k[0].toUpperCase()}</Term>
+          </span>{" "}
           <span className={cx("num", up ? "text-up" : "text-down")}>{fmtPrice(c[k], p)}</span>
         </span>
       ))}
       <span>
-        <span className="text-muted">Vol</span> <span className="num">{c.volume.toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>
+        <span className="pointer-events-auto text-muted">
+          <Term k="volume">Vol</Term>
+        </span>{" "}
+        <span className="num">{c.volume.toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>
       </span>
       {active
         .filter((k) => INDICATOR_BY_KEY[k]?.pane === "price" && k !== "bb")
@@ -172,13 +177,19 @@ export function ChartLegend({
           const v = lastValue(data, d);
           return (
             <span key={k} style={{ color: d.color }}>
-              {d.label} <span className="num">{fmtPrice(v, p)}</span>
+              <span className="pointer-events-auto">
+                <Term k={d.name}>{d.label}</Term>
+              </span>{" "}
+              <span className="num">{fmtPrice(v, p)}</span>
             </span>
           );
         })}
       {rsi !== null && (
         <span className="text-[#b39ddb]">
-          RSI <span className="num">{rsi.toFixed(1)}</span>
+          <span className="pointer-events-auto">
+            <Term k="rsi">RSI</Term>
+          </span>{" "}
+          <span className="num">{rsi.toFixed(1)}</span>
           {beginner && rsi > 70 && <span className="ml-1 text-warn">(висок — това НЕ означава автоматично, че цената трябва да падне)</span>}
           {beginner && rsi < 30 && <span className="ml-1 text-warn">(нисък — НЕ означава автоматично отскок)</span>}
         </span>

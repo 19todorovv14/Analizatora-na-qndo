@@ -23,13 +23,23 @@ from functools import lru_cache
 
 import numpy as np
 
-from app.market.base import AssetSpec, Candle, DataNotAvailableError, DataSource, MarketDataProvider, Ticker
+from app.market.base import (
+    AssetSpec,
+    Candle,
+    DataNotAvailableError,
+    DataSource,
+    MarketDataError,
+    MarketDataProvider,
+    Ticker,
+)
 from app.market.catalog import get_asset
 from app.market.timeframes import align, tf_seconds
 
 GENESIS = 1514764800  # 2018-01-01 00:00 UTC (Monday)
 ANCHOR_TS = 1767225600  # 2026-01-01 00:00 UTC — prices are scaled so the close here = anchor_price
 HORIZON_DAYS = 365 * 12 + 3
+HORIZON_END = GENESIS + HORIZON_DAYS * 86400  # 2030-01-01 00:00 UTC: no demo data from here on
+_HORIZON_MESSAGE = "DEMO data is generated only for 2018-01-01 … 2029-12-31 (no synthetic data outside that range)."
 
 CHILDREN: dict[str, tuple[str, int]] = {
     "1d": ("4h", 6),
@@ -263,7 +273,8 @@ class DemoMarketDataProvider(MarketDataProvider):
 
     def _child_list(self, symbol: str, tf: str, full: tuple) -> tuple[str, tuple]:
         if tf == "1w":
-            days = tuple(self._daily_tuple(symbol, (full[0] - GENESIS) // 86400 + j) for j in range(7))
+            first = (full[0] - GENESIS) // 86400
+            days = tuple(self._daily_tuple(symbol, first + j) for j in range(7) if first + j < HORIZON_DAYS)
             return "1d", days
         child_tf, _ = CHILDREN[tf]
         return child_tf, _children(symbol, tf, full)
@@ -311,6 +322,8 @@ class DemoMarketDataProvider(MarketDataProvider):
         closed_end = min(align(end, timeframe), last_closed)
         if start is None:
             start = closed_end - (limit - 1) * sec
+        if start >= HORIZON_END:
+            raise MarketDataError(_HORIZON_MESSAGE)
         rows = self._series(asset.symbol, timeframe, start, closed_end)
         if include_partial and start <= current_open <= end:
             part = self._partial(asset.symbol, timeframe, current_open, now)
@@ -324,6 +337,8 @@ class DemoMarketDataProvider(MarketDataProvider):
         self._check(asset)
         now = int(now if now is not None else self._clock())
         last = self.get_candles(asset, "1m", limit=2, now=now)
+        if not last:
+            raise MarketDataError(_HORIZON_MESSAGE)
         price = last[-1].close
         prev = self.get_candles(asset, "1m", limit=1, end=now - 86400, now=now, include_partial=False)
         change = (price / prev[-1].close - 1) * 100 if prev else None

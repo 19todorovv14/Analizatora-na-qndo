@@ -72,7 +72,7 @@ export default function AiTeacherPage() {
 
   return (
     <div className="grid gap-4 xl:grid-cols-[1fr_420px]">
-      <div className="space-y-3">
+      <div className="min-w-0 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="mr-2 text-lg font-bold">AI Teacher</h1>
           <SymbolPicker value={symbol} onChange={setSymbol} />

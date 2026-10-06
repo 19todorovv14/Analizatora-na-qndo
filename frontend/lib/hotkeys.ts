@@ -136,13 +136,18 @@ function isEditable(e: KeyboardEvent): boolean {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || t.isContentEditable;
 }
 
+const warned = new Set<string>();
+
 function parseBindings(bindings: Record<string, HotkeyHandler>): Parsed[] {
   const out: Parsed[] = [];
   for (const [combo, handler] of Object.entries(bindings)) {
     const steps = parseCombo(combo);
     if (!steps.length || steps.some((s) => !s.key)) continue;
     if (steps.some((s) => s.key === "escape")) {
-      if (process.env.NODE_ENV !== "production") console.warn(`useHotkeys: "${combo}" ignored — Escape must not be bound globally.`);
+      if (process.env.NODE_ENV !== "production" && !warned.has(combo)) {
+        warned.add(combo);
+        console.warn(`useHotkeys: "${combo}" ignored — Escape must not be bound globally.`);
+      }
       continue;
     }
     out.push({ combo, steps, handler });

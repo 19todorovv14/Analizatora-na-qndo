@@ -56,7 +56,7 @@ export function GuidedTour() {
         />
       )}
       <div
-        className="card fade-in absolute w-80 p-4 shadow-2xl"
+        className="glass-strong fade-in absolute w-80 rounded-2xl p-4 shadow-modal"
         style={rect ? { left: Math.min(rect.right + 16, window.innerWidth - 340), top: Math.max(rect.top - 10, 10) } : { left: "50%", top: "30%", transform: "translateX(-50%)" }}
       >
         <div className="text-[11px] uppercase tracking-wider text-muted">

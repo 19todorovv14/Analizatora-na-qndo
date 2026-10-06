@@ -28,7 +28,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-screen">
       <aside
         className={cx(
-          "fixed inset-y-0 left-0 z-40 w-56 shrink-0 border-r border-line bg-panel transition-transform lg:static lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-40 w-56 shrink-0 border-r border-line bg-surface transition-transform lg:static lg:translate-x-0 lg:bg-panel",
           mobileOpen ? "translate-x-0" : "-translate-x-full",
         )}
       >

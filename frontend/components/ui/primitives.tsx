@@ -43,7 +43,7 @@ export function Card({
       {(title || right) && (
         <header className="flex min-h-11 items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-2.5">
           <h2 className="flex min-w-0 items-center gap-1.5 text-[13px] font-semibold tracking-[-0.005em] text-text">{title}</h2>
-          {right && <div className="flex shrink-0 items-center gap-2">{right}</div>}
+          {right && <div className="flex min-w-0 items-center justify-end gap-2">{right}</div>}
         </header>
       )}
       <div className={cx(!hasPadding(bodyClass) && "p-4", bodyClass)}>{loading ? <SkeletonText lines={3} /> : children}</div>
@@ -163,7 +163,7 @@ export function Tabs<T extends string>({
   className?: string;
 }) {
   return (
-    <div className={cx("flex gap-1 border-b border-white/[0.07]", className)}>
+    <div className={cx("no-scrollbar flex gap-1 overflow-x-auto shadow-[inset_0_-1px_0_0_rgb(255_255_255/0.07)]", className)}>
       {tabs.map((t) => {
         const on = value === t.key;
         return (
@@ -172,7 +172,7 @@ export function Tabs<T extends string>({
             type="button"
             onClick={() => onChange(t.key)}
             className={cx(
-              "-mb-px inline-flex items-center gap-1.5 whitespace-nowrap rounded-t-md border-b-2 px-3 pb-2 pt-1.5 text-sm font-medium transition-colors duration-150",
+              "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-md border-b-2 px-3 pb-2 pt-1.5 text-sm font-medium transition-colors duration-150",
               on ? "border-accent text-text" : "border-transparent text-muted hover:border-white/15 hover:text-text",
             )}
           >
@@ -316,7 +316,8 @@ export function PaperBadge({ compact, className }: { compact?: boolean; classNam
     <span
       title={compact ? `${text}. Няма реални пари и реални поръчки.` : "Няма реални пари и реални поръчки."}
       className={cx(
-        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-warn/30 bg-warn/[0.08] px-2 py-0.5 text-[11px] font-semibold uppercase leading-4 tracking-[0.06em] text-warn",
+        "inline-flex items-center gap-1.5 rounded-md border border-warn/30 bg-warn/[0.08] px-2 py-0.5 text-[11px] font-semibold uppercase leading-4 tracking-[0.06em] text-warn",
+        compact && "whitespace-nowrap",
         className,
       )}
     >

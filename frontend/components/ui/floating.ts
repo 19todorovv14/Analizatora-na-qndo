@@ -74,19 +74,28 @@ export function resolveAnchor(a: AnchorLike): HTMLElement | null {
 export function useAnchoredPosition(
   open: boolean,
   anchor: AnchorLike,
-  floatingEl: HTMLElement | null,
+  floating: AnchorLike,
   side: Side,
   align: Align,
   offset = 8,
+  /** give the floating element at least the anchor's width */
+  matchWidth = false,
 ) {
   useLayoutEffect(() => {
     const anchorEl = resolveAnchor(anchor);
+    const floatingEl = resolveAnchor(floating);
     if (!open || !anchorEl || !floatingEl) return;
     let raf = 0;
     const place = () => {
       raf = 0;
       if (!anchorEl.isConnected) return;
       const a = anchorEl.getBoundingClientRect();
+      // anchor scrolled out of view → hide instead of sticking to the viewport edge
+      if (a.bottom < 0 || a.top > window.innerHeight || a.right < 0 || a.left > window.innerWidth) {
+        floatingEl.style.visibility = "hidden";
+        return;
+      }
+      if (matchWidth) floatingEl.style.minWidth = `${Math.round(a.width)}px`;
       const f = floatingEl.getBoundingClientRect();
       const pos = computePosition(a, { width: f.width, height: f.height }, side, align, offset);
       floatingEl.style.top = `${pos.top}px`;
@@ -109,7 +118,7 @@ export function useAnchoredPosition(
       window.removeEventListener("resize", schedule);
       ro?.disconnect();
     };
-  }, [open, anchor, floatingEl, side, align, offset]);
+  }, [open, anchor, floating, side, align, offset, matchWidth]);
 }
 
 let scrollLocks = 0;

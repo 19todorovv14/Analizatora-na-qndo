@@ -36,3 +36,6 @@ const FALLBACK: ExplainCtx = { explain: DEFAULT_EXPLAIN, setExplain: () => {}, t
 export function useExplain(): ExplainCtx {
   return useContext(Ctx) ?? FALLBACK;
 }
+
+/** Convenience re-export: <Term k="…"> also lives in the design system (`@/components/ui`). */
+export { Term } from "@/components/ui/term";

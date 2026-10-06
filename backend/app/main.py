@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import re
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -13,7 +15,7 @@ from app.api import academy, ai, auth, learn, market, markets, misc, paper, repl
 from app.config import get_settings
 from app.database import SessionLocal, init_db
 from app.exchange.base import LiveTradingDisabledError
-from app.market.base import MarketDataError
+from app.market.base import DataNotAvailableError, MarketDataError
 from app.market.catalog import UnknownAssetError
 from app.market.timeframes import TimeframeError
 
@@ -33,6 +35,19 @@ async def lifespan(_: FastAPI):
 
         with SessionLocal() as db:
             seed(db)
+    # provider-synced instruments (app.market.discovery) are loaded lazily from the assets table
+    from app.market import discovery, search
+
+    discovery.install_db_loader()
+    if settings.app_env != "test":  # build the search index off the request path
+
+        def _warm() -> None:
+            try:
+                log.info("Instrument search index ready (%d instruments)", search.warm())
+            except Exception:  # noqa: BLE001 - warm-up is an optimisation only
+                log.warning("Search index warm-up failed", exc_info=True)
+
+        threading.Thread(target=_warm, name="catalog-warmup", daemon=True).start()
     log.info("Trading Academy API started — execution mode: PAPER (virtual funds only)")
     yield
 
@@ -63,9 +78,26 @@ async def security_headers(request: Request, call_next):
     return response
 
 
+_QUERY_STRING = re.compile(r"\?[^\s'\"]*=[^\s'\"]*")
+
+
 @app.exception_handler(MarketDataError)
 async def _market_error(_: Request, exc: MarketDataError):
-    return JSONResponse(status_code=503, content={"detail": f"Market data unavailable: {exc}"})
+    """503 as before; `detail` stays a string, `code`/`reason` are added for the UI.
+
+    code = DATA_NOT_AVAILABLE when no configured provider supports the instrument (configuration),
+    MARKET_DATA_ERROR for provider failures. Query strings are stripped (never echo API keys).
+    """
+    reason = _QUERY_STRING.sub("?…", str(exc))
+    content: dict = {
+        "detail": f"Market data unavailable: {reason}",
+        "code": exc.code if isinstance(exc, DataNotAvailableError) else "MARKET_DATA_ERROR",
+        "reason": reason,
+    }
+    symbol = getattr(exc, "symbol", None)
+    if symbol:
+        content["symbol"] = symbol
+    return JSONResponse(status_code=503, content=content)
 
 
 @app.exception_handler(UnknownAssetError)
