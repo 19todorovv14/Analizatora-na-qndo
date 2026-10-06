@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+/* Dark, TradingView-inspired palette. All colours are tokens → usable as Tailwind classes (bg-panel, text-muted…). */
+@theme {
+  --color-bg: #0b0e14;
+  --color-panel: #131722;
+  --color-panel2: #1a1e2b;
+  --color-panel3: #222736;
+  --color-line: #2a2e39;
+  --color-text: #d1d4dc;
+  --color-muted: #8b90a0;
+  --color-faint: #5d6273;
+  --color-accent: #2962ff;
+  --color-accent2: #5b8cff;
+  --color-up: #26a69a;
+  --color-down: #ef5350;
+  --color-warn: #f5a623;
+  --color-info: #42a5f5;
+  --color-violet: #ab47bc;
+  --color-gold: #f5c542;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2a2e39 transparent;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+
+.card {
+  background: var(--color-panel);
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+}
+
+.input {
+  background: var(--color-panel2);
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: var(--color-text);
+  outline: none;
+  width: 100%;
+  font-size: 0.875rem;
+}
+.input:focus {
+  border-color: var(--color-accent);
+}
+.input:disabled {
+  opacity: 0.5;
+}
+
+.label {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-muted);
+  margin-bottom: 4px;
+}
+
+.prose-lesson p {
+  margin: 0.6rem 0;
+  line-height: 1.7;
+}
+.prose-lesson li {
+  margin: 0.25rem 0;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.fade-in {
+  animation: fade-in 0.25s ease-out;
+}

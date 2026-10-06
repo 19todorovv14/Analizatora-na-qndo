@@ -1,0 +1,21 @@
+[project]
+name = "trading-academy-backend"
+version = "1.0.0"
+description = "Educational trading platform API (paper trading only)"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["B008", "UP042", "B905", "E501"]  # long lines are mostly human-readable (Bulgarian) text
+
+[tool.ruff.lint.isort]
+# the local alembic/ migrations folder must not make the alembic package look first-party
+known-third-party = ["alembic"]
+
+[tool.ruff.lint.per-file-ignores]
+"app/academy/content/*.py" = ["E501"]

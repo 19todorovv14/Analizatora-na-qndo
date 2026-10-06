@@ -1,0 +1,32 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# local databases
+*.db
+*.db-shm
+*.db-wal
+*.sqlite3
+celerybeat-schedule*
+
+# node / next
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# editors / OS
+.DS_Store
+.idea/
+.vscode/

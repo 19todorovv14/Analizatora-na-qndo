@@ -1,0 +1,97 @@
+# Trading Academy — full stack. Start everything with:  docker compose up --build
+# Web app: http://localhost:3000   API docs: http://localhost:8000/docs
+# PAPER TRADING ONLY: no service here can place real orders or move real funds.
+
+x-backend-env: &backend-env
+  APP_ENV: ${APP_ENV:-production}
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-trading}:${POSTGRES_PASSWORD:-trading}@postgres:5432/${POSTGRES_DB:-trading_academy}
+  AUTO_CREATE_TABLES: "false" # schema is managed by Alembic (alembic upgrade head)
+  SEED_DEMO_DATA: "false" # the backend container seeds once on start (python -m app.seed)
+  REDIS_URL: redis://redis:6379/0
+  USE_CELERY: ${USE_CELERY:-true}
+  SECRET_KEY: ${SECRET_KEY:-change-me-docker-local-secret-0123456789abcdef}
+  COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+  MARKET_DATA_CRYPTO: ${MARKET_DATA_CRYPTO:-demo}
+  MARKET_DATA_FX: ${MARKET_DATA_FX:-demo}
+  MARKET_DATA_STOCKS: ${MARKET_DATA_STOCKS:-demo}
+  TWELVEDATA_API_KEY: ${TWELVEDATA_API_KEY:-}
+  FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
+  AI_PROVIDER: ${AI_PROVIDER:-offline}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-5-5}
+  AI_EFFORT: ${AI_EFFORT:-low}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-trading}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-trading}
+      POSTGRES_DB: ${POSTGRES_DB:-trading_academy}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    environment: *backend-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    restart: unless-stopped
+
+  worker:
+    build: ./backend
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "-l", "info", "--concurrency", "2"]
+    environment: *backend-env
+    healthcheck:
+      disable: true
+    depends_on:
+      backend:
+        condition: service_healthy # schema migrated before jobs run
+    restart: unless-stopped
+
+  beat:
+    build: ./backend
+    command: ["celery", "-A", "app.workers.celery_app", "beat", "-l", "info", "--schedule", "/tmp/celerybeat-schedule"]
+    environment: *backend-env
+    healthcheck:
+      disable: true
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    environment:
+      BACKEND_URL: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
