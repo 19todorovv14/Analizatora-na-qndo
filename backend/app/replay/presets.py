@@ -76,7 +76,9 @@ def _frac(regs: Sequence[str], a: int, b: int, names: tuple[str, ...]) -> float:
     return sum(1 for r in regs[a : b + 1] if r in names) / n if n > 0 else 0.0
 
 
-def _evaluate(preset: str, candles: Sequence[Candle], regs: Sequence[str], atr: Sequence[float | None], s: int, focus: int):
+def _evaluate(
+    preset: str, candles: Sequence[Candle], regs: Sequence[str], atr: Sequence[float | None], s: int, focus: int
+):
     """(score 0..1, matched, info) for the window whose first revealed candle is s + 1."""
     a, b = s + 1, s + focus
     closes = [c.close for c in candles]
@@ -95,13 +97,26 @@ def _evaluate(preset: str, candles: Sequence[Candle], regs: Sequence[str], atr: 
         agrees = (net_atr > 0) == (direction == "up")
         score = 0.6 * dir_frac + 0.4 * min(1.0, er / 0.35)
         matched = dir_frac >= 0.25 and er >= 0.15 and abs(net_atr) >= 3 and agrees
-        return score, matched, {"direction": direction, "trend_fraction": round(dir_frac, 3), "efficiency": round(er, 3), "net_atr": round(net_atr, 2)}
+        return (
+            score,
+            matched,
+            {
+                "direction": direction,
+                "trend_fraction": round(dir_frac, 3),
+                "efficiency": round(er, 3),
+                "net_atr": round(net_atr, 2),
+            },
+        )
     if preset == "range":
         rng = _frac(regs, a, b, ("RANGING",)) + 0.5 * _frac(regs, a, b, ("LOW_VOLATILITY",))
         trend = _frac(regs, a, b, ("TRENDING_UP", "TRENDING_DOWN"))
         score = 0.6 * min(1.0, rng / 0.5) + 0.4 * (1 - min(1.0, er / 0.3))
         matched = rng >= 0.2 and trend <= 0.25 and er <= 0.12 and abs(net_atr) <= 3
-        return score, matched, {"range_fraction": round(rng, 3), "efficiency": round(er, 3), "net_atr": round(net_atr, 2)}
+        return (
+            score,
+            matched,
+            {"range_fraction": round(rng, 3), "efficiency": round(er, 3), "net_atr": round(net_atr, 2)},
+        )
     if preset == "high_volatility":
         hv = _frac(regs, a, b, ("HIGH_VOLATILITY",))
         return hv, hv >= 0.3, {"high_volatility_fraction": round(hv, 3), "net_atr": round(net_atr, 2)}
@@ -120,7 +135,11 @@ def _evaluate(preset: str, candles: Sequence[Candle], regs: Sequence[str], atr: 
                 brk = (i, "down")
                 break
         if brk is None:
-            return 0.25 * min(1.0, pre / 0.6), False, {"pre_range_fraction": round(pre, 3), "box_width_atr": round(width_atr, 2)}
+            return (
+                0.25 * min(1.0, pre / 0.6),
+                False,
+                {"pre_range_fraction": round(pre, 3), "box_width_atr": round(width_atr, 2)},
+            )
         i, direction = brk
         follow = candles[i : min(i + 11, b + 1)]
         if direction == "up":
@@ -129,22 +148,24 @@ def _evaluate(preset: str, candles: Sequence[Candle], regs: Sequence[str], atr: 
             ext = (box_low - min(c.low for c in follow)) / atr_s
         score = 0.5 * min(1.0, pre / 0.6) + 0.5 * min(1.0, ext / 2.0)
         matched = pre >= 0.3 and width_atr <= 8 and ext >= 1.0
-        return score, matched, {
-            "direction": direction,
-            "pre_range_fraction": round(pre, 3),
-            "box_high": box_high,
-            "box_low": box_low,
-            "box_width_atr": round(width_atr, 2),
-            "breakout_ts": candles[i].ts,
-            "bars_to_breakout": i - s,
-            "extension_atr": round(ext, 2),
-        }
+        return (
+            score,
+            matched,
+            {
+                "direction": direction,
+                "pre_range_fraction": round(pre, 3),
+                "box_high": box_high,
+                "box_low": box_low,
+                "box_width_atr": round(width_atr, 2),
+                "breakout_ts": candles[i].ts,
+                "bars_to_breakout": i - s,
+                "extension_atr": round(ext, 2),
+            },
+        )
     raise PresetError(f"Непознат preset '{preset}'. Позволени: {', '.join(PRESET_KEYS)}.")
 
 
-def choose_window(
-    candles: Sequence[Candle], preset: str, bars: int, *, seed_key: str
-) -> dict:
+def choose_window(candles: Sequence[Candle], preset: str, bars: int, *, seed_key: str) -> dict:
     """Pick the start index for a preset. `candles` = closed candles ending at the LAST closed candle.
 
     Returns {index, start_ts, end_index, matched, score, info, candidates, matching}.

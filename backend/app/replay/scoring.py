@@ -66,7 +66,14 @@ def _fmt(v: float | None, precision: int) -> str:
 
 def _flag(key: str, text: str, **extra) -> dict:
     info = FLAGS[key]
-    return {"key": key, "label": info["label"], "severity": info["severity"], "text": text, "lesson": info["lesson"], **extra}
+    return {
+        "key": key,
+        "label": info["label"],
+        "severity": info["severity"],
+        "text": text,
+        "lesson": info["lesson"],
+        **extra,
+    }
 
 
 def _swing(s) -> dict | None:
@@ -105,7 +112,11 @@ def decision_context(candles: Sequence[Candle]) -> dict:
         for x in rows[-LARGE_CANDLE_LOOKBACK:]:
             body = x.close - x.open
             if abs(body) >= LARGE_BODY_ATR * atr:
-                large = {"direction": "bullish" if body > 0 else "bearish", "time": x.ts, "body_atr": round(abs(body) / atr, 2)}
+                large = {
+                    "direction": "bullish" if body > 0 else "bearish",
+                    "time": x.ts,
+                    "body_atr": round(abs(body) / atr, 2),
+                }
     return {
         "available": True,
         "time": c.ts,
@@ -140,14 +151,22 @@ def validate_levels(action: str, entry: float, stop: float | None, target: float
         )
     if action == "long":
         if stop >= entry:
-            raise DecisionError(f"За LONG stop-ът трябва да е ПОД текущата цена {_fmt(entry, p)} (получен {_fmt(stop, p)}).")
+            raise DecisionError(
+                f"За LONG stop-ът трябва да е ПОД текущата цена {_fmt(entry, p)} (получен {_fmt(stop, p)})."
+            )
         if target is not None and target <= entry:
-            raise DecisionError(f"За LONG target-ът трябва да е НАД текущата цена {_fmt(entry, p)} (получен {_fmt(target, p)}).")
+            raise DecisionError(
+                f"За LONG target-ът трябва да е НАД текущата цена {_fmt(entry, p)} (получен {_fmt(target, p)})."
+            )
     elif action == "short":
         if stop <= entry:
-            raise DecisionError(f"За SHORT stop-ът трябва да е НАД текущата цена {_fmt(entry, p)} (получен {_fmt(stop, p)}).")
+            raise DecisionError(
+                f"За SHORT stop-ът трябва да е НАД текущата цена {_fmt(entry, p)} (получен {_fmt(stop, p)})."
+            )
         if target is not None and target >= entry:
-            raise DecisionError(f"За SHORT target-ът трябва да е ПОД текущата цена {_fmt(entry, p)} (получен {_fmt(target, p)}).")
+            raise DecisionError(
+                f"За SHORT target-ът трябва да е ПОД текущата цена {_fmt(entry, p)} (получен {_fmt(target, p)})."
+            )
     else:
         raise DecisionError("action трябва да е long, short или wait.")
 
@@ -176,14 +195,30 @@ def assess_entry(
         comps["rr"] = {"score": 40, "value": None, "text": "Няма target — планираният R:R е неизвестен."}
         flags.append(_flag("no_target", "Няма target: изходът при успех не е планиран, R:R не може да се оцени."))
     elif rr >= RR_GREAT:
-        comps["rr"] = {"score": 100, "value": round(rr, 2), "text": f"Планиран R:R {rr:.2f} — асиметрията е в твоя полза."}
+        comps["rr"] = {
+            "score": 100,
+            "value": round(rr, 2),
+            "text": f"Планиран R:R {rr:.2f} — асиметрията е в твоя полза.",
+        }
     elif rr >= RR_GOOD:
         comps["rr"] = {"score": 85, "value": round(rr, 2), "text": f"Планиран R:R {rr:.2f} (≥ {RR_GOOD:g}) — добре."}
     elif rr >= RR_BAD:
-        comps["rr"] = {"score": 55, "value": round(rr, 2), "text": f"Планиран R:R {rr:.2f} — под {RR_GOOD:g}, нужен е висок win rate."}
-        flags.append(_flag("low_rr", f"R:R {rr:.2f} е под {RR_GOOD:g}: печалбата при успех е малка спрямо риска.", rr=round(rr, 2)))
+        comps["rr"] = {
+            "score": 55,
+            "value": round(rr, 2),
+            "text": f"Планиран R:R {rr:.2f} — под {RR_GOOD:g}, нужен е висок win rate.",
+        }
+        flags.append(
+            _flag(
+                "low_rr", f"R:R {rr:.2f} е под {RR_GOOD:g}: печалбата при успех е малка спрямо риска.", rr=round(rr, 2)
+            )
+        )
     else:
-        comps["rr"] = {"score": 15, "value": round(rr, 2), "text": f"Планиран R:R {rr:.2f} (< {RR_BAD:g}) — рискуваш повече, отколкото целиш."}
+        comps["rr"] = {
+            "score": 15,
+            "value": round(rr, 2),
+            "text": f"Планиран R:R {rr:.2f} (< {RR_BAD:g}) — рискуваш повече, отколкото целиш.",
+        }
         flags.append(_flag("poor_rr", f"R:R {rr:.2f} < {RR_BAD:g}: рискът е по-голям от целта.", rr=round(rr, 2)))
 
     # --- stop placement
@@ -192,7 +227,11 @@ def assess_entry(
     swing = ctx.get("swing_low_below") if long else ctx.get("swing_high_above")
     swing_word = "swing low" if long else "swing high"
     if dist_atr is not None and dist_atr < NOISE_STOP_ATR:
-        comps["stop"] = {"score": 15, "distance_atr": round(dist_atr, 2), "text": f"Stop на {dist_atr:.2f} ATR — вътре в нормалния шум."}
+        comps["stop"] = {
+            "score": 15,
+            "distance_atr": round(dist_atr, 2),
+            "text": f"Stop на {dist_atr:.2f} ATR — вътре в нормалния шум.",
+        }
         flags.append(
             _flag(
                 "stop_in_noise",
@@ -301,10 +340,18 @@ def assess_entry(
     elif (long and regime == "TRENDING_DOWN") or (not long and regime == "TRENDING_UP"):
         comps["regime"] = {"score": 20, "regime": regime, "text": f"{side} срещу режима {regime}."}
         flags.append(
-            _flag("counter_trend", f"{side} при режим {regime} — търговията срещу тренда изисква по-силна причина.", regime=regime)
+            _flag(
+                "counter_trend",
+                f"{side} при режим {regime} — търговията срещу тренда изисква по-силна причина.",
+                regime=regime,
+            )
         )
     elif regime == "HIGH_VOLATILITY":
-        comps["regime"] = {"score": 55, "regime": regime, "text": "Висока волатилност — stop-ът и размерът са по-трудни."}
+        comps["regime"] = {
+            "score": 55,
+            "regime": regime,
+            "text": "Висока волатилност — stop-ът и размерът са по-трудни.",
+        }
     else:
         comps["regime"] = {"score": 70, "regime": regime, "text": f"Режим {regime} — без ясна посока."}
 

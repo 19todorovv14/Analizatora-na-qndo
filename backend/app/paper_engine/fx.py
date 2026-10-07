@@ -163,10 +163,17 @@ def timeframe_for(resolution: int) -> str:
 
 
 class StaticRates:
-    """Fixed USD value per currency unit — tests and what-if tooling. Unknown currencies → None."""
+    """Fixed USD value per currency unit — tests and what-if tooling. Unknown currencies → None.
+
+    Keys are currency codes (case-insensitive); a sub-unit key ("GBp") gives the value of ONE sub-unit and is
+    stored as the value of the major unit (GBp 0.0125 → GBP 1.25).
+    """
 
     def __init__(self, rates: Mapping[str, float]):
-        self.rates = {split_currency(k)[0]: float(v) for k, v in rates.items()}
+        self.rates: dict[str, float] = {}
+        for key, value in rates.items():
+            ccy, factor = split_currency(key)
+            self.rates[ccy] = float(value) / factor
 
     def __call__(self, currency: str, ts: int, resolution: int = 60) -> float | None:
         return self.rates.get(split_currency(currency)[0])
@@ -298,21 +305,23 @@ class MarketRateSource:
                     return opens[containing]
         return None
 
-    def _chunk(self, symbol: str, tf: str, start: int, span: int, now: int) -> tuple[list[int], list[float], list[float]]:
+    def _chunk(
+        self, symbol: str, tf: str, start: int, span: int, now: int
+    ) -> tuple[list[int], list[float], list[float]]:
         from app.services import market_service
 
         sec = dict(_TIMEFRAMES)[tf]
         end = min(start + span - sec, now)
         if end < start:
             return [], [], []
+        local = self._local.get((symbol, tf, start))  # per-instance: the provider cannot change mid-request
+        if local is not None:
+            return local
         try:
             source_id = market_service.source_of(symbol).get("id")
         except (MarketDataError, KeyError):
             source_id = None
         key = (source_id, symbol, tf, start)
-        local = self._local.get(key)
-        if local is not None:
-            return local
         complete = start + span <= now
         cached = _cache_get(key) if complete else None
         if cached is None:
@@ -323,7 +332,7 @@ class MarketRateSource:
             cached = ([c.ts for c in rows], [c.open for c in rows], [c.close for c in rows])
             if complete:
                 _cache_put(key, cached)
-        self._local[key] = cached
+        self._local[(symbol, tf, start)] = cached
         return cached
 
 
@@ -373,6 +382,10 @@ class QuoteConverter:
     def is_identity(self, symbol: str) -> bool:
         return self.method(symbol) == IDENTITY
 
+    def is_price_dependent(self, symbol: str) -> bool:
+        """True for USD/XXX instruments: the rate is 1 / the instrument's own price (P/L is not linear)."""
+        return self.method(symbol) == INVERSE
+
     def __call__(self, symbol: str, ts: int, price: float | None = None, resolution: int = 60) -> float:
         method = self.method(symbol)
         if method == IDENTITY:
@@ -406,9 +419,7 @@ class QuoteConverter:
                 f"Курсът {ccy} → {ACCOUNT_CURRENCY} не е наличен: {redact_secrets(exc)}", symbol=symbol
             ) from exc
         if rate is None or not math.isfinite(rate) or rate <= 0:
-            raise ConversionUnavailableError(
-                f"Няма курс {ccy} → {ACCOUNT_CURRENCY} за този момент.", symbol=symbol
-            )
+            raise ConversionUnavailableError(f"Няма курс {ccy} → {ACCOUNT_CURRENCY} за този момент.", symbol=symbol)
         return factor * float(rate)
 
     def route(self, symbol: str) -> FxRoute | None:

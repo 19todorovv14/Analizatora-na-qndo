@@ -34,6 +34,10 @@ class OrderIn(BaseModel):
     timeframe: str | None = None
     setup: str | None = Field(None, max_length=100)
     note: str | None = Field(None, max_length=500)
+    # per-order leverage (1 … the instrument's max_leverage, checked by the service → 400); None = account default
+    leverage: float | None = Field(None, ge=1, le=100)
+    # preview only: risk-based sizing helper (% of equity risked at the stop)
+    risk_pct: float | None = Field(None, gt=0, le=100)
 
     @model_validator(mode="after")
     def _price_for_pending(self):
@@ -81,10 +85,21 @@ def account(user: User = Depends(current_user), db: Session = Depends(get_db)):
     return paper_service.account_view(db, acc, broker)
 
 
+@router.get("/instrument")
+def instrument(
+    symbol: str = Query(..., min_length=1, max_length=40),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Order-panel parameters of one instrument: leverage cap/default, sizes, costs, quote-currency conversion."""
+    symbol_param(symbol)
+    return paper_service.instrument_info(db, _account(db, user), symbol, now_ts())
+
+
 @router.post("/orders/preview")
 def preview(body: OrderIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
     symbol_param(body.symbol)
-    return paper_service.preview_order(db, user, _account(db, user), body.model_dump(), now_ts())
+    return _guard(paper_service.preview_order, db, user, _account(db, user), body.model_dump(), now_ts())
 
 
 @router.post("/orders")

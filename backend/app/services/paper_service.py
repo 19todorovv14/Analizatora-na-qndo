@@ -7,6 +7,7 @@ real exchange — see app.exchange for the (paper-only) adapter.
 
 from __future__ import annotations
 
+import math
 import time
 from datetime import UTC, datetime
 
@@ -16,16 +17,18 @@ from sqlalchemy.orm import Session
 from app import indicators as ind
 from app.analysis.signal import analyze
 from app.backtesting.metrics import trade_metrics
-from app.market.base import MarketDataError
+from app.market.base import AssetSpec, MarketDataError, redact_secrets
 from app.market.catalog import SPECS, get_asset
 from app.market.timeframes import align
 from app.models import PaperAccount, PaperEvent, PaperOrder, PaperPosition, PaperTrade, RiskEvent, User
-from app.paper_engine.broker import PaperBroker
+from app.paper_engine.broker import MARGIN_MODE, PaperBroker, effective_daily_vol
+from app.paper_engine.fx import ACCOUNT_CURRENCY, QuoteConverter
 from app.paper_engine.models import ACTIVE_ORDER_STATUSES, AccountState, Bar, ExecutionConfig, Order, Position
-from app.risk.engine import evaluate_trade, max_drawdown, trade_plan
+from app.risk.engine import RiskFinding, evaluate_trade, max_drawdown, trade_plan
 from app.services import market_service, settings_service
 
 MAX_CATCHUP_SECONDS = 3 * 86400
+LEVERAGE_WARNING = "Higher leverage magnifies exposure and liquidation risk."
 
 _ORDER_FIELDS = (
     "symbol",
@@ -74,6 +77,19 @@ _POS_FIELDS = (
 
 class PaperError(ValueError):
     pass
+
+
+def requested_leverage(spec: AssetSpec, value: float | None) -> float | None:
+    """Validate a per-order leverage: 1 ≤ L ≤ the instrument's max_leverage. None → the account default."""
+    if value is None:
+        return None
+    lev = float(value)
+    max_lev = max(1.0, spec.max_leverage)
+    if not math.isfinite(lev) or lev < 1:
+        raise PaperError("Leverage трябва да е поне 1x.")
+    if lev > max_lev + 1e-9:
+        raise PaperError(f"Максималният leverage за {spec.symbol} е {max_lev:g}x (поискан {lev:g}x).")
+    return lev
 
 
 # ----------------------------------------------------------------- accounts
@@ -150,7 +166,9 @@ def load_broker(db: Session, acc: PaperAccount) -> PaperBroker:
         select(PaperPosition).where(PaperPosition.account_id == acc.id, PaperPosition.status == "open")
     ):
         state.positions[r.id] = _pos_from_row(r)
-    return PaperBroker(state, SPECS, ExecutionConfig.from_dict(acc.execution), seed=f"acct:{acc.id}")
+    return PaperBroker(
+        state, SPECS, ExecutionConfig.from_dict(acc.execution), seed=f"acct:{acc.id}", convert=QuoteConverter(SPECS)
+    )
 
 
 def save_broker(db: Session, acc: PaperAccount, broker: PaperBroker, user_id: int | None = None) -> None:
@@ -238,7 +256,7 @@ def sync_account(db: Session, acc: PaperAccount, now: int | None = None) -> Pape
                 rows = []
             series[sym] = {c.ts: Bar(c.ts, c.open, c.high, c.low, c.close, c.volume, 60) for c in rows}
             if rows:
-                broker.set_mark(sym, rows[0].open)
+                broker.set_mark(sym, rows[0].open, rows[0].ts)
         for ts in sorted({ts for bars in series.values() for ts in bars}):
             for sym, bars in series.items():
                 bar = bars.get(ts)
@@ -250,7 +268,7 @@ def sync_account(db: Session, acc: PaperAccount, now: int | None = None) -> Pape
     acc.last_synced_ts = max(acc.last_synced_ts, last_processed_close)
     for sym in symbols:  # mark to the live (forming) price for display
         try:
-            broker.set_mark(sym, market_service.ticker(sym, now=now).price)
+            broker.set_mark(sym, market_service.ticker(sym, now=now).price, now)
         except MarketDataError:
             pass
     user = db.get(User, acc.user_id)
@@ -280,14 +298,20 @@ def order_to_dict(o: PaperOrder | Order) -> dict:
         "created_ts": o.created_ts,
         "updated_ts": o.updated_ts,
         "reason": (o.meta or {}).get("reason"),
+        "leverage": (o.meta or {}).get("leverage"),  # requested per-order leverage; None → account default
     }
 
 
 def position_to_dict(p: Position, broker: PaperBroker) -> dict:
+    """Open position for the UI. Money fields (margin, P/L, notional) are in the account currency (USD);
+    prices are in the instrument's quote currency."""
     spec = get_asset(p.symbol)
     mark = broker.marks.get(p.symbol, p.entry_price)
     upnl = broker.position_upnl(p)
+    upnl_quote = broker.position_upnl_quote(p)
     risk_unit = abs(p.entry_price - p.initial_stop) if p.initial_stop is not None else None
+    margin = broker.position_margin(p)
+    liquidation = broker.liquidation_price(p)
     return {
         "id": p.id,
         "symbol": p.symbol,
@@ -300,11 +324,22 @@ def position_to_dict(p: Position, broker: PaperBroker) -> dict:
         "take_profit": p.take_profit,
         "initial_stop": p.initial_stop,
         "leverage": p.leverage,
-        "margin": p.qty * p.entry_price / p.leverage,
+        "max_leverage": spec.max_leverage,
+        "margin": margin,
+        "maintenance_margin": broker.cfg.stop_out_level * margin,
+        "margin_mode": MARGIN_MODE,
+        "notional": broker.position_notional(p),
         "unrealized_pnl": upnl,
-        "unrealized_r": upnl / (risk_unit * p.qty) if risk_unit else None,
+        "unrealized_pnl_quote": upnl_quote,
+        # R uses price distances (quote currency), so it is independent of the conversion rate
+        "unrealized_r": upnl_quote / (risk_unit * p.qty) if risk_unit else None,
         "realized_pnl": p.realized_pnl,
-        "liquidation_price": broker.liquidation_price(p),
+        "liquidation_price": liquidation,
+        "liquidation_distance_pct": (abs(mark - liquidation) / mark * 100) if liquidation and mark > 0 else None,
+        "currency": ACCOUNT_CURRENCY,
+        "quote_currency": spec.currency,
+        # USD per quote unit used for the P/L above (at the closing price; 1.0 for USD-quoted instruments)
+        "fx_rate": broker.fx_rate(p.symbol, price=broker.exit_price(p), fallback=(p.meta or {}).get("fx_entry")),
         "opened_ts": p.opened_ts,
         "sl_history": p.sl_history,
         "precision": spec.price_precision,
@@ -360,6 +395,7 @@ def account_view(db: Session, acc: PaperAccount, broker: PaperBroker, now: int |
     metrics = trade_metrics(trades, equity, acc.initial_balance)
     _, dd_pct = max_drawdown(equity + [snap["equity"]])
     orders = [order_to_dict(o) for o in broker.s.orders.values() if o.is_active and not o.reduce_only]
+    margin_level = snap["margin_level"]
     return {
         "account": {
             "id": acc.id,
@@ -372,6 +408,7 @@ def account_view(db: Session, acc: PaperAccount, broker: PaperBroker, now: int |
             "created_ts": acc.created_ts,
             "last_synced_ts": acc.last_synced_ts,
         },
+        "currency": acc.currency or ACCOUNT_CURRENCY,
         "balance": snap["balance"],
         "equity": snap["equity"],
         "unrealized_pnl": snap["unrealized_pnl"],
@@ -379,7 +416,15 @@ def account_view(db: Session, acc: PaperAccount, broker: PaperBroker, now: int |
         "fees_paid": snap["fees_paid"],
         "used_margin": snap["used_margin"],
         "free_margin": snap["free_margin"],
-        "margin_level": snap["margin_level"],
+        "available_margin": snap["available_margin"],
+        "maintenance_margin": snap["maintenance_margin"],
+        "margin_level": margin_level,
+        "margin_level_pct": margin_level * 100 if margin_level is not None else None,
+        "stop_out_level": snap["stop_out_level"],
+        "margin_mode": MARGIN_MODE,
+        "default_leverage": acc.leverage,
+        "effective_leverage": snap["effective_leverage"],
+        "exposure_pct": snap["exposure_pct"],
         "exposure": snap["exposure"],
         "day_pnl": day_pnl(db, acc, broker, now),
         "max_drawdown_pct": max(acc.max_drawdown_pct, dd_pct),
@@ -421,18 +466,95 @@ def entry_context(symbol: str, timeframe: str, side: str, now: int, news_risk: b
 def prepare_broker_for_symbol(db: Session, acc: PaperAccount, symbol: str, now: int) -> PaperBroker:
     broker = sync_account(db, acc, now)
     t = market_service.ticker(symbol, now=now)
-    broker.set_mark(symbol, t.price)
+    broker.set_mark(symbol, t.price, now)
     bar = market_service.last_closed_1m(symbol, now)
     if bar:
         broker.last_bar[symbol] = Bar(bar.ts, bar.open, bar.high, bar.low, bar.close, bar.volume, 60)
     return broker
 
 
+def conversion_info(broker: PaperBroker, symbol: str, *, price: float | None = None, ts: int | None = None) -> dict:
+    """How `symbol`'s quote currency is converted to the account currency: {quote_currency, account_currency,
+    method (identity|inverse|cross|fixed), route ({currency, symbol, invert} | None), rate, available, reason}."""
+    describe = getattr(broker.convert, "describe", None)
+    spec = broker.specs[symbol]
+    info = (
+        describe(symbol)
+        if callable(describe)
+        else {"quote_currency": spec.currency, "account_currency": ACCOUNT_CURRENCY, "method": None, "route": None}
+    )
+    try:
+        rate = broker.fx_rate(symbol, price=price, ts=ts, strict=True)
+    except MarketDataError as exc:
+        return {**info, "rate": None, "available": False, "reason": redact_secrets(getattr(exc, "reason", exc))}
+    return {**info, "rate": rate, "available": True, "reason": None}
+
+
+def account_plan(
+    broker: PaperBroker,
+    *,
+    symbol: str,
+    side: str,
+    entry: float,
+    stop: float | None,
+    take_profit: float | None,
+    qty: float,
+    equity: float,
+    fee_rate: float,
+    ts: int | None = None,
+) -> dict:
+    """risk.engine.trade_plan with every amount in the account currency (USD).
+
+    trade_plan works in the instrument's quote currency; here potential loss/profit and the notional are converted
+    with the rate at the stop / target / entry price (exact for USD/XXX instruments, whose rate is 1/price) and
+    risk_pct is recomputed against the USD equity. Quote-currency amounts are kept under `quote`.
+    Raises ConversionUnavailableError when no conversion rate exists.
+    """
+    plan = trade_plan(
+        side=side, entry=entry, stop=stop, take_profit=take_profit, qty=qty, balance=equity, fee_rate=fee_rate
+    )
+    quote = {k: plan[k] for k in ("notional", "potential_loss", "potential_profit")}
+    if not broker.is_identity(symbol):
+        plan["notional"] = quote["notional"] * broker.fx_rate(symbol, price=entry, ts=ts, strict=True)
+        if quote["potential_loss"] is not None:
+            loss = quote["potential_loss"] * broker.fx_rate(symbol, price=stop, ts=ts, strict=True)
+            plan["potential_loss"] = loss
+            plan["risk_pct"] = loss / equity * 100 if equity > 0 else None
+        if quote["potential_profit"] is not None:
+            rate = broker.fx_rate(symbol, price=take_profit, ts=ts, strict=True)
+            plan["potential_profit"] = quote["potential_profit"] * rate
+    plan["currency"] = ACCOUNT_CURRENCY
+    plan["quote_currency"] = broker.specs[symbol].currency
+    plan["quote"] = quote
+    return plan
+
+
+def _leverage_findings(side: str, stop: float | None, liquidation: float | None) -> list[RiskFinding]:
+    if liquidation is None or stop is None:
+        return []
+    if (side == "buy" and liquidation >= stop) or (side == "sell" and liquidation <= stop):
+        return [
+            RiskFinding(
+                "liquidation_before_stop",
+                "high",
+                "Ликвидационната цена е преди stop loss-а.",
+                "При този размер stop-out ще затвори позицията принудително, преди цената да стигне твоя stop loss. "
+                "Ликвидацията не е план за изход — намали размера на позицията. " + LEVERAGE_WARNING,
+            )
+        ]
+    return []
+
+
 def preview_order(db: Session, user: User, acc: PaperAccount, req: dict, now: int | None = None) -> dict:
-    """Risk preview shown BEFORE the trade ("How much are you risking?")."""
+    """Risk preview shown BEFORE the trade ("How much are you risking?").
+
+    All money values are in the account currency (USD). Optional req["leverage"] (1 ≤ L ≤ instrument max; default
+    = min(account leverage, instrument max)) and req["risk_pct"] (risk-based sizing helper).
+    """
     now = int(now or time.time())
     symbol = req["symbol"]
     spec = get_asset(symbol)
+    lev_req = requested_leverage(spec, req.get("leverage"))
     broker = prepare_broker_for_symbol(db, acc, symbol, now)
     q = broker.quote(symbol)
     side = req["side"]
@@ -441,16 +563,21 @@ def preview_order(db: Session, user: User, acc: PaperAccount, req: dict, now: in
         if req.get("type") in ("limit", "stop") and req.get("price")
         else (q.ask if side == "buy" else q.bid)
     )
+    qty = float(req["qty"])
     snap = broker.snapshot()
     rules = settings_service.risk_rules(user)
-    plan = trade_plan(
+    est = broker.order_estimate(symbol=symbol, side=side, qty=qty, entry=entry, leverage=lev_req, ts=now)
+    plan = account_plan(
+        broker,
+        symbol=symbol,
         side=side,
         entry=entry,
         stop=req.get("stop_loss"),
         take_profit=req.get("take_profit"),
-        qty=float(req["qty"]),
-        balance=snap["equity"],
+        qty=qty,
+        equity=snap["equity"],
         fee_rate=spec.taker_fee,
+        ts=now,
     )
     findings = evaluate_trade(
         rules=rules,
@@ -459,10 +586,25 @@ def preview_order(db: Session, user: User, acc: PaperAccount, req: dict, now: in
         has_stop=req.get("stop_loss") is not None,
         open_positions=snap["open_positions"],
         exposure=snap["exposure"],
-        new_notional=float(req["qty"]) * entry,
+        new_notional=est["notional"],
         day_pnl=day_pnl(db, acc, broker, now),
     )
-    lev = broker.leverage_for(symbol)
+    findings += _leverage_findings(side, req.get("stop_loss"), est["liquidation_estimate"])
+
+    per_unit_risk = plan["potential_loss"] / qty if plan["potential_loss"] is not None and qty > 0 else None
+    risk_pct = req.get("risk_pct")
+    risk_amount = snap["equity"] * float(risk_pct) / 100 if risk_pct and snap["equity"] > 0 else None
+    sizing = {
+        "per_unit_risk": per_unit_risk,
+        "max_qty": broker.max_qty(symbol, entry=entry, leverage=lev_req, ts=now),
+        "min_qty": spec.min_qty,
+        "qty_step": spec.qty_step,
+        "risk_pct": risk_pct,
+        "risk_amount": risk_amount,
+        "qty_for_risk": (
+            spec.round_qty(risk_amount / per_unit_risk) if risk_amount and per_unit_risk and per_unit_risk > 0 else None
+        ),
+    }
     return {
         "symbol": symbol,
         "entry_estimate": entry,
@@ -471,10 +613,34 @@ def preview_order(db: Session, user: User, acc: PaperAccount, req: dict, now: in
         "spread": q.ask - q.bid,
         "plan": plan,
         "findings": [f.to_dict() for f in findings],
-        "leverage": lev,
-        "margin_required": float(req["qty"]) * entry / lev,
+        "leverage": est["leverage"],
+        "leverage_source": "order" if lev_req is not None else "account",
+        "max_leverage": est["max_leverage"],
+        "default_leverage": broker.leverage_for(symbol),
+        "margin_mode": MARGIN_MODE,
+        "margin_required": est["margin_required"],
         "free_margin": snap["free_margin"],
-        "fee_estimate": float(req["qty"]) * entry * spec.taker_fee,
+        "available_margin": snap["available_margin"],
+        "used_margin_after": est["used_margin_after"],
+        "free_margin_after": est["free_margin_after"],
+        "equity_after": est["equity_after"],
+        "maintenance_margin": est["maintenance_margin"],
+        "stop_out_level": est["stop_out_level"],
+        "margin_level_after": est["margin_level_after"],
+        "margin_level_after_pct": (est["margin_level_after"] * 100 if est["margin_level_after"] is not None else None),
+        "liquidation_estimate": est["liquidation_estimate"],
+        "liquidation_distance_pct": est["liquidation_distance_pct"],
+        "effective_leverage_after": est["effective_leverage_after"],
+        "fee_estimate": est["fee_estimate"],
+        "spread_cost": est["spread_cost"],
+        "notional": est["notional"],
+        "notional_quote": est["notional_quote"],
+        "currency": ACCOUNT_CURRENCY,
+        "quote_currency": spec.currency,
+        "fx_rate": est["fx_rate"],
+        "conversion": conversion_info(broker, symbol, price=entry, ts=now),
+        "sizing": sizing,
+        "leverage_warning": LEVERAGE_WARNING,
     }
 
 
@@ -483,14 +649,14 @@ def place_order(db: Session, user: User, acc: PaperAccount, req: dict, now: int 
     preview = preview_order(db, user, acc, req, now)
     broker = load_broker(db, acc)  # fresh state after the sync performed by preview_order
     symbol = req["symbol"]
-    broker.set_mark(symbol, (preview["bid"] + preview["ask"]) / 2)
+    broker.set_mark(symbol, (preview["bid"] + preview["ask"]) / 2, now)
     bar = market_service.last_closed_1m(symbol, now)
     if bar:
         broker.last_bar[symbol] = Bar(bar.ts, bar.open, bar.high, bar.low, bar.close, bar.volume, 60)
     for p in broker.open_positions():
         if p.symbol != symbol:
             try:
-                broker.set_mark(p.symbol, market_service.ticker(p.symbol, now=now).price)
+                broker.set_mark(p.symbol, market_service.ticker(p.symbol, now=now).price, now)
             except MarketDataError:
                 pass
     settings = settings_service.user_settings(user)
@@ -516,6 +682,7 @@ def place_order(db: Session, user: User, acc: PaperAccount, req: dict, now: int 
         take_profit=req.get("take_profit"),
         active_from_ts=align(now, "1m") + 60,
         meta=meta,
+        leverage=requested_leverage(get_asset(symbol), req.get("leverage")),
     )
     save_broker(db, acc, broker, user.id)
     if order.status != "rejected":
@@ -536,6 +703,60 @@ def place_order(db: Session, user: User, acc: PaperAccount, req: dict, now: int 
         db.commit()
     broker = sync_account(db, acc, now)
     return {"order": order_to_dict(order), "preview": preview, "view": account_view(db, acc, broker, now)}
+
+
+def instrument_info(db: Session, acc: PaperAccount, symbol: str, now: int | None = None) -> dict:
+    """Static + live trading parameters of one instrument for the order panel (leverage cap, sizes, costs,
+    quote-currency conversion). Missing market data gives available:false + reason instead of an error."""
+    now = int(now or time.time())
+    spec = get_asset(symbol)
+    broker = load_broker(db, acc)
+    out: dict = {
+        "symbol": spec.symbol,
+        "name": spec.name,
+        "asset_class": spec.asset_class,
+        "price_precision": spec.price_precision,
+        "qty_step": spec.qty_step,
+        "min_qty": spec.min_qty,
+        "maker_fee": spec.maker_fee,
+        "taker_fee": spec.taker_fee,
+        "spread_bps": spec.spread_bps,
+        "max_leverage": broker.max_leverage(symbol),
+        "default_leverage": broker.leverage_for(symbol),
+        "account_leverage": acc.leverage,
+        "margin_mode": MARGIN_MODE,
+        "stop_out_level": broker.cfg.stop_out_level,
+        "currency": ACCOUNT_CURRENCY,
+        "quote_currency": spec.currency,
+        "daily_vol": effective_daily_vol(spec),
+        "daily_vol_source": "instrument" if spec.daily_vol > 0 else "class_default",
+        "leverage_warning": LEVERAGE_WARNING,
+        "execution": broker.cfg.to_dict(),
+        "available": True,
+        "unavailable_reason": None,
+        "code": None,
+        "bid": None,
+        "ask": None,
+        "mid": None,
+        "spread": None,
+        "source": None,
+        "conversion": None,
+    }
+    try:
+        ticker = market_service.ticker(symbol, now=now)
+        out["source"] = market_service.source_of(symbol)
+    except MarketDataError as exc:
+        out.update(
+            available=False,
+            unavailable_reason=redact_secrets(getattr(exc, "reason", exc)),
+            code=getattr(exc, "code", "MARKET_DATA_ERROR"),
+        )
+        return out
+    broker.set_mark(symbol, ticker.price, now)
+    q = broker.quote(symbol)
+    out.update(bid=q.bid, ask=q.ask, mid=q.mid, spread=q.ask - q.bid)
+    out["conversion"] = conversion_info(broker, symbol, price=q.mid, ts=now)
+    return out
 
 
 def close_position(

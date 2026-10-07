@@ -14,16 +14,34 @@ A bullish bar is assumed to travel O → L → H → C and a bearish one O → H
 Resting orders and stops trigger in the order the path reaches them. With
 `intrabar_policy="worst_case"` a position whose stop-loss AND take-profit are both
 inside the same bar is assumed to hit the stop first (conservative).
+
+Leverage & margin (cross margin)
+--------------------------------
+Every order may carry its own leverage (1 ≤ L ≤ the instrument's max_leverage); without one the
+account default min(account leverage, instrument max) is used. The position keeps that leverage and
+blocks margin = notional / L (in the account currency, at the conversion rate of the fill). The whole
+account equity stands behind all positions: when equity / used margin falls below
+`ExecutionConfig.stop_out_level` the losing positions are closed (stop-out). A position's liquidation
+price is therefore the price at which, all else equal, the account would reach the stop-out level.
+
+Account currency
+----------------
+The account is kept in USD. Prices of an instrument are in its quote currency (AssetSpec.currency),
+so fees, P/L, margin and exposure are converted with `convert(symbol, ts, price, resolution)` — the
+USD value of one quote-currency unit at the event time (see app.paper_engine.fx). USD/USDT/USDC-quoted
+instruments convert 1:1 and never touch market data.
 """
 
 from __future__ import annotations
 
 import math
 import random
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from app.market.base import AssetSpec
+from app.market.base import AssetSpec, MarketDataError, redact_secrets
+from app.paper_engine.fx import ConversionFn, ConversionUnavailableError, QuoteConverter
 from app.paper_engine.models import (
     BUY,
     EPS,
@@ -44,6 +62,31 @@ from app.paper_engine.models import (
 )
 
 _UNSET = object()
+
+MARGIN_MODE = "cross"
+
+# Typical daily volatility per asset class, used for slippage/latency when an instrument has no
+# daily_vol of its own (provider-discovered "synced" instruments carry daily_vol = 0).
+CLASS_DAILY_VOL: dict[str, float] = {
+    "crypto": 0.04,
+    "stock": 0.02,
+    "etf": 0.012,
+    "forex": 0.006,
+    "index": 0.012,
+    "commodity": 0.02,
+}
+DEFAULT_DAILY_VOL = 0.02
+
+# Order meta keys that describe the order itself and are not copied onto the position it opens.
+_ORDER_ONLY_META = ("sl_offset", "tp_offset", "remainder", "leverage")
+
+
+def effective_daily_vol(spec: AssetSpec) -> float:
+    """The instrument's daily volatility, or its asset-class default when it has none."""
+    vol = spec.daily_vol
+    if vol and vol > 0 and math.isfinite(vol):
+        return vol
+    return CLASS_DAILY_VOL.get(spec.asset_class, DEFAULT_DAILY_VOL)
 
 
 @dataclass
@@ -70,6 +113,9 @@ class PaperBroker:
         specs: Mapping[str, AssetSpec],
         config: ExecutionConfig | None = None,
         seed: int | str = 0,
+        *,
+        convert: ConversionFn | None = None,
+        now: int | None = None,
     ):
         self.s = state
         self.specs = specs
@@ -78,8 +124,14 @@ class PaperBroker:
         self.events: list[Event] = []
         self.new_trades: list[Trade] = []
         self.marks: dict[str, float] = {}
+        self.mark_ts: dict[str, int] = {}
         self.last_bar: dict[str, Bar] = {}
         self.slippage_total = 0.0
+        # quote currency → USD conversion (identity for USD-quoted instruments; see app.paper_engine.fx)
+        self.convert: ConversionFn = convert if convert is not None else QuoteConverter(specs)
+        self.clock: int | None = int(now) if now is not None else None
+        self._identity: dict[str, bool] = {}
+        self._last_rate: dict[str, float] = {}
 
     # ------------------------------------------------------------------ helpers
     def _rng(self) -> random.Random:
@@ -89,8 +141,27 @@ class PaperBroker:
     def _event(self, ts: int, type_: str, message: str, **data) -> None:
         self.events.append(Event(ts=ts, type=type_, message=message, data=data))
 
-    def set_mark(self, symbol: str, mid: float) -> None:
+    def _tick(self, ts: int | None) -> None:
+        if ts is not None and (self.clock is None or ts > self.clock):
+            self.clock = int(ts)
+
+    def set_mark(self, symbol: str, mid: float, ts: int | None = None) -> None:
         self.marks[symbol] = mid
+        if ts is not None:
+            self.mark_ts[symbol] = int(ts)
+            self._tick(ts)
+
+    def event_ts(self, symbol: str) -> int:
+        """Time of the latest known price of `symbol` (used to convert its unrealized P/L)."""
+        ts = self.mark_ts.get(symbol)
+        if ts is not None:
+            return ts
+        bar = self.last_bar.get(symbol)
+        if bar is not None:
+            return bar.ts + bar.duration
+        if self.clock is not None:
+            return self.clock
+        return int(time.time())
 
     def half_spread(self, symbol: str, mid: float) -> float:
         if not self.cfg.spread_enabled:
@@ -114,8 +185,8 @@ class PaperBroker:
         bar = self.last_bar.get(symbol)
         if bar and bar.close > 0:
             return max((bar.high - bar.low) / bar.close, 1e-6)
-        # fallback: typical 1-minute range from the asset's daily volatility
-        return self.specs[symbol].daily_vol / math.sqrt(1440) * 2.5
+        # fallback: typical 1-minute range from the asset's (or its class's) daily volatility
+        return effective_daily_vol(self.specs[symbol]) / math.sqrt(1440) * 2.5
 
     def _slippage_bps(self, symbol: str, qty: float, rng: random.Random) -> float:
         if not self.cfg.slippage_enabled:
@@ -139,15 +210,126 @@ class PaperBroker:
             return remaining
         return min(remaining, max(cap, spec.min_qty))
 
+    # ---------------------------------------------------------------- leverage
+    def max_leverage(self, symbol: str) -> float:
+        return max(1.0, self.specs[symbol].max_leverage)
+
     def leverage_for(self, symbol: str) -> float:
+        """The account-default leverage for `symbol`: min(account leverage, instrument max), at least 1."""
         return max(1.0, min(self.s.leverage, self.specs[symbol].max_leverage))
 
+    def effective_leverage(self, symbol: str, leverage: float | None = None) -> float:
+        """`leverage` clamped to 1…instrument max, or the account default when it is None."""
+        if leverage is None:
+            return self.leverage_for(symbol)
+        return min(max(float(leverage), 1.0), self.max_leverage(symbol))
+
+    def order_leverage(self, order: Order) -> float:
+        """The order's own leverage (clamped to 1…instrument max) or the account default."""
+        return self.effective_leverage(order.symbol, (order.meta or {}).get("leverage"))
+
+    # -------------------------------------------------------- currency conversion
+    def is_identity(self, symbol: str) -> bool:
+        """True when `symbol` is quoted in the account currency (or a USD stablecoin) — no conversion."""
+        hit = self._identity.get(symbol)
+        if hit is None:
+            probe = getattr(self.convert, "is_identity", None)
+            hit = bool(probe(symbol)) if callable(probe) else False
+            self._identity[symbol] = hit
+        return hit
+
+    def _price_dependent(self, symbol: str) -> bool:
+        """True for USD/XXX instruments, whose conversion rate is 1 / their own price."""
+        if self.is_identity(symbol):
+            return False
+        probe = getattr(self.convert, "is_price_dependent", None)
+        return bool(probe(symbol)) if callable(probe) else False
+
+    def fx_rate(
+        self,
+        symbol: str,
+        *,
+        price: float | None = None,
+        ts: int | None = None,
+        strict: bool = False,
+        fallback: float | None = None,
+    ) -> float:
+        """USD value of ONE unit of `symbol`'s quote currency at `ts` (default: its latest price time).
+
+        `price` is the instrument's own price at that moment (needed for USD/XXX instruments). When no rate is
+        available a non-strict call falls back to `fallback` or the last rate seen for the symbol; a strict call
+        (order validation, previews) raises ConversionUnavailableError — numbers are never invented.
+        """
+        if self.is_identity(symbol):
+            return 1.0
+        when = self.event_ts(symbol) if ts is None else int(ts)
+        bar = self.last_bar.get(symbol)
+        resolution = bar.duration if bar else 60
+        try:
+            rate = float(self.convert(symbol, when, price, resolution))
+            if not (math.isfinite(rate) and rate > 0):
+                raise ConversionUnavailableError(f"Невалиден курс за {symbol}.", symbol=symbol)
+        except MarketDataError:
+            if strict:
+                raise
+            known = fallback if fallback and fallback > 0 else self._last_rate.get(symbol)
+            if known:
+                return known
+            raise
+        self._last_rate[symbol] = rate
+        return rate
+
+    def _entry_rate(self, p: Position) -> float | None:
+        """Conversion rate at the position's entry (stored at the fill), used for its margin."""
+        stored = (p.meta or {}).get("fx_entry")
+        if isinstance(stored, int | float) and stored > 0 and math.isfinite(stored):
+            return float(stored)
+        if self.is_identity(p.symbol):
+            return 1.0
+        try:
+            return self.fx_rate(p.symbol, price=p.entry_price, ts=p.opened_ts or None)
+        except MarketDataError:
+            return None
+
+    def _required_entry_rate(self, p: Position) -> float:
+        rate = self._entry_rate(p)
+        if rate is None:
+            raise ConversionUnavailableError(
+                f"Няма курс за превалутиране на позиция {p.symbol} в USD.", symbol=p.symbol
+            )
+        return rate
+
     # ------------------------------------------------------------ account maths
+    def exit_price(self, p: Position) -> float:
+        """The price the position would close at now (bid for a long, ask for a short)."""
+        mark = self.marks.get(p.symbol, p.entry_price)
+        hs = self.half_spread(p.symbol, mark)
+        return mark - hs if p.side == LONG else mark + hs
+
+    def position_upnl_quote(self, p: Position) -> float:
+        """Unrealized P/L in the instrument's quote currency (closing at the bid/ask)."""
+        return (self.exit_price(p) - p.entry_price) * p.qty * p.sign
+
     def position_upnl(self, p: Position) -> float:
+        """Unrealized P/L in the account currency (USD)."""
         mark = self.marks.get(p.symbol, p.entry_price)
         hs = self.half_spread(p.symbol, mark)
         exit_px = mark - hs if p.side == LONG else mark + hs
-        return (exit_px - p.entry_price) * p.qty * p.sign
+        pnl = (exit_px - p.entry_price) * p.qty * p.sign
+        if self.is_identity(p.symbol):
+            return pnl
+        return pnl * self.fx_rate(p.symbol, price=exit_px, fallback=self._entry_rate(p))
+
+    def position_margin(self, p: Position) -> float:
+        """Margin blocked by the position in USD: notional at entry / the position's leverage."""
+        return p.qty * p.entry_price * self._required_entry_rate(p) / p.leverage
+
+    def position_notional(self, p: Position) -> float:
+        """Current notional value (exposure) of the position in USD."""
+        mark = self.marks.get(p.symbol, p.entry_price)
+        if self.is_identity(p.symbol):
+            return p.qty * mark
+        return p.qty * mark * self.fx_rate(p.symbol, price=mark, fallback=self._entry_rate(p))
 
     def open_positions(self, symbol: str | None = None) -> list[Position]:
         return [p for p in self.s.positions.values() if p.is_open and (symbol is None or p.symbol == symbol)]
@@ -163,8 +345,9 @@ class PaperBroker:
         positions = self.open_positions()
         upnl = sum(self.position_upnl(p) for p in positions)
         equity = self.s.cash + upnl
-        used = sum(p.qty * p.entry_price / p.leverage for p in positions)
-        exposure = sum(p.qty * self.marks.get(p.symbol, p.entry_price) for p in positions)
+        used = sum(self.position_margin(p) for p in positions)
+        exposure = sum(self.position_notional(p) for p in positions)
+        free = equity - used
         return {
             "balance": self.s.cash,
             "equity": equity,
@@ -172,25 +355,127 @@ class PaperBroker:
             "realized_pnl": self.s.realized_pnl,
             "fees_paid": self.s.fees_paid,
             "used_margin": used,
-            "free_margin": equity - used,
+            "free_margin": free,
+            "available_margin": free,
+            "maintenance_margin": self.cfg.stop_out_level * used,
+            "stop_out_level": self.cfg.stop_out_level,
             "margin_level": (equity / used) if used > 0 else None,
             "exposure": exposure,
             "exposure_pct": (exposure / equity * 100) if equity > 0 else None,
+            "effective_leverage": (exposure / equity) if equity > 0 else None,
             "open_positions": len(positions),
         }
 
+    def _liquidation_mark(
+        self,
+        symbol: str,
+        sign: int,
+        qty: float,
+        entry: float,
+        mark: float,
+        slack: float,
+        *,
+        ts: int | None = None,
+        fallback: float | None = None,
+        strict: bool = False,
+    ) -> float | None:
+        """Mid price at which a position (side `sign`, `qty` @ `entry`, now marked at `mark`) has lost `slack`
+        more USD than it has now — i.e. where the account reaches the stop-out level, all else equal."""
+        if qty <= 0:
+            return None
+        if self._price_dependent(symbol):
+            # USD/XXX: P/L_usd(x) = sign·qty·(x − entry)/x for the exit price x — solved exactly.
+            hs = self.half_spread(symbol, mark)
+            x0 = mark - sign * hs
+            if x0 <= 0:
+                return None
+            target = sign * qty * (1 - entry / x0) - slack
+            denom = 1 - target / (sign * qty)
+            if denom <= 0:
+                return None
+            price = mark + (entry / denom - x0)
+        else:
+            rate = self.fx_rate(symbol, price=mark, ts=ts, fallback=fallback, strict=strict)
+            price = mark - sign * slack / (qty * rate)
+        return price if price > 0 else None
+
     def liquidation_price(self, p: Position) -> float | None:
-        """Approximate price at which this position alone would trigger a stop-out."""
+        """Approximate price at which this position alone would trigger a stop-out (cross margin)."""
         snap = self.snapshot()
         used = snap["used_margin"]
         if used <= 0 or p.qty <= 0:
             return None
         mark = self.marks.get(p.symbol, p.entry_price)
-        # equity moves 1:1 with this position's P/L: solve equity + qty*dp*sign = level*used
+        # equity moves with this position's P/L: solve equity + ΔP/L = level·used
         slack = snap["equity"] - self.cfg.stop_out_level * used
-        dp = slack / p.qty
-        price = mark - dp if p.side == LONG else mark + dp
-        return price if price > 0 else None
+        return self._liquidation_mark(p.symbol, p.sign, p.qty, p.entry_price, mark, slack, fallback=self._entry_rate(p))
+
+    def max_qty(self, symbol: str, *, entry: float, leverage: float | None = None, ts: int | None = None) -> float:
+        """The largest quantity the current free margin can open at `entry` with `leverage` (fees included)."""
+        spec = self.specs[symbol]
+        lev = self.effective_leverage(symbol, leverage)
+        rate = self.fx_rate(symbol, price=entry, ts=ts, strict=True)
+        per_unit = entry * rate * (1 / lev + self._fee_rate(symbol, "taker"))
+        free = self.snapshot()["free_margin"]
+        if per_unit <= 0 or free <= 0:
+            return 0.0
+        return spec.round_qty(free / per_unit)
+
+    def order_estimate(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        qty: float,
+        entry: float,
+        leverage: float | None = None,
+        ts: int | None = None,
+    ) -> dict:
+        """Margin and liquidation numbers for a NEW order of `qty` filled at `entry` (nothing is changed).
+
+        Raises ConversionUnavailableError when the quote currency cannot be converted to USD.
+        """
+        lev = self.effective_leverage(symbol, leverage)
+        sign = 1 if side == BUY else -1
+        when = self.event_ts(symbol) if ts is None else int(ts)
+        rate = self.fx_rate(symbol, price=entry, ts=when, strict=True)
+        notional = qty * entry * rate
+        margin = notional / lev
+        fee = notional * self._fee_rate(symbol, "taker")
+        hs = self.half_spread(symbol, entry)
+        mid = entry - sign * hs  # the mid price when the order fills at `entry` (ask for a buy, bid for a sell)
+        exit_px = mid - sign * hs
+        if self._price_dependent(symbol):
+            spread_cost = 2 * hs * qty / exit_px if exit_px > 0 else 0.0
+        else:
+            spread_cost = 2 * hs * qty * rate
+        snap = self.snapshot()
+        equity_after = snap["equity"] - fee - spread_cost
+        used_after = snap["used_margin"] + margin
+        maintenance = self.cfg.stop_out_level * used_after
+        slack = equity_after - maintenance
+        liquidation = (
+            self._liquidation_mark(symbol, sign, qty, entry, mid, slack, ts=when, strict=True) if qty > 0 else None
+        )
+        return {
+            "leverage": lev,
+            "max_leverage": self.max_leverage(symbol),
+            "fx_rate": rate,
+            "notional": notional,
+            "notional_quote": qty * entry,
+            "margin_required": margin,
+            "fee_estimate": fee,
+            "spread_cost": spread_cost,
+            "equity_after": equity_after,
+            "used_margin_after": used_after,
+            "free_margin_after": equity_after - used_after,
+            "maintenance_margin": maintenance,
+            "stop_out_level": self.cfg.stop_out_level,
+            "margin_level_after": (equity_after / used_after) if used_after > 0 else None,
+            "liquidation_estimate": liquidation,
+            "liquidation_distance_pct": (abs(mid - liquidation) / mid * 100) if liquidation and mid > 0 else None,
+            "effective_leverage_after": ((snap["exposure"] + notional) / equity_after if equity_after > 0 else None),
+        }
 
     # ------------------------------------------------------------------ orders
     def place_order(
@@ -209,8 +494,10 @@ class PaperBroker:
         meta: dict | None = None,
         sl_offset: float | None = None,
         tp_offset: float | None = None,
+        leverage: float | None = None,
     ) -> Order:
         spec = self.specs[symbol]
+        self._tick(ts)
         order = Order(
             id=new_id(),
             symbol=symbol,
@@ -230,6 +517,8 @@ class PaperBroker:
             order.meta["sl_offset"] = sl_offset
         if tp_offset is not None:
             order.meta["tp_offset"] = tp_offset
+        if leverage is not None:
+            order.meta["leverage"] = float(leverage)
         self.s.orders[order.id] = order
 
         problem = self._validate(order)
@@ -277,6 +566,11 @@ class PaperBroker:
             return f"Минималното количество за {o.symbol} е {spec.min_qty}."
         if o.type in (LIMIT, STOP) and (o.price is None or o.price <= 0):
             return "Limit/Stop поръчка изисква цена."
+        requested = o.meta.get("leverage")
+        if requested is not None:
+            max_lev = self.max_leverage(o.symbol)
+            if not math.isfinite(requested) or requested < 1 - EPS or requested > max_lev + EPS:
+                return f"Leverage {requested:g}x не е позволен за {o.symbol}: допустимо 1x–{max_lev:g}x."
         mark = self.marks.get(o.symbol)
         if mark is None:
             return "Няма пазарна цена за инструмента."
@@ -295,8 +589,14 @@ class PaperBroker:
                 return "При LONG take profit трябва да е НАД цената на влизане."
             if not is_long and o.take_profit >= entry:
                 return "При SHORT take profit трябва да е ПОД цената на влизане."
-        lev = self.leverage_for(o.symbol)
-        need = o.qty * entry / lev + o.qty * entry * self._fee_rate(o.symbol, "taker")
+        lev = self.order_leverage(o)
+        try:
+            rate = self.fx_rate(o.symbol, price=entry, ts=o.created_ts, strict=True)
+        except MarketDataError as exc:
+            reason = getattr(exc, "reason", None) or str(exc)
+            return f"Няма курс за превалутиране на {o.symbol} в USD: {redact_secrets(reason)}"
+        notional = o.qty * entry * rate
+        need = notional / lev + notional * self._fee_rate(o.symbol, "taker")
         free = self.snapshot()["free_margin"]
         if need > free + EPS:
             return (
@@ -336,12 +636,16 @@ class PaperBroker:
     def _apply_fill(self, order: Order, qty: float, price: float, ts: int, liquidity: str, reference: float) -> None:
         if qty <= EPS:
             return
-        fee = qty * price * self._fee_rate(order.symbol, liquidity)
+        pos = self.s.positions.get(order.position_id) if order.position_id else None
+        fallback = self._entry_rate(pos) if pos is not None else None
+        rate = self.fx_rate(order.symbol, price=price, ts=ts, fallback=fallback)
+        fee = qty * price * self._fee_rate(order.symbol, liquidity) * rate
         self.s.cash -= fee
         self.s.fees_paid += fee
         order.fees += fee
-        order.slippage_cost += abs(price - reference) * qty
-        self.slippage_total += abs(price - reference) * qty
+        slip = abs(price - reference) * qty * rate
+        order.slippage_cost += slip
+        self.slippage_total += slip
         prev = order.filled_qty
         order.avg_fill_price = price if not prev else (order.avg_fill_price * prev + price * qty) / (prev + qty)
         order.filled_qty = prev + qty
@@ -349,14 +653,17 @@ class PaperBroker:
         order.updated_ts = ts
 
         if order.reduce_only:
-            pos = self.s.positions[order.position_id]
-            self._reduce(pos, qty, price, ts, order.meta.get("reason", "manual"), fee)
+            self._reduce(self.s.positions[order.position_id], qty, price, ts, order.meta.get("reason", "manual"), fee)
             return
 
-        pos = self.s.positions.get(order.position_id) if order.position_id else None
         if pos is not None and pos.is_open:
             total = pos.qty + qty
-            pos.entry_price = (pos.entry_price * pos.qty + price * qty) / total
+            new_entry = (pos.entry_price * pos.qty + price * qty) / total
+            if not self.is_identity(pos.symbol) and fallback is not None and new_entry > 0:
+                # keep margin = USD notional of all fills / leverage after averaging the entry price
+                usd_notional = pos.entry_price * pos.qty * fallback + price * qty * rate
+                pos.meta["fx_entry"] = usd_notional / (new_entry * total)
+            pos.entry_price = new_entry
             pos.qty = total
             pos.initial_qty += qty
             pos.fees += fee
@@ -367,6 +674,8 @@ class PaperBroker:
                 sl = self.specs[order.symbol].round_price(price - sign * order.meta["sl_offset"])
             if tp is None and order.meta.get("tp_offset"):
                 tp = self.specs[order.symbol].round_price(price + sign * order.meta["tp_offset"])
+            meta = {k: v for k, v in order.meta.items() if k not in _ORDER_ONLY_META}
+            meta["fx_entry"] = rate
             pos = Position(
                 id=new_id(),
                 symbol=order.symbol,
@@ -377,12 +686,12 @@ class PaperBroker:
                 take_profit=tp,
                 initial_stop=sl,
                 initial_qty=qty,
-                leverage=self.leverage_for(order.symbol),
+                leverage=self.order_leverage(order),
                 fees=fee,
                 opened_ts=ts,
                 active_from_ts=order.meta.get("position_active_from", ts),
                 sl_history=[{"ts": ts, "sl": sl, "source": "entry"}] if sl is not None else [],
-                meta={k: v for k, v in order.meta.items() if k not in ("sl_offset", "tp_offset", "remainder")},
+                meta=meta,
             )
             self.s.positions[pos.id] = pos
             order.position_id = pos.id
@@ -432,7 +741,9 @@ class PaperBroker:
 
     def _reduce(self, pos: Position, qty: float, price: float, ts: int, reason: str, exit_fee: float) -> None:
         qty = min(qty, pos.qty)
-        gross = (price - pos.entry_price) * qty * pos.sign
+        rate = self.fx_rate(pos.symbol, price=price, ts=ts, fallback=self._entry_rate(pos))
+        gross_quote = (price - pos.entry_price) * qty * pos.sign
+        gross = gross_quote * rate
         alloc = pos.fees * (qty / pos.qty) if pos.qty > 0 else 0.0
         pos.fees -= alloc
         fees = alloc + exit_fee
@@ -441,7 +752,8 @@ class PaperBroker:
         self.s.realized_pnl += net
         pos.realized_pnl += net
         pos.qty = max(pos.qty - qty, 0.0)
-        risk = abs(pos.entry_price - pos.initial_stop) * qty if pos.initial_stop is not None else None
+        # risk in USD at the exit's conversion rate, so the R-multiple compares like with like
+        risk = abs(pos.entry_price - pos.initial_stop) * qty * rate if pos.initial_stop is not None else None
         closed = pos.qty <= EPS
         exit_reason = reason if (closed or reason != "manual") else "partial"
         trade = Trade(
@@ -468,6 +780,10 @@ class PaperBroker:
                 "mae": pos.mae,
                 "sl_moves": max(len(pos.sl_history) - 1, 0),
                 "stop_widened": any(h.get("widened") for h in pos.sl_history),
+                "leverage": pos.leverage,
+                "quote_currency": self.specs[pos.symbol].currency,
+                "fx_rate": rate,
+                "gross_pnl_quote": gross_quote,
             },
         )
         self.new_trades.append(trade)
@@ -506,6 +822,7 @@ class PaperBroker:
         pos = self.s.positions.get(position_id)
         if pos is None or not pos.is_open:
             return None
+        self._tick(ts)
         spec = self.specs[pos.symbol]
         qty = pos.qty if qty is None else min(spec.round_qty(qty), pos.qty)
         if qty <= EPS:
@@ -587,6 +904,7 @@ class PaperBroker:
     def process_bar(self, symbol: str, bar: Bar) -> None:
         """Advance the simulation through one closed bar of `symbol`."""
         self.last_bar[symbol] = bar
+        self._tick(bar.ts)
         spec = self.specs[symbol]
         hs = self.half_spread(symbol, bar.open)
 
@@ -609,19 +927,19 @@ class PaperBroker:
                 o.status = "filled"
                 o.filled_qty = o.qty
                 o.avg_fill_price = spec.round_price(px)
-                fee = qty * px * self._fee_rate(symbol, "taker")
+                rate = self.fx_rate(symbol, price=px, ts=bar.ts, fallback=self._entry_rate(pos))
+                fee = qty * px * self._fee_rate(symbol, "taker") * rate
                 self.s.cash -= fee
                 self.s.fees_paid += fee
                 o.fees += fee
-                self.slippage_total += abs(px - base) * qty
+                self.slippage_total += abs(px - base) * qty * rate
                 self._reduce(pos, qty, spec.round_price(px), bar.ts, o.meta.get("reason", "manual"), fee)
                 continue
             qty = self._capacity(symbol, o.remaining, bar)
             px = base * (1 + sign * self._slippage_bps(symbol, qty, rng) / 1e4)
-            if not self._margin_ok(o.symbol, qty, px):
-                o.status = "rejected"
-                o.reject_reason = "Недостатъчен margin в момента на изпълнение."
-                self._event(bar.ts, "order_rejected", o.reject_reason, order_id=o.id)
+            problem = self._margin_problem(o, qty, px, bar.ts)
+            if problem:
+                self._reject_at_fill(o, problem, bar.ts)
                 continue
             o.meta.setdefault("position_active_from", bar.ts)
             self._apply_fill(o, qty, spec.round_price(px), bar.ts, "taker", base)
@@ -649,12 +967,25 @@ class PaperBroker:
                 p.mfe = max(p.mfe, p.entry_price - bar.low)
                 p.mae = max(p.mae, bar.high - p.entry_price)
 
-        self.marks[symbol] = bar.close
+        self.set_mark(symbol, bar.close, bar.ts + bar.duration)
         self.check_liquidation(bar.ts + bar.duration)
 
-    def _margin_ok(self, symbol: str, qty: float, price: float) -> bool:
-        need = qty * price / self.leverage_for(symbol)
-        return need <= self.snapshot()["free_margin"] + EPS
+    def _margin_problem(self, order: Order, qty: float, price: float, ts: int) -> str | None:
+        """Why `qty` of `order` cannot be filled at `price` now (free margin, conversion), else None."""
+        try:
+            rate = self.fx_rate(order.symbol, price=price, ts=ts)
+        except MarketDataError as exc:
+            reason = getattr(exc, "reason", None) or str(exc)
+            return f"Няма курс за превалутиране в USD в момента на изпълнение: {redact_secrets(reason)}"
+        need = qty * price * rate / self.order_leverage(order)
+        if need > self.snapshot()["free_margin"] + EPS:
+            return "Недостатъчен margin в момента на изпълнение."
+        return None
+
+    def _reject_at_fill(self, o: Order, reason: str, ts: int) -> None:
+        o.status = "rejected"
+        o.reject_reason = reason
+        self._event(ts, "order_rejected", reason, order_id=o.id)
 
     @staticmethod
     def _cross(threshold: float, direction: str, a: float, b: float) -> tuple[float, bool] | None:
@@ -716,10 +1047,9 @@ class PaperBroker:
                 )
                 qty = self._capacity(symbol, o.remaining, bar, touch_only=touch_only and not t.at_start)
                 px = (a + sign * hs) if t.at_start else o.price  # gaps fill at the better open price
-                if not self._margin_ok(symbol, qty, px):
-                    o.status = "rejected"
-                    o.reject_reason = "Недостатъчен margin в момента на изпълнение."
-                    self._event(ts, "order_rejected", o.reject_reason, order_id=o.id)
+                problem = self._margin_problem(o, qty, px, ts)
+                if problem:
+                    self._reject_at_fill(o, problem, ts)
                     return
                 o.meta.setdefault("position_active_from", bar.ts)
                 self._apply_fill(o, qty, spec.round_price(px), ts, "maker", o.price)
@@ -727,10 +1057,9 @@ class PaperBroker:
                 qty = self._capacity(symbol, o.remaining, bar)
                 ref = (a + sign * hs) if t.at_start else o.price
                 px = ref * (1 + sign * self._slippage_bps(symbol, qty, rng) / 1e4)
-                if not self._margin_ok(symbol, qty, px):
-                    o.status = "rejected"
-                    o.reject_reason = "Недостатъчен margin в момента на изпълнение."
-                    self._event(ts, "order_rejected", o.reject_reason, order_id=o.id)
+                problem = self._margin_problem(o, qty, px, ts)
+                if problem:
+                    self._reject_at_fill(o, problem, ts)
                     return
                 o.meta["triggered"] = True
                 o.meta.setdefault("position_active_from", bar.ts)

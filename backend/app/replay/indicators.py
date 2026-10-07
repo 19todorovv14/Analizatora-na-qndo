@@ -59,7 +59,11 @@ def compute(parsed: list[tuple[str, dict]], candles: Sequence[Candle], visible_f
             "params": params,
             "pane": ind.INDICATOR_CATALOG[name]["pane"],
             "series": {
-                o: [{"time": t, "value": v} for t, v in zip(times, vals, strict=True) if v is not None and t >= visible_from]
+                o: [
+                    {"time": t, "value": v}
+                    for t, v in zip(times, vals, strict=True)
+                    if v is not None and t >= visible_from
+                ]
                 for o, vals in series.items()
             },
         }

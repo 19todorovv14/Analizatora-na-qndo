@@ -36,6 +36,9 @@ class PaperExchangeAdapter(ExchangeAdapter):
             "balance": snap["balance"],
             "equity": snap["equity"],
             "free_margin": snap["free_margin"],
+            "available_margin": snap["available_margin"],
+            "used_margin": snap["used_margin"],
+            "margin_level": snap["margin_level"],
             "virtual": True,
         }
 

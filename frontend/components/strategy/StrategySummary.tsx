@@ -3,34 +3,11 @@
 import { CircleCheck, CircleX, Layers, SlidersHorizontal } from "lucide-react";
 import useSWR from "swr";
 
+import { RuleLine } from "@/components/strategy/StrategySelect";
 import { SETUP_DISCLAIMER, type DefinitionV2, type DescribeResponse } from "@/components/strategy/types";
 import { Badge, InfoTip, Meter, SkeletonText } from "@/components/ui";
 import { post } from "@/lib/api";
-import { cx } from "@/lib/format";
 import { useDebounced } from "@/lib/hooks";
-
-const PREFIX_TONE: [RegExp, string][] = [
-  [/^LONG setup/i, "text-up"],
-  [/^SHORT setup/i, "text-down"],
-  [/^Изход/i, "text-text"],
-  [/^STOP/i, "text-down"],
-  [/^TAKE PROFIT/i, "text-up"],
-  [/^Риск/i, "text-warn"],
-  [/^Режим/i, "text-info"],
-];
-
-function SummaryLine({ line }: { line: string }) {
-  const idx = line.indexOf(":");
-  const head = idx > 0 ? line.slice(0, idx) : "";
-  const body = idx > 0 ? line.slice(idx + 1) : line;
-  const tone = PREFIX_TONE.find(([re]) => re.test(line))?.[1] ?? "text-text";
-  return (
-    <li className="rounded-lg border border-white/[0.05] bg-white/[0.02] px-2.5 py-2 text-[12.5px] leading-relaxed">
-      {head && <span className={cx("mr-1 text-[11px] font-semibold uppercase tracking-[0.05em]", tone)}>{head}</span>}
-      <span className="text-text/90">{body.replace(/ АКО /, " АКО ").trim()}</span>
-    </li>
-  );
-}
 
 /** Live plain-language summary of the (unsaved) definition via POST /strategies/describe (debounced). */
 export function StrategySummary({ definition, beginner }: { definition: DefinitionV2; beginner: boolean }) {
@@ -63,7 +40,7 @@ export function StrategySummary({ definition, beginner }: { definition: Definiti
       {data.valid ? (
         <ul className="space-y-1.5">
           {data.summary.map((l) => (
-            <SummaryLine key={l} line={l} />
+            <RuleLine key={l} line={l} />
           ))}
         </ul>
       ) : (

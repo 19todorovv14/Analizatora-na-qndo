@@ -21,6 +21,8 @@ export function NumField({
   size = "sm",
   suffix,
   id,
+  placeholder,
+  onClear,
 }: {
   value: number | null | undefined;
   onChange: (v: number) => void;
@@ -34,6 +36,9 @@ export function NumField({
   size?: "sm" | "md";
   suffix?: string;
   id?: string;
+  placeholder?: string;
+  /** called when the field is emptied (lets callers fall back to a default, e.g. fee_bps = null) */
+  onClear?: () => void;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
   const shown = draft ?? (value === null || value === undefined || !Number.isFinite(value) ? "" : String(value));
@@ -43,7 +48,7 @@ export function NumField({
     if (max !== undefined) x = Math.min(max, x);
     return x;
   };
-  const invalid = draft !== null && (draft.trim() === "" || !Number.isFinite(Number(draft.replace(",", "."))));
+  const invalid = draft !== null && ((draft.trim() === "" && !onClear) || (draft.trim() !== "" && !Number.isFinite(Number(draft.replace(",", ".")))));
   const input = (
     <input
       id={id}
@@ -52,12 +57,14 @@ export function NumField({
       aria-label={ariaLabel}
       aria-invalid={invalid || undefined}
       disabled={disabled}
+      placeholder={placeholder}
       value={shown}
       onChange={(e) => {
         const raw = e.target.value;
         setDraft(raw);
         const n = Number(raw.replace(",", "."));
-        if (raw.trim() !== "" && Number.isFinite(n)) onChange(clamp(n));
+        if (raw.trim() === "") onClear?.();
+        else if (Number.isFinite(n)) onChange(clamp(n));
       }}
       onBlur={() => setDraft(null)}
       onKeyDown={(e) => {
