@@ -3,17 +3,7 @@
  * `node --test`). Labels mirror the backend (app/strategies/rules.py Operand.label / Condition.label);
  * everything data-driven comes from GET /strategies/meta with local fallbacks for an older backend.
  */
-import type {
-  BlockKey,
-  BuilderMeta,
-  ConditionV2,
-  DefinitionV2,
-  OperandV2,
-  OperatorInfo,
-  PresetMeta,
-  RuleTypeMeta,
-  StructureMeta,
-} from "./types";
+import type { BlockKey, BuilderMeta, ConditionV2, DefinitionV2, OperandV2, OperatorInfo, PresetMeta, RuleTypeMeta, StructureMeta } from "./types";
 
 /* ───────────────────────────────────────────────────────── labels */
 
@@ -170,7 +160,9 @@ export function operandText(o: OperandV2, meta?: BuilderMeta): string {
     const p = o.params ?? {};
     if (p.left !== undefined || p.right !== undefined) base += ` (L${fmtParam(p.left ?? 3)}/R${fmtParam(p.right ?? 3)})`;
   } else {
-    const params = Object.values(o.params ?? {}).map(fmtParam).join(",");
+    const params = Object.values(o.params ?? {})
+      .map(fmtParam)
+      .join(",");
     base = `${IND_LABEL[o.name ?? ""]?.split(" ")[0] ?? (o.name ?? "").toUpperCase()}${params ? `(${params})` : ""}`;
     if (o.name === "volume_sma") base = `Avg volume(${params || 20})`;
     if (o.output && o.output !== "value") base += `.${o.output}`;
@@ -264,9 +256,17 @@ export function starterCondition(key: BlockKey): ConditionV2 {
     case "entry_short":
       return { left: { kind: "indicator", name: "rsi", params: { period: 14 }, output: "value" }, op: "<", right: { kind: "value", value: 50 } };
     case "exit_long":
-      return { left: { kind: "price", field: "close" }, op: "crosses_below", right: { kind: "indicator", name: "ema", params: { period: 20 }, output: "value" } };
+      return {
+        left: { kind: "price", field: "close" },
+        op: "crosses_below",
+        right: { kind: "indicator", name: "ema", params: { period: 20 }, output: "value" },
+      };
     default:
-      return { left: { kind: "price", field: "close" }, op: "crosses_above", right: { kind: "indicator", name: "ema", params: { period: 20 }, output: "value" } };
+      return {
+        left: { kind: "price", field: "close" },
+        op: "crosses_above",
+        right: { kind: "indicator", name: "ema", params: { period: 20 }, output: "value" },
+      };
   }
 }
 

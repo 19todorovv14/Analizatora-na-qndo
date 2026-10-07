@@ -92,3 +92,36 @@ export function costShare(c: { fees: number; slippage_est: number; gross_pnl_bef
   if (!(c.gross_pnl_before_fees > 0)) return null;
   return Math.min(999, ((c.fees + c.slippage_est) / c.gross_pnl_before_fees) * 100);
 }
+
+export type TradeFilter = "all" | "win" | "loss" | "long" | "short";
+
+/** Trade-list quick filters (win = net P/L > 0, loss = ≤ 0). */
+export function filterTrades<T extends { net_pnl: number; side: string }>(trades: T[], filter: TradeFilter): T[] {
+  if (filter === "win") return trades.filter((t) => t.net_pnl > 0);
+  if (filter === "loss") return trades.filter((t) => t.net_pnl <= 0);
+  if (filter === "long") return trades.filter((t) => t.side === "long");
+  if (filter === "short") return trades.filter((t) => t.side === "short");
+  return trades;
+}
+
+const REGIME_SHORT: Record<string, string> = {
+  TRENDING_UP: "Trend ↑",
+  TRENDING_DOWN: "Trend ↓",
+  RANGING: "Range",
+  HIGH_VOLATILITY: "High vol",
+  LOW_VOLATILITY: "Low vol",
+  UNCLEAR: "Unclear",
+};
+
+/** Compact regime label for dense tables ("Trend ↑", "High vol"…). */
+export function regimeShort(regime: string): string {
+  return REGIME_SHORT[regime] ?? regime.replace(/_/g, " ").toLowerCase();
+}
+
+/** "08.04.26 14:00" in the viewer's local time (dense tables). */
+export function shortTime(ts: number | null | undefined): string {
+  if (!ts) return "—";
+  const d = new Date(ts * 1000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${String(d.getFullYear()).slice(2)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}

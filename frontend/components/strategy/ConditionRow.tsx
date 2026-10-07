@@ -37,7 +37,21 @@ const PARAM_TITLE: Record<string, string> = {
   right: "Свещи вдясно — pivot-ът се потвърждава след толкова свещи (без lookahead)",
 };
 
-function ParamInput({ name, value, onChange, min = 1, max = 500, integer = true }: { name: string; value: number; onChange: (v: number) => void; min?: number; max?: number; integer?: boolean }) {
+function ParamInput({
+  name,
+  value,
+  onChange,
+  min = 1,
+  max = 500,
+  integer = true,
+}: {
+  name: string;
+  value: number;
+  onChange: (v: number) => void;
+  min?: number;
+  max?: number;
+  integer?: boolean;
+}) {
   return (
     <label className="inline-flex items-center gap-1 text-[10.5px] font-medium text-faint" title={PARAM_TITLE[name] ?? name}>
       {PARAM_LABEL[name] ?? name}
@@ -85,7 +99,9 @@ export function OperandEditor({
         ))}
       </MiniSelect>
 
-      {value.kind === "value" && <NumField value={value.value ?? 0} onChange={(v) => onChange({ ...value, value: v })} ariaLabel="Стойност" className="w-20" step={1} />}
+      {value.kind === "value" && (
+        <NumField value={value.value ?? 0} onChange={(v) => onChange({ ...value, value: v })} ariaLabel="Стойност" className="w-20" step={1} />
+      )}
 
       {value.kind === "price" && (
         <MiniSelect ariaLabel="Поле на свещта" value={value.field ?? "close"} onChange={(f) => onChange({ ...value, field: f })}>
@@ -172,11 +188,28 @@ export function OperandEditor({
         <>
           <label className="inline-flex items-center gap-1 text-[10.5px] font-medium text-faint" title="Множител (напр. Volume > 1.5 × average)">
             ×
-            <NumField value={value.mult ?? 1} min={0.01} max={100} step={0.1} onChange={(v) => onChange({ ...value, mult: v > 0 ? v : 1 })} ariaLabel="Множител" className="w-14" />
+            <NumField
+              value={value.mult ?? 1}
+              min={0.01}
+              max={100}
+              step={0.1}
+              onChange={(v) => onChange({ ...value, mult: v > 0 ? v : 1 })}
+              ariaLabel="Множител"
+              className="w-14"
+            />
           </label>
           <label className="inline-flex items-center gap-1 text-[10.5px] font-medium text-faint" title="Брой свещи назад (0 = текущата затворена свещ)">
             назад
-            <NumField value={value.shift ?? 0} min={0} max={50} integer step={1} onChange={(v) => onChange({ ...value, shift: v })} ariaLabel="Свещи назад" className="w-12" />
+            <NumField
+              value={value.shift ?? 0}
+              min={0}
+              max={50}
+              integer
+              step={1}
+              onChange={(v) => onChange({ ...value, shift: v })}
+              ariaLabel="Свещи назад"
+              className="w-12"
+            />
           </label>
         </>
       )}
@@ -216,28 +249,37 @@ export function ConditionRow({
 
   return (
     <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-2 py-1.5">
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        <span
-          className={cx(
-            "inline-flex h-6 w-10 shrink-0 items-center justify-center rounded-md text-[10.5px] font-bold tracking-[0.06em]",
-            index === 0 ? "bg-accent/15 text-accent2" : "bg-white/[0.05] text-muted",
+      <div className="flex min-w-0 items-start gap-1.5">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+          <span
+            className={cx(
+              "inline-flex h-6 w-10 shrink-0 items-center justify-center rounded-md text-[10.5px] font-bold tracking-[0.06em]",
+              index === 0 ? "bg-accent/15 text-accent2" : "bg-white/[0.05] text-muted",
+            )}
+          >
+            {connector}
+          </span>
+          <OperandEditor value={value.left} onChange={(l) => onChange(withLeft(value, l, meta))} meta={meta} advanced={advanced} extras={extras} side="left" />
+          <MiniSelect ariaLabel="Оператор" value={value.op} onChange={(op) => onChange(withOperator(value, op, meta))} className="!text-accent2 font-semibold">
+            {ops.map((o) => (
+              <option key={o.op} value={o.op} title={o.text}>
+                {o.label}
+              </option>
+            ))}
+          </MiniSelect>
+          {showRight && value.right && (
+            <OperandEditor
+              value={value.right}
+              onChange={(r) => onChange({ ...value, right: r })}
+              meta={meta}
+              advanced={advanced}
+              extras={extras}
+              side="right"
+            />
           )}
-        >
-          {connector}
-        </span>
-        <OperandEditor value={value.left} onChange={(l) => onChange(withLeft(value, l, meta))} meta={meta} advanced={advanced} extras={extras} side="left" />
-        <MiniSelect ariaLabel="Оператор" value={value.op} onChange={(op) => onChange(withOperator(value, op, meta))} className="!text-accent2 font-semibold">
-          {ops.map((o) => (
-            <option key={o.op} value={o.op} title={o.text}>
-              {o.label}
-            </option>
-          ))}
-        </MiniSelect>
-        {showRight && value.right && (
-          <OperandEditor value={value.right} onChange={(r) => onChange({ ...value, right: r })} meta={meta} advanced={advanced} extras={extras} side="right" />
-        )}
+        </div>
         {!readOnly && (
-          <span className="ml-auto inline-flex items-center gap-0.5">
+          <span className="inline-flex shrink-0 items-center gap-0.5 pt-0.5">
             {advanced && (
               <IconButton
                 icon={SlidersHorizontal}

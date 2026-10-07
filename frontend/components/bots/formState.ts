@@ -70,7 +70,11 @@ export function botPayload(f: BotFormState) {
     strategy_id: f.strategy_id,
     run_mode: f.run_mode,
     max_positions: f.max_positions,
-    stop: f.stop_type ? (f.stop_type === "swing" ? { type: "swing", value: f.stop_value, lookback: 10 } : { type: f.stop_type, value: f.stop_value }) : undefined,
+    stop: f.stop_type
+      ? f.stop_type === "swing"
+        ? { type: "swing", value: f.stop_value, lookback: 10 }
+        : { type: f.stop_type, value: f.stop_value }
+      : undefined,
     take_profit: f.tp_type ? { type: f.tp_type, value: f.tp_value } : undefined,
     config: {
       risk_per_trade_pct: f.risk_per_trade_pct,
@@ -111,7 +115,12 @@ export function hoursText(cfg: Pick<BotConfig, "trading_hours">): string {
   if (!h) return "24/7";
   const allDays = !h.days || h.days.length === 7;
   if (h.start === 0 && h.end === 24 && allDays) return "24/7";
-  const days = allDays ? "всеки ден" : [...h.days].sort((a, b) => a - b).map((d) => WEEKDAYS[d] ?? String(d)).join(", ");
+  const days = allDays
+    ? "всеки ден"
+    : [...h.days]
+        .sort((a, b) => a - b)
+        .map((d) => WEEKDAYS[d] ?? String(d))
+        .join(", ");
   return `${String(h.start).padStart(2, "0")}:00–${String(h.end).padStart(2, "0")}:00 UTC · ${days}`;
 }
 

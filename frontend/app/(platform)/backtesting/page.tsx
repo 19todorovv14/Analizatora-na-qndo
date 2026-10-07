@@ -227,7 +227,8 @@ function BacktestingInner() {
       />
 
       <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <div className="min-w-0 space-y-4">
+        {/* settings panel: sticky on wide screens with its own scroll (never taller than the viewport) */}
+        <div className="min-w-0 space-y-4 xl:sticky xl:top-[calc(var(--spacing-topbar)+1rem)] xl:max-h-[calc(100dvh-var(--spacing-topbar)-2rem)] xl:overflow-y-auto xl:pr-1">
           <Card title="Настройки на теста" right={focusRegime ? <Badge tone="warn">фокус: {focusRegime.replace(/_/g, " ")}</Badge> : undefined}>
             {stratError && !strategies ? (
               <ErrorState title="Стратегиите не се заредиха" onRetry={() => retryStrategies()} />

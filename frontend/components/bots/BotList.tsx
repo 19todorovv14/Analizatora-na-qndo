@@ -79,10 +79,19 @@ export function BotList({ bots }: { bots: BotRow[] }) {
                 <div className="num text-[15px] font-semibold text-text">{fmtMoney(b.equity)}</div>
                 <div className={cx("num text-xs font-medium", pnlClass(b.pnl))}>{fmtMoney(b.pnl, true)}</div>
               </div>
-              <ChevronRight size={16} strokeWidth={2} className="mt-1 hidden shrink-0 text-faint transition-colors group-hover:text-accent2 @md:block" aria-hidden />
+              <ChevronRight
+                size={16}
+                strokeWidth={2}
+                className="mt-1 hidden shrink-0 text-faint transition-colors group-hover:text-accent2 @md:block"
+                aria-hidden
+              />
             </div>
 
-            {b.pause_reason && <p className="mt-2 truncate rounded-md bg-warn/[0.08] px-2 py-1 text-[11px] text-warn" title={b.pause_reason}>{b.pause_reason}</p>}
+            {b.pause_reason && (
+              <p className="mt-2 truncate rounded-md bg-warn/[0.08] px-2 py-1 text-[11px] text-warn" title={b.pause_reason}>
+                {b.pause_reason}
+              </p>
+            )}
 
             <div className="mt-3 grid grid-cols-3 gap-1.5 @xl:grid-cols-6">
               <Metric label="Trades">{b.trades}</Metric>

@@ -109,7 +109,7 @@ function BotsInner() {
           </LearnHint>
         </div>
 
-        <div id="new-bot" className="min-w-0 scroll-mt-4">
+        <div id="new-bot" className="min-w-0 scroll-mt-20 xl:sticky xl:top-[calc(var(--spacing-topbar)+1rem)] xl:max-h-[calc(100dvh-var(--spacing-topbar)-2rem)] xl:overflow-y-auto xl:pr-1">
           <Card
             title={
               <>

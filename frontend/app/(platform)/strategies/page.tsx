@@ -355,7 +355,7 @@ function StrategiesInner() {
           </Card>
           <div className="space-y-4">
             <Card title="Current signal">
-              <SignalCheck definition={draft.definition} symbol={draft.symbol} timeframe={draft.timeframe} />
+              <SignalCheck key={draft.id ?? "new"} definition={draft.definition} symbol={draft.symbol} timeframe={draft.timeframe} />
               <LearnHint className="mt-3">
                 Проверката оценява правилата на последната <b className="text-text">затворена</b> свещ — без да записва стратегията. Отметка ✓ =
                 условието е изпълнено, ✕ = не е, — = индикаторът още няма достатъчно история.
