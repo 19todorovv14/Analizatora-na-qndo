@@ -68,7 +68,11 @@ export default function BotDashboard() {
   const router = useRouter();
   const { beginner } = useSession();
   const { data: bot, error: botError, mutate } = useSWR<BotView>(`/bots/${id}`, fetcher, { refreshInterval: 15_000 });
-  const { data: coach, error: coachError, mutate: mutateCoach } = useSWR<CoachResponse>(bot ? `/bots/${id}/coach` : null, fetcher, {
+  const {
+    data: coach,
+    error: coachError,
+    mutate: mutateCoach,
+  } = useSWR<CoachResponse>(bot ? `/bots/${id}/coach` : null, fetcher, {
     refreshInterval: 60_000,
   });
   const [busy, setBusy] = useState<"start" | "pause" | "stop" | "delete" | null>(null);
@@ -168,11 +172,22 @@ export default function BotDashboard() {
                 Pause
               </Button>
               <Button size="sm" variant="down" disabled={!!busy || bot.status === "STOPPED"} onClick={() => act("stop")}>
-                {busy === "stop" ? <Spinner className="h-3.5 w-3.5 border-white/30 border-t-white" /> : <Square size={12} strokeWidth={2.5} aria-hidden />}
+                {busy === "stop" ? (
+                  <Spinner className="h-3.5 w-3.5 border-white/30 border-t-white" />
+                ) : (
+                  <Square size={12} strokeWidth={2.5} aria-hidden />
+                )}
                 Stop
               </Button>
             </div>
-            <IconButton icon={Trash2} label="Изтрий бота" variant="glass" onClick={() => setConfirmDelete(true)} disabled={!!busy} className="hover:!text-down" />
+            <IconButton
+              icon={Trash2}
+              label="Изтрий бота"
+              variant="glass"
+              onClick={() => setConfirmDelete(true)}
+              disabled={!!busy}
+              className="hover:!text-down"
+            />
           </>
         }
       />
@@ -184,20 +199,52 @@ export default function BotDashboard() {
       )}
       {bot.status === "STOPPED" && !bot.last_processed_ts && (
         <Notice tone="info" title="Ботът още не е стартиран">
-          Натисни <b className="text-text">▶ Start</b>. {bot.run_mode === "warm_start" ? `Първо ще симулира последните ${cfg.warm_start_days ?? 30} дни върху история, после продължава с нови свещи.` : "Ще обработва само нови затворени свещи от сега нататък."}
+          Натисни <b className="text-text">▶ Start</b>.{" "}
+          {bot.run_mode === "warm_start"
+            ? `Първо ще симулира последните ${cfg.warm_start_days ?? 30} дни върху история, после продължава с нови свещи.`
+            : "Ще обработва само нови затворени свещи от сега нататък."}
         </Notice>
       )}
       <ErrorText error={error} />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 2xl:grid-cols-8">
-        <StatTile label="Equity" term="equity" value={fmtMoney(bot.equity)} sub={`старт ${fmtMoney(bot.initial_balance)}`} icon={Wallet} tone="accent" />
-        <StatTile label="P/L (virtual)" value={fmtMoney(bot.pnl, true)} tone={signTone(bot.pnl)} sub={fmtPct(bot.initial_balance ? (bot.pnl / bot.initial_balance) * 100 : null, 2, true)} />
+        <StatTile
+          label="Equity"
+          term="equity"
+          value={fmtMoney(bot.equity)}
+          sub={`старт ${fmtMoney(bot.initial_balance)}`}
+          icon={Wallet}
+          tone="accent"
+        />
+        <StatTile
+          label="P/L (virtual)"
+          value={fmtMoney(bot.pnl, true)}
+          tone={signTone(bot.pnl)}
+          sub={fmtPct(bot.initial_balance ? (bot.pnl / bot.initial_balance) * 100 : null, 2, true)}
+        />
         <StatTile label="Win rate" term="winrate" value={fmtPct(m.win_rate, 0)} sub={`${m.winning_trades ?? 0} W · ${m.losing_trades ?? 0} L`} />
         <StatTile label="Trades" value={m.total_trades} sub={m.trades_per_month ? `${m.trades_per_month.toFixed(1)} / месец` : "затворени"} />
         <StatTile label="Average R" term="r" value={fmtR(m.average_r)} tone={signTone(m.average_r)} sub={`exp. ${fmtR(m.expectancy_r)}`} />
-        <StatTile label="Max drawdown" term="drawdown" value={fmtPct(-Math.abs(m.max_drawdown_pct ?? bot.drawdown_pct), 2)} tone={(m.max_drawdown_pct ?? 0) > 10 ? "warn" : "neutral"} sub={`сега ${fmtPct(bot.drawdown_pct)}`} />
-        <StatTile label="Open positions" value={`${bot.positions.length} / ${bot.max_positions ?? cfg.max_open_positions ?? 1}`} sub={`unrealized ${fmtMoney(bot.unrealized_pnl, true)}`} icon={Layers} />
-        <StatTile label="Errors" value={bot.error_count} tone={bot.error_count ? "down" : "neutral"} icon={CircleAlert} sub={bot.error_count ? "виж Logs" : "няма"} />
+        <StatTile
+          label="Max drawdown"
+          term="drawdown"
+          value={fmtPct(-Math.abs(m.max_drawdown_pct ?? bot.drawdown_pct), 2)}
+          tone={(m.max_drawdown_pct ?? 0) > 10 ? "warn" : "neutral"}
+          sub={`сега ${fmtPct(bot.drawdown_pct)}`}
+        />
+        <StatTile
+          label="Open positions"
+          value={`${bot.positions.length} / ${bot.max_positions ?? cfg.max_open_positions ?? 1}`}
+          sub={`unrealized ${fmtMoney(bot.unrealized_pnl, true)}`}
+          icon={Layers}
+        />
+        <StatTile
+          label="Errors"
+          value={bot.error_count}
+          tone={bot.error_count ? "down" : "neutral"}
+          icon={CircleAlert}
+          sub={bot.error_count ? "виж Logs" : "няма"}
+        />
       </div>
 
       <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -213,7 +260,12 @@ export default function BotDashboard() {
           {eq.length > 1 ? (
             <EquityChart points={eq} drawdown={dd} baseline={bot.initial_balance} height={340} />
           ) : (
-            <EmptyState compact icon={LineChart} title="Няма затворени сделки" description="Equity кривата се появява след първата затворена paper сделка." />
+            <EmptyState
+              compact
+              icon={LineChart}
+              title="Няма затворени сделки"
+              description="Equity кривата се появява след първата затворена paper сделка."
+            />
           )}
         </Card>
 
@@ -235,11 +287,19 @@ export default function BotDashboard() {
                 <span className="text-[11px] text-muted">режим</span>
                 <RegimeBadge regime={bot.last_signal.regime ?? bot.regime} />
               </div>
-              {bot.last_signal.reason && <p className="rounded-md border border-warn/25 bg-warn/[0.06] px-2.5 py-1.5 text-xs text-warn">Причина: {bot.last_signal.reason}</p>}
+              {bot.last_signal.reason && (
+                <p className="rounded-md border border-warn/25 bg-warn/[0.06] px-2.5 py-1.5 text-xs text-warn">Причина: {bot.last_signal.reason}</p>
+              )}
               {conditions.length ? (
                 <div className="space-y-4">
                   {conditions.map(([k, conds]) => (
-                    <ConditionChecklist key={k} title={BLOCK_TITLE[k] ?? k} conditions={conds} passed={conds.length > 0 && conds.every((c) => c.passed)} compact />
+                    <ConditionChecklist
+                      key={k}
+                      title={BLOCK_TITLE[k] ?? k}
+                      conditions={conds}
+                      passed={conds.length > 0 && conds.every((c) => c.passed)}
+                      compact
+                    />
                   ))}
                 </div>
               ) : (
@@ -295,7 +355,12 @@ export default function BotDashboard() {
               </table>
             </div>
           ) : (
-            <EmptyState compact icon={Layers} title="Няма отворени позиции" description="Ботът чака setup, при който всички условия и филтри са изпълнени." />
+            <EmptyState
+              compact
+              icon={Layers}
+              title="Няма отворени позиции"
+              description="Ботът чака setup, при който всички условия и филтри са изпълнени."
+            />
           )}
         </Card>
 
@@ -357,7 +422,10 @@ export default function BotDashboard() {
           title={
             <>
               <ListOrdered size={15} strokeWidth={2} className="text-accent2" aria-hidden />
-              Trades <span className="num font-normal text-muted">({bot.trades.length})</span>
+              Trades{" "}
+              <span className="num font-normal text-muted">
+                ({m.total_trades > bot.trades.length ? `последните ${bot.trades.length} от ${m.total_trades}` : bot.trades.length})
+              </span>
             </>
           }
         >
@@ -390,7 +458,9 @@ export default function BotDashboard() {
                       <td className="py-1.5">
                         <Badge tone={exitTone(t.exit_reason)}>{EXIT_LABEL[t.exit_reason] ?? t.exit_reason.replace(/_/g, " ")}</Badge>
                       </td>
-                      <td className="py-1.5">{typeof t.meta?.regime === "string" ? <RegimeBadge regime={t.meta.regime} /> : <span className="text-faint">—</span>}</td>
+                      <td className="py-1.5">
+                        {typeof t.meta?.regime === "string" ? <RegimeBadge regime={t.meta.regime} /> : <span className="text-faint">—</span>}
+                      </td>
                       <td className={cx("num py-1.5 text-right", pnlClass(t.r_multiple))}>{fmtR(t.r_multiple)}</td>
                       <td className={cx("num py-1.5 text-right font-medium", pnlClass(t.net_pnl))}>{fmtMoney(t.net_pnl, true)}</td>
                     </tr>
@@ -399,7 +469,12 @@ export default function BotDashboard() {
               </table>
             </div>
           ) : (
-            <EmptyState compact icon={ListOrdered} title="Няма затворени сделки" description="Сделките се появяват, когато ботът затвори позиция по stop, target или exit правило." />
+            <EmptyState
+              compact
+              icon={ListOrdered}
+              title="Няма затворени сделки"
+              description="Сделките се появяват, когато ботът затвори позиция по stop, target или exit правило."
+            />
           )}
         </Card>
 
@@ -428,7 +503,10 @@ export default function BotDashboard() {
           {logs.length ? (
             <ul className="max-h-[420px] space-y-1 overflow-y-auto pr-1 text-xs">
               {logs.map((l, i) => (
-                <li key={`${l.ts}-${i}`} className="grid grid-cols-[86px_auto_minmax(0,1fr)] items-start gap-2 rounded-md px-1.5 py-1 hover:bg-white/[0.02]">
+                <li
+                  key={`${l.ts}-${i}`}
+                  className="grid grid-cols-[86px_auto_minmax(0,1fr)] items-start gap-2 rounded-md px-1.5 py-1 hover:bg-white/[0.02]"
+                >
                   <span className="num whitespace-nowrap pt-0.5 text-[10.5px] text-faint" title={fmtTime(l.ts)}>
                     {shortTime(l.ts)}
                   </span>

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-import { OVERLAY_COLORS, isDataNotAvailableError, overlayLines, swingMarkers, type NormalizedOverlay, type OverlayLayers } from "@/components/ai/model";
+import { OVERLAY_COLORS, isDataNotAvailableError, overlayLines, swingMarkers, unavailableReason, type NormalizedOverlay, type OverlayLayers } from "@/components/ai/model";
 import { ChartLegend } from "@/components/charts/ChartControls";
 import TradingChart, { type MarkerDef, type PriceLineDef } from "@/components/charts/TradingChart";
 import { ChartSkeleton, DataNotAvailable, SourceBadge } from "@/components/ui";
@@ -88,7 +88,7 @@ export function TeacherChart({
         </div>
       </div>
       {unavailable ? (
-        <DataNotAvailable reason={`${symbol}: ${errorMessage(error)}`} className="min-h-[320px]" />
+        <DataNotAvailable reason={`${symbol}: ${unavailableReason(error)}`} className="min-h-[320px]" />
       ) : error && !candles ? (
         <DataNotAvailable reason={`Графиката не се зареди: ${errorMessage(error)}`} className="min-h-[320px]" />
       ) : !candles && isLoading ? (

@@ -74,7 +74,11 @@ export type ExamplesSummary = {
   available: boolean;
   basis?: string;
   horizon?: number;
+  bars_scanned?: number;
   count?: number;
+  regime?: string | null;
+  rsi_band?: number[] | null;
+  direction?: string;
   criteria?: string;
   median_move_atr?: number | null;
   p25_move_atr?: number | null;

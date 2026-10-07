@@ -90,7 +90,7 @@ export function ChatPanel({ symbol, timeframe, initialQuestion, compact }: ChatP
       <div
         ref={scroller}
         aria-live="polite"
-        className={cx("flex-1 space-y-2.5 overflow-y-auto rounded-xl border border-white/[0.07] bg-black/20 p-3", compact ? "min-h-40" : "min-h-64")}
+        className={cx("flex-1 space-y-2.5 overflow-y-auto rounded-xl border border-white/[0.07] bg-black/20 p-3", compact ? "min-h-40" : "min-h-48")}
         style={{ maxHeight: compact ? 340 : 520 }}
       >
         {messages.map((m, i) => (

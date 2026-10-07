@@ -5,7 +5,18 @@ import { useEffect, useRef, useState } from "react";
 
 import { ChatPanel } from "@/components/ai/ChatPanel";
 import { useTeacherAsk } from "@/components/ai/hooks";
-import { buildAskBody, draftKey, draftRR, fmtValue, followUpRequest, isDataNotAvailableError, normalizeDraft, teacherHref, tfLabel } from "@/components/ai/model";
+import {
+  buildAskBody,
+  draftKey,
+  draftRR,
+  fmtValue,
+  followUpRequest,
+  isDataNotAvailableError,
+  normalizeDraft,
+  teacherHref,
+  tfLabel,
+  unavailableReason,
+} from "@/components/ai/model";
 import { StrategyView } from "@/components/ai/StrategyView";
 import { TeacherAnswer } from "@/components/ai/TeacherAnswer";
 import type { DraftOrder, FollowUp, TeacherAnswerData } from "@/components/ai/types";
@@ -52,7 +63,7 @@ function AnswerArea({
   empty?: React.ReactNode;
 }) {
   if (error && !busy) {
-    return isDataNotAvailableError(error) ? <DataNotAvailable compact reason={errorMessage(error)} /> : <ErrorText error={errorMessage(error)} />;
+    return isDataNotAvailableError(error) ? <DataNotAvailable compact reason={unavailableReason(error)} /> : <ErrorText error={errorMessage(error)} />;
   }
   if (busy && !answer) {
     return (

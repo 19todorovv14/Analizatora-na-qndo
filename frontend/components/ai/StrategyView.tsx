@@ -6,7 +6,17 @@ import { useState } from "react";
 
 import { AnswerLine } from "@/components/ai/AnswerLine";
 import { useStrategyView } from "@/components/ai/hooks";
-import { SETUP_DISCLAIMER, conditionCounts, fmtValue, isDataNotAvailableError, logicLabel, regimeFilterText, resultTone, tfLabel } from "@/components/ai/model";
+import {
+  SETUP_DISCLAIMER,
+  conditionCounts,
+  fmtValue,
+  isDataNotAvailableError,
+  logicLabel,
+  regimeFilterText,
+  resultTone,
+  tfLabel,
+  unavailableReason,
+} from "@/components/ai/model";
 import type { ConditionCheck, StrategyViewData } from "@/components/ai/types";
 import {
   Badge,
@@ -405,7 +415,7 @@ export function StrategyView({ symbol, timeframe, strategyId, compact, className
 
   if (error && (!data || stale)) {
     if (isDataNotAvailableError(error))
-      return <DataNotAvailable compact={compact} className={className} reason={`${symbol} ${tfLabel(timeframe)}: ${errorMessage(error)}`} />;
+      return <DataNotAvailable compact={compact} className={className} reason={`${symbol} ${tfLabel(timeframe)}: ${unavailableReason(error)}`} />;
     return (
       <ErrorState
         className={className}

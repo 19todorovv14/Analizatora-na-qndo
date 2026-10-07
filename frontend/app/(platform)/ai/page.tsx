@@ -14,6 +14,7 @@ import {
   followUpRequest,
   isDataNotAvailableError,
   isTeacherMode,
+  lessonIndicators,
   modeUsesChart,
   overlayFromAnalysis,
   overlayFromAnswer,
@@ -23,6 +24,7 @@ import {
   providerInfo,
   QUESTION_MODES,
   tfLabel,
+  unavailableReason,
   type OverlayLayers,
   type TeacherQuery,
 } from "@/components/ai/model";
@@ -32,7 +34,7 @@ import { StrategyView } from "@/components/ai/StrategyView";
 import { TeacherAnswer } from "@/components/ai/TeacherAnswer";
 import { TeacherChart } from "@/components/ai/TeacherChart";
 import { TeacherHistory } from "@/components/ai/TeacherHistory";
-import type { FollowUp, StrategyOption, TeacherMode, TeacherSessionRow } from "@/components/ai/types";
+import type { FollowUp, StrategyOption, TeacherAnswerData, TeacherMode, TeacherSessionRow } from "@/components/ai/types";
 import { IndicatorMenu, SymbolPicker, TimeframeBar } from "@/components/charts/ChartControls";
 import {
   Badge,
@@ -131,6 +133,10 @@ export default function AiTeacherPage() {
 
   const mode: TeacherMode = isTeacherMode(storedMode) ? storedMode : "analyze";
   const indicators = Array.isArray(storedIndicators) ? storedIndicators : DEFAULT_INDICATORS;
+  const indicatorsRef = useRef(indicators);
+  useEffect(() => {
+    indicatorsRef.current = indicators;
+  }, [indicators]);
   const layers = asLayers(storedLayers);
   const modes = useTeacherModes();
   const modeInfo = modes.find((m) => m.key === mode) ?? modes[0];
@@ -148,7 +154,12 @@ export default function AiTeacherPage() {
     inputs.reviewStrategyId ?? strategyId ?? strategies?.find((s) => !s.is_template)?.id ?? strategies?.find((s) => s.is_template)?.id ?? null;
 
   // bring a fresh answer into view when it starts below the fold (the console stays reachable above it)
-  const revealAnswer = useCallback(() => {
+  const revealAnswer = useCallback((a?: TeacherAnswerData | null) => {
+    // TEACH ME uses the live chart as the example → show the lesson's indicator (RSI, MACD, ATR…)
+    if (a?.mode === "teach" && a.lesson?.slug) {
+      const next = lessonIndicators(a.lesson.slug, indicatorsRef.current);
+      if (next !== indicatorsRef.current) setIndicators(next);
+    }
     window.requestAnimationFrame(() => {
       const el = answerRef.current;
       const col = columnRef.current;
@@ -159,7 +170,7 @@ export default function AiTeacherPage() {
         el.scrollIntoView({ behavior: "smooth", block: "start" });
       }
     });
-  }, []);
+  }, [setIndicators]);
 
   /* ── ?mode=&symbol=&tf=&topic=&q=&strategy_id=&position_id=… (academy / dashboard deep links) ── */
   useEffect(() => {
@@ -207,7 +218,7 @@ export default function AiTeacherPage() {
         question: q.question,
         topic: q.topic,
       }),
-    ).then((a) => a && revealAnswer());
+    ).then((a) => a && revealAnswer(a));
   }, [pendingAuto, symbol, tf, indicators, strategyId, reviewSid, teacherAsk, revealAnswer]);
 
   /* ── classic signal engine ── */
@@ -248,7 +259,7 @@ export default function AiTeacherPage() {
         topic: inputs.topic || null,
         draft: inputs.draftOn ? parseDraftInputs(inputs.draft) : null,
       }),
-    ).then((a) => a && revealAnswer());
+    ).then((a) => a && revealAnswer(a));
   };
 
   const onFollowUp = (f: FollowUp) => {
@@ -265,7 +276,9 @@ export default function AiTeacherPage() {
       positionId: req.position_id ?? i.positionId,
     }));
     setLastSource("teacher");
-    void teacher.ask(req);
+    void teacher.ask(req).then((a) => {
+      if (a?.mode === "teach") revealAnswer(a);
+    });
     const col = columnRef.current;
     if (col && getComputedStyle(col).overflowY !== "visible") col.scrollTo({ top: Math.max(0, (answerRef.current?.offsetTop ?? 0) - 8), behavior: "smooth" });
     else answerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -288,7 +301,7 @@ export default function AiTeacherPage() {
         strategyId: c.strategy_id ?? (row.mode === "review_strategy" ? reviewSid : strategyId),
         positionId: c.position_id ?? null,
       }),
-    ).then((a) => a && revealAnswer());
+    ).then((a) => a && revealAnswer(a));
   };
 
   const answer = teacher.answer;
@@ -412,7 +425,7 @@ export default function AiTeacherPage() {
             )}
             {teacher.error && !teacher.busy ? (
               isDataNotAvailableError(teacher.error) ? (
-                <DataNotAvailable reason={errorMessage(teacher.error)} />
+                <DataNotAvailable reason={unavailableReason(teacher.error)} />
               ) : (
                 <ErrorState
                   title="Учителят не можа да отговори"
@@ -421,7 +434,7 @@ export default function AiTeacherPage() {
                 />
               )
             ) : answer ? (
-              <Card bodyClass="p-4">
+              <Card bodyClass="p-3 sm:p-4">
                 <TeacherAnswer answer={answer} onFollowUp={onFollowUp} busy={teacher.busy} strategyId={strategyId} />
               </Card>
             ) : teacher.busy ? (

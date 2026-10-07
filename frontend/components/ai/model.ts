@@ -672,6 +672,25 @@ export function regimeFilterText(rf: StrategyViewData["regime_filter"] | undefin
   return `${req} · текущ: ${rf.actual ?? "—"}`;
 }
 
+/* ─────────────────────────────────────────── lesson → chart indicator */
+
+const LESSON_INDICATORS: Record<string, string[]> = {
+  sma: ["sma20"],
+  ema: ["ema20", "ema50"],
+  rsi: ["rsi"],
+  macd: ["macd"],
+  "bollinger-bands": ["bb"],
+  atr: ["atr"],
+  vwap: ["vwap"],
+};
+
+/** Chart indicators to switch on so a TEACH ME lesson uses the live chart as its example. */
+export function lessonIndicators(slug: string | null | undefined, active: string[]): string[] {
+  const want = (slug && LESSON_INDICATORS[slug]) || [];
+  const missing = want.filter((k) => !active.includes(k));
+  return missing.length ? [...active, ...missing] : active;
+}
+
 /* ───────────────────────────────────────────────────────── errors */
 
 /** True for the 503 DATA_NOT_AVAILABLE response (lib/api ApiError keeps only status + message). */
@@ -680,4 +699,11 @@ export function isDataNotAvailableError(e: unknown): boolean {
   const status = (e as { status?: unknown }).status;
   const msg = String((e as { message?: unknown }).message ?? "");
   return status === 503 || /DATA[ _]NOT[ _]AVAILABLE/i.test(msg);
+}
+
+/** Human reason of a 503 (drops the "Market data unavailable:" / "DATA NOT AVAILABLE —" prefix). */
+export function unavailableReason(e: unknown): string {
+  const msg = String((e as { message?: unknown } | null)?.message ?? e ?? "").trim();
+  const clean = msg.replace(/^(market data unavailable|data[ _]not[ _]available)\s*[:—–-]?\s*/i, "").trim();
+  return clean || "Доставчикът няма данни за този инструмент или период.";
 }
