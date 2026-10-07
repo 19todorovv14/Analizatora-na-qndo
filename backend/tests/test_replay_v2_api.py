@@ -402,7 +402,7 @@ def test_list_and_stats(guest):
         assert k in row
 
 
-def test_step_moves_through_market_closed_gaps(guest, monkeypatch):
+def test_step_skips_market_closed_gaps(guest, monkeypatch):
     s = _start(guest, mode="predict", bars=40)
     sid = s["session"]["id"]
     cur = s["session"]["cursor_ts"]
@@ -414,11 +414,15 @@ def test_step_moves_through_market_closed_gaps(guest, monkeypatch):
 
     monkeypatch.setattr(market_service, "candles", gapped)
     st = guest.post(f"/api/replay/{sid}/step", json={"n": 2}).json()
-    assert st["session"]["cursor_ts"] == cur + 2 * H  # time moves on although no candle was revealed
-    assert max(c["time"] for c in st["candles"]) == cur
-    d = guest.post(f"/api/replay/{sid}/decision", json={"action": "wait"}).json()["decision"]
-    assert d["bar_ts"] == cur  # the decision belongs to the last real candle
-    st = guest.post(f"/api/replay/{sid}/step", json={"n": 10}).json()
-    assert st["session"]["cursor_ts"] == cur + 12 * H
-    assert max(c["time"] for c in st["candles"]) == cur + 12 * H
+    # NEXT CANDLE reveals the next REAL candles — the closed hours are skipped, never an empty step
+    assert st["session"]["cursor_ts"] == cur + 8 * H
+    assert max(c["time"] for c in st["candles"]) == st["session"]["cursor_ts"]
     assert not any(gap[0] <= c["time"] <= gap[1] for c in st["candles"])
+    assert st["session"]["revealed"] == 2
+    d = guest.post(f"/api/replay/{sid}/decision", json={"action": "wait"}).json()["decision"]
+    assert d["bar_ts"] == cur + 8 * H  # the decision belongs to the candle at the cursor
+    st = guest.post(f"/api/replay/{sid}/step", json={"n": 10}).json()
+    assert st["session"]["cursor_ts"] == cur + 18 * H
+    assert max(c["time"] for c in st["candles"]) == cur + 18 * H
+    w = next(x for x in st["decisions"] if x["id"] == d["id"])
+    assert w["outcome"]["status"] == "resolved"  # WAIT is judged on 10 real candles

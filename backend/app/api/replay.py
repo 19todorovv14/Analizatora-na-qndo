@@ -3,7 +3,7 @@
 Owner: work package S5 (Historical Replay V2). The original endpoints were moved unchanged from app.api.misc
 (same paths and response keys); V2 adds — all additive — session options (mode trade|predict, period presets,
 strategy for the comparison), LONG / SHORT / WAIT decisions, live scoring, the AI HISTORY REVIEW at finish,
-GET /replay/stats and GET /replay/{sid}/review.
+GET /replay/stats, GET /replay/options and GET /replay/{sid}/review.
 """
 
 from __future__ import annotations
@@ -112,14 +112,24 @@ def create_replay(body: ReplayIn, user: User = Depends(current_user), db: Sessio
 
 
 @router.get("/replay")
-def list_replays(user: User = Depends(current_user), db: Session = Depends(get_db)):
-    return {"sessions": replay_service.list_sessions(db, user)}
+def list_replays(
+    limit: int = Query(20, ge=1, le=100),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    return {"sessions": replay_service.list_sessions(db, user, limit)}
 
 
-# declared before /replay/{sid} so "stats" is never parsed as a session id
+# declared before /replay/{sid} so "stats" / "options" are never parsed as a session id
 @router.get("/replay/stats")
 def replay_stats(user: User = Depends(current_user), db: Session = Depends(get_db)):
     return replay_service.stats(db, user)
+
+
+@router.get("/replay/options")
+def replay_options():
+    """Static setup metadata (modes, period presets, limits, scoring rules, flags) — no account data."""
+    return replay_service.options()
 
 
 @router.get("/replay/{sid}")

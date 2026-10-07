@@ -37,6 +37,10 @@ HISTORY_BARS = 150  # context shown before the first replay candle
 CONTEXT_BARS = 300  # history (all ≤ the decision bar) for the decision context: ATR, EMA 20, swings, regime
 NEXT_BARS = 30  # "what happened next" revealed at finish
 REVIEW_WARMUP_BARS = 300  # history before the window for the review's regimes and the strategy warm-up
+SNAP_BARS = 120  # look-back used to anchor a chosen start date on a real candle (nights, weekends, holidays)
+STEP_SCAN_ROUNDS = 10  # growing look-ahead fetches one step may make to jump over a market-closed gap
+STEP_SCAN_MAX = 1000  # candles per look-ahead fetch
+MAX_STEP = 100
 MODES = ("trade", "predict")
 ACTIONS = ("long", "short", "wait")
 DECISION_SETUP = "replay-decision"
@@ -67,6 +71,39 @@ def _window_candles(s: ReplaySession, extra_history: int = 0) -> list[Candle]:
 
 def visible_candles(s: ReplaySession) -> list[dict]:
     return [c.to_dict() for c in _window_candles(s)]
+
+
+def _scan_candles(symbol: str, timeframe: str, after_ts: int, n: int, until_ts: int) -> tuple[list[Candle], int, bool]:
+    """The first `n` closed candles with after_ts < ts ≤ until_ts, the last time scanned, and whether nothing is left
+    after them up to until_ts.
+
+    Market-closed gaps (nights, weekends, holidays) are skipped with growing look-ahead fetches, so a step always
+    reveals real candles while the range still has one. For 24/7 markets the first fetch is enough.
+    """
+    sec = tf_seconds(timeframe)
+    out: list[Candle] = []
+    lo = after_ts + sec
+    span = max(1, n)
+    scanned = after_ts
+    for _ in range(STEP_SCAN_ROUNDS):
+        if lo > until_ts or len(out) >= n:
+            break
+        hi = min(lo + (span - 1) * sec, until_ts)
+        out.extend(_closed(symbol, timeframe, lo, hi))
+        scanned = hi
+        lo = hi + sec
+        span = min(span * 4, STEP_SCAN_MAX)
+    return out[:n], scanned, scanned >= until_ts and len(out) <= n
+
+
+def _next_candles(s: ReplaySession, n: int) -> tuple[list[Candle], int, bool]:
+    """The next `n` candles of the window after the cursor (never after end_ts)."""
+    return _scan_candles(s.symbol, s.timeframe, s.cursor_ts, n, s.end_ts)
+
+
+def _after_cursor(s: ReplaySession, n: int = NEXT_BARS) -> list[Candle]:
+    """The `n` closed candles after the cursor ("what happened next") — revealed only once the session is finished."""
+    return _scan_candles(s.symbol, s.timeframe, s.cursor_ts, n, int(time.time()))[0]
 
 
 # ------------------------------------------------------------------------------------------------ create
@@ -114,6 +151,7 @@ def create_session(
             "candidates": w["candidates"],
             "matching": w["matching"],
             "future_bars_hidden": len(rows) - 1 - w["end_index"],
+            "window_candles": w["end_index"] - w["index"],
         }
     else:
         if start_ts is None:
@@ -122,7 +160,16 @@ def create_session(
         end = min(start + bars * sec, align(now, timeframe) - sec)
         if start >= end:
             raise ReplayError("Избери начална дата поне няколко свещи преди днес.")
-        setup = {"preset": None, "seed": None}
+        # anchor on real candles: a date inside a market-closed gap starts at the last candle before it, and the
+        # window ends on its last real candle (24/7 markets: unchanged)
+        rows = _closed(symbol, timeframe, start - SNAP_BARS * sec, end, now=now)
+        before = [c for c in rows if c.ts <= start]
+        anchor = before[-1] if before else (rows[0] if rows else None)
+        window = [c for c in rows if anchor is not None and anchor.ts < c.ts <= end]
+        if anchor is None or not window:
+            raise ReplayError("Няма исторически свещи за избрания период — избери друга начална дата.")
+        start, end = anchor.ts, window[-1].ts
+        setup = {"preset": None, "seed": None, "window_candles": len(window)}
     setup["strategy_source"] = strat_info.get("source")
     setup["strategy"] = {
         "id": strat_info.get("id"),
@@ -296,7 +343,11 @@ def _risk_qty(broker, spec, acc: PaperAccount, side: str, stop: float, risk_pct:
     if dist <= 0:
         raise ReplayError("Stop-ът е на цената на входа — няма как да се изчисли размер по риск.")
     snap = broker.snapshot()
-    per_unit = dist + price * 2 * spec.taker_fee  # the loss at the stop incl. entry + exit fees
+    # the loss at the stop incl. entry + exit fees, in the account currency (USD): instruments quoted in another
+    # currency (EUR/JPY, …) are converted with the broker's rate at the cursor — never sized in the wrong currency
+    fx_rate = getattr(broker, "fx_rate", None)
+    rate = float(fx_rate(spec.symbol, price=price, strict=True)) if callable(fx_rate) else 1.0
+    per_unit = (dist + price * 2 * spec.taker_fee) * rate
     qty = snap["equity"] * risk_pct / 100 / per_unit
     cap = None
     max_qty = getattr(broker, "max_qty", None)
@@ -397,7 +448,7 @@ def decide(db: Session, user: User, s: ReplaySession, req: dict, *, indicators: 
         old_order = _split(existing)[1].get("order_id")
         if old_order and old_order != meta["order_id"]:
             acc, broker = _broker(db, s)
-            if old_order in broker.s.orders:
+            if any(o.id == old_order for o in broker.active_orders(s.symbol)):
                 broker.cancel_order(old_order, s.cursor_ts)
                 paper_service.save_broker(db, acc, broker, user.id)
     d = existing or ReplayDecision(session_id=s.id, user_id=user.id, bar_ts=bar.ts)
@@ -429,7 +480,7 @@ def _strategy_info(db: Session, s: ReplaySession) -> dict | None:
     stored = _setup(s).get("strategy")
     if s.strategy_id is not None:
         row = db.get(Strategy, s.strategy_id)
-        if row is not None:
+        if row is not None and (row.user_id is None or row.user_id == s.user_id):
             return {
                 "id": row.id,
                 "name": row.name,
@@ -482,8 +533,19 @@ def decisions_summary(items: list[dict]) -> dict:
     }
 
 
-def _session_info(db: Session, s: ReplaySession, precision: int) -> dict:
+def _session_info(db: Session, s: ReplaySession, precision: int, candles: list[Candle] | None = None) -> dict:
+    """`candles` = the visible candles (ending at the cursor): with the window size stored at creation they give
+    exact candle counts even for markets with closed hours; otherwise the counts are derived from time."""
     sec = tf_seconds(s.timeframe)
+    total = _setup(s).get("window_candles")
+    if candles is not None and isinstance(total, int) and total > 0:
+        revealed = min(total, sum(1 for c in candles if s.start_ts < c.ts <= s.cursor_ts))
+        remaining = 0 if s.cursor_ts >= s.end_ts else max(0, total - revealed)
+        bars = total
+    else:
+        revealed = max(0, (s.cursor_ts - s.start_ts) // sec)
+        remaining = max(0, (s.end_ts - s.cursor_ts) // sec)
+        bars = max(0, (s.end_ts - s.start_ts) // sec)
     return {
         "id": s.id,
         "symbol": s.symbol,
@@ -492,11 +554,11 @@ def _session_info(db: Session, s: ReplaySession, precision: int) -> dict:
         "cursor_ts": s.cursor_ts,
         "end_ts": s.end_ts,
         "status": s.status,
-        "remaining": max(0, (s.end_ts - s.cursor_ts) // sec),
+        "remaining": remaining,
         "mode": s.mode or "trade",
         "precision": precision,
-        "bars": max(0, (s.end_ts - s.start_ts) // sec),
-        "revealed": max(0, (s.cursor_ts - s.start_ts) // sec),
+        "bars": bars,
+        "revealed": revealed,
         "score": s.score,
         "grade": scoring.grade(s.score),
         "preset": _preset_info(s),
@@ -517,7 +579,7 @@ def state(db: Session, s: ReplaySession, *, indicators: str | None = None) -> di
     items = [serialize_decision(d) for d in _decision_rows(db, s)]
     last_ts = visible[-1].ts if visible else None
     out = {
-        "session": _session_info(db, s, spec.price_precision),
+        "session": _session_info(db, s, spec.price_precision, visible),
         "candles": [c.to_dict() for c in visible],
         "account": view,
         "events": paper_service.events(db, acc, 20),
@@ -542,17 +604,21 @@ def state(db: Session, s: ReplaySession, *, indicators: str | None = None) -> di
 
 # ------------------------------------------------------------------------------------------------ step / orders
 def step(db: Session, s: ReplaySession, n: int = 1, *, indicators: str | None = None) -> dict:
+    """Reveal the next `n` candles (1–100). Market-closed gaps are skipped: every step reveals real candles."""
     if s.status != "active":
         raise ReplayError("Replay сесията е приключила.")
     sec = tf_seconds(s.timeframe)
-    target = min(s.cursor_ts + max(1, min(n, 100)) * sec, s.end_ts)
-    rows = _closed(s.symbol, s.timeframe, s.cursor_ts + sec, target)
+    rows, scanned, exhausted = _next_candles(s, max(1, min(n, MAX_STEP)))
     acc, broker = _broker(db, s)
     for c in rows:
         broker.process_bar(s.symbol, Bar(c.ts, c.open, c.high, c.low, c.close, c.volume, sec))
         s.cursor_ts = c.ts
-    if not rows:
-        s.cursor_ts = target  # a gap without candles (market closed) — time still moves on
+    if exhausted and s.cursor_ts < s.end_ts:
+        # no candle is left in the window (it ends inside a market-closed gap): the period is over and the
+        # cursor stays on the last real candle
+        s.end_ts = s.cursor_ts
+    elif not rows:
+        s.cursor_ts = scanned  # a very long gap without candles — time still moves on, the next step continues
     paper_service.save_broker(db, acc, broker, s.user_id)
     if s.cursor_ts >= s.end_ts:
         s.status = "finished"
@@ -671,9 +737,14 @@ def _trade_reviews(db: Session, user: User, s: ReplaySession, acc: PaperAccount)
 
 
 def finish(db: Session, user: User, s: ReplaySession) -> dict:
+    """Close the period: open positions are closed at the cursor, pending orders cancelled, every decision gets its
+    final resolution (on the window AND the next NEXT_BARS candles, now revealed) and the AI HISTORY REVIEW is built
+    and stored. Finishing again returns the stored review — nothing can change after the first finish."""
     acc, broker = _broker(db, s)
     for p in broker.open_positions():
         broker.close_position(p.id, ts=s.cursor_ts, reason="manual")
+    for o in broker.active_orders():  # an entry order can never fill once the period is over
+        broker.cancel_order(o.id, s.cursor_ts)
     paper_service.save_broker(db, acc, broker, user.id)
     s.status = "finished"
     db.commit()
@@ -681,59 +752,64 @@ def finish(db: Session, user: User, s: ReplaySession) -> dict:
     sec = tf_seconds(s.timeframe)
     trades, reviews = _trade_reviews(db, user, s, acc)
     metrics = trade_metrics(trades, None, acc.initial_balance)
-    hidden_after = _closed(s.symbol, s.timeframe, s.cursor_ts + sec, s.cursor_ts + NEXT_BARS * sec)
+    hidden_after = _after_cursor(s)
 
-    # final resolution: the period is over, so the decisions are resolved on the window AND the revealed next bars
-    _refresh_decisions(db, s, until=s.cursor_ts + NEXT_BARS * sec, final=True)
-    items = [serialize_decision(d) for d in _decision_rows(db, s)]
-    score_basis = "decisions" if s.score is not None else None
-    if s.score is None:
-        process = [r["process_score"] for r in reviews if r.get("process_score") is not None]
-        if process:
-            s.score = round(mean(process), 1)
-            score_basis = "trades"
+    hr = (s.review or {}).get("history_review")
+    if hr and hr.get("version") == review.REVIEW_VERSION and hr.get("end_ts") == s.cursor_ts:
+        items = [serialize_decision(d) for d in _decision_rows(db, s)]
+    else:
+        # final resolution: the period is over, so the decisions are resolved on the window AND the next bars
+        _refresh_decisions(db, s, until=hidden_after[-1].ts if hidden_after else s.cursor_ts, final=True)
+        items = [serialize_decision(d) for d in _decision_rows(db, s)]
+        score_basis = "decisions" if s.score is not None else None
+        if s.score is None:
+            process = [r["process_score"] for r in reviews if r.get("process_score") is not None]
+            if process:
+                s.score = round(mean(process), 1)
+                score_basis = "trades"
 
-    history = _closed(s.symbol, s.timeframe, s.start_ts - REVIEW_WARMUP_BARS * sec, s.cursor_ts)
-    defn, info, _ = comparison.resolve_strategy(db, user, s.strategy_id)
-    setup = _setup(s)
-    if setup.get("strategy_source") and info.get("id") == s.strategy_id:
-        info = {**info, "source": setup["strategy_source"]}
-    resolved_r = [
-        d["outcome"].get("r_result")
-        for d in items
-        if d["action"] != "wait" and d["score_final"] and d["outcome"].get("r_result") is not None
-    ]
-    cmp = comparison.compare(
-        history,
-        start_ts=s.start_ts,
-        cursor_ts=s.cursor_ts,
-        spec=spec,
-        timeframe=s.timeframe,
-        defn=defn,
-        info=info,
-        settings=comparison.settings_from_account(acc.initial_balance, acc.leverage, acc.execution),
-        user_total_r=round(sum(resolved_r), 3) if resolved_r else None,
-        user_resolved=len(resolved_r),
-    )
-    hr = review.build_history_review(
-        symbol=s.symbol,
-        timeframe=s.timeframe,
-        precision=spec.price_precision,
-        mode=s.mode or "trade",
-        setup=setup,
-        history=history,
-        start_ts=s.start_ts,
-        cursor_ts=s.cursor_ts,
-        next_bars=hidden_after,
-        decisions=items,
-        score=s.score,
-        score_basis=score_basis,
-        comparison=cmp,
-        trade_reviews=reviews,
-        trade_metrics=metrics,
-    )
-    s.review = {"setup": setup, "history_review": hr}
-    db.commit()
+        history = _closed(s.symbol, s.timeframe, s.start_ts - REVIEW_WARMUP_BARS * sec, s.cursor_ts)
+        defn, info, _ = comparison.resolve_strategy(db, user, s.strategy_id)
+        setup = _setup(s)
+        if setup.get("strategy_source") and info.get("id") == s.strategy_id:
+            info = {**info, "source": setup["strategy_source"]}
+        resolved_r = [
+            d["outcome"].get("r_result")
+            for d in items
+            if d["action"] != "wait" and d["score_final"] and d["outcome"].get("r_result") is not None
+        ]
+        cmp = comparison.compare(
+            history,
+            start_ts=s.start_ts,
+            cursor_ts=s.cursor_ts,
+            spec=spec,
+            timeframe=s.timeframe,
+            defn=defn,
+            info=info,
+            settings=comparison.settings_from_account(acc.initial_balance, acc.leverage, acc.execution),
+            user_total_r=round(sum(resolved_r), 3) if resolved_r else None,
+            user_resolved=len(resolved_r),
+        )
+        hr = review.build_history_review(
+            symbol=s.symbol,
+            timeframe=s.timeframe,
+            precision=spec.price_precision,
+            mode=s.mode or "trade",
+            setup=setup,
+            history=history,
+            start_ts=s.start_ts,
+            cursor_ts=s.cursor_ts,
+            next_bars=hidden_after,
+            decisions=items,
+            score=s.score,
+            score_basis=score_basis,
+            comparison=cmp,
+            trade_reviews=reviews,
+            trade_metrics=metrics,
+        )
+        hr["end_ts"] = s.cursor_ts
+        s.review = {"setup": setup, "history_review": hr}
+        db.commit()
 
     summary = []
     if (s.mode or "trade") == "trade" or trades:
@@ -772,18 +848,81 @@ def stored_review(db: Session, s: ReplaySession) -> dict | None:
     hr = (s.review or {}).get("history_review")
     if not hr:
         return None
-    sec = tf_seconds(s.timeframe)
     spec = get_asset(s.symbol)
+    rows = _window_candles(s)
     return {
-        "session": _session_info(db, s, spec.price_precision),
+        "session": _session_info(db, s, spec.price_precision, rows),
         "precision": spec.price_precision,
         "source": market_service.source_of(s.symbol),
-        "candles": visible_candles(s),
-        "what_happened_next": [
-            c.to_dict() for c in _closed(s.symbol, s.timeframe, s.cursor_ts + sec, s.cursor_ts + NEXT_BARS * sec)
-        ],
+        "candles": [c.to_dict() for c in rows],
+        "what_happened_next": [c.to_dict() for c in _after_cursor(s)],
         "decisions": [serialize_decision(d) for d in _decision_rows(db, s)],
         "history_review": hr,
+    }
+
+
+# ------------------------------------------------------------------------------------------------ options
+MODE_INFO = {
+    "trade": {
+        "label": "Trade",
+        "label_bg": "Търговия с paper поръчки",
+        "description": "BUY / SELL paper поръчки по историческите свещи (виртуални пари). LONG / SHORT решенията "
+        "могат да пуснат и paper поръчка.",
+    },
+    "predict": {
+        "label": "Predict",
+        "label_bg": "Само прогнози",
+        "description": "LONG / SHORT / WAIT прогнози със stop и target — без поръчки по сметка. Всяка прогноза "
+        "се оценява по разкритите свещи.",
+    },
+}
+
+
+def options() -> dict:
+    """Static setup metadata for the replay UI: modes, period presets, limits, the scoring rules and the flags."""
+    flags = []
+    for key, info in scoring.FLAGS.items():
+        lesson = review.lesson_ref(info["lesson"], info["label"])
+        flags.append(
+            {
+                "key": key,
+                "label": info["label"],
+                "severity": info["severity"],
+                "lesson": info["lesson"],
+                "lesson_title": lesson["title"] if lesson else None,
+                "href": lesson["href"] if lesson else None,
+            }
+        )
+    return {
+        "modes": [{"key": k, **v} for k, v in MODE_INFO.items()],
+        "presets": [{"key": k, **v} for k, v in presets.PRESETS.items()],
+        "actions": list(ACTIONS),
+        "defaults": {"mode": "trade", "bars": 200, "balance": 10_000.0, "preset": None},
+        "limits": {
+            "bars": {"min": 20, "max": 1000},
+            "balance": {"min": 100.0, "max": 1_000_000.0},
+            "step_max": MAX_STEP,
+            "history_bars": HISTORY_BARS,
+            "next_bars": NEXT_BARS,
+            "preset_min_window_bars": presets.MIN_WINDOW_BARS,
+            "preset_future_gap_bars": presets.FUTURE_GAP_BARS,
+        },
+        "rules": {
+            "prediction_horizon_bars": outcomes.PREDICTION_HORIZON,
+            "wait_horizon_bars": outcomes.WAIT_HORIZON,
+            "wait_move_atr": outcomes.WAIT_MOVE_ATR,
+            "wait_against_atr": outcomes.WAIT_AGAINST_ATR,
+            "same_candle_policy": "stop_first",
+            "rr_good": scoring.RR_GOOD,
+            "rr_bad": scoring.RR_BAD,
+            "noise_stop_atr": scoring.NOISE_STOP_ATR,
+            "chase_ema_atr": scoring.CHASE_EMA_ATR,
+            "structure_atr": scoring.STRUCTURE_ATR,
+            "weights": dict(scoring.WEIGHTS),
+        },
+        "flags": flags,
+        "strategy_sentence": comparison.SENTENCE,
+        "disclaimer": review.DISCLAIMER,
     }
 
 

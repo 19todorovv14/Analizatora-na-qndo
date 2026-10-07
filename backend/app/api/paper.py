@@ -14,7 +14,7 @@ from app.ai.review import narrate, review_position
 from app.api.deps import current_user, now_ts, symbol_param
 from app.database import get_db
 from app.exchange.registry import get_adapter
-from app.market.catalog import get_asset
+from app.market.catalog import get_asset, resolve_asset
 from app.models import PaperAccount, PaperTrade, User
 from app.paper_engine.models import ExecutionConfig
 from app.services import paper_service, settings_service
@@ -131,17 +131,29 @@ def modify(position_id: str, body: ModifyIn, user: User = Depends(current_user),
 
 
 @router.get("/trades")
-def trades(limit: int = Query(200, le=1000), user: User = Depends(current_user), db: Session = Depends(get_db)):
+def trades(
+    limit: int = Query(200, le=1000),
+    symbol: str | None = Query(None, min_length=1, max_length=40),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Closed trades (parts of positions), newest first; `symbol` keeps only that instrument (chart markers)."""
     acc = _account(db, user)
-    rows = db.scalars(
-        select(PaperTrade).where(PaperTrade.account_id == acc.id).order_by(PaperTrade.closed_ts.desc()).limit(limit)
-    )
+    q = select(PaperTrade).where(PaperTrade.account_id == acc.id)
+    if symbol:
+        q = q.where(PaperTrade.symbol == resolve_asset(symbol).symbol)
+    rows = db.scalars(q.order_by(PaperTrade.closed_ts.desc()).limit(limit))
     return {"trades": [paper_service.trade_to_dict(t) for t in rows]}
 
 
 @router.get("/events")
-def events(user: User = Depends(current_user), db: Session = Depends(get_db)):
-    return {"events": paper_service.events(db, _account(db, user))}
+def events(
+    limit: int = Query(50, ge=1, le=500),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Account activity (fills, rejections, SL/TP, stop-outs …), newest first."""
+    return {"events": paper_service.events(db, _account(db, user), limit)}
 
 
 @router.post("/reset")

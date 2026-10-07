@@ -19,10 +19,11 @@ from app.analysis.signal import analyze
 from app.backtesting.metrics import trade_metrics
 from app.market.base import AssetSpec, MarketDataError, redact_secrets
 from app.market.catalog import SPECS, get_asset
+from app.market.sessions import market_status
 from app.market.timeframes import align
 from app.models import PaperAccount, PaperEvent, PaperOrder, PaperPosition, PaperTrade, RiskEvent, User
 from app.paper_engine.broker import MARGIN_MODE, PaperBroker, effective_daily_vol
-from app.paper_engine.fx import ACCOUNT_CURRENCY, QuoteConverter
+from app.paper_engine.fx import ACCOUNT_CURRENCY, MarketRateSource, QuoteConverter
 from app.paper_engine.models import ACTIVE_ORDER_STATUSES, AccountState, Bar, ExecutionConfig, Order, Position
 from app.risk.engine import RiskFinding, evaluate_trade, max_drawdown, trade_plan
 from app.services import market_service, settings_service
@@ -150,7 +151,13 @@ def _pos_from_row(r: PaperPosition) -> Position:
     return Position(id=r.id, **data, sl_history=list(r.sl_history or []), meta=dict(r.meta or {}))
 
 
-def load_broker(db: Session, acc: PaperAccount) -> PaperBroker:
+def load_broker(db: Session, acc: PaperAccount, *, now: int | None = None) -> PaperBroker:
+    """The account's active orders and open positions in a PaperBroker.
+
+    `now` (the request time) anchors quote-currency conversion: cross rates within two minutes of it come from the
+    conversion instrument's ticker, older events (catch-up, replay) from its candle closes. Without it the wall clock
+    is used.
+    """
     state = AccountState(
         cash=acc.cash,
         leverage=acc.leverage,
@@ -166,8 +173,14 @@ def load_broker(db: Session, acc: PaperAccount) -> PaperBroker:
         select(PaperPosition).where(PaperPosition.account_id == acc.id, PaperPosition.status == "open")
     ):
         state.positions[r.id] = _pos_from_row(r)
+    rates = MarketRateSource(now=now) if now is not None else MarketRateSource()
     return PaperBroker(
-        state, SPECS, ExecutionConfig.from_dict(acc.execution), seed=f"acct:{acc.id}", convert=QuoteConverter(SPECS)
+        state,
+        SPECS,
+        ExecutionConfig.from_dict(acc.execution),
+        seed=f"acct:{acc.id}",
+        convert=QuoteConverter(SPECS, rates=rates),
+        now=now,
     )
 
 
@@ -242,7 +255,7 @@ def save_broker(db: Session, acc: PaperAccount, broker: PaperBroker, user_id: in
 def sync_account(db: Session, acc: PaperAccount, now: int | None = None) -> PaperBroker:
     """Advance the account through all CLOSED 1-minute candles since the last sync."""
     now = int(now or time.time())
-    broker = load_broker(db, acc)
+    broker = load_broker(db, acc, now=now)
     symbols = {o.symbol for o in broker.s.orders.values()} | {p.symbol for p in broker.s.positions.values()}
     start = max(acc.last_synced_ts, now - MAX_CATCHUP_SECONDS)
     start = align(start, "1m")
@@ -277,8 +290,10 @@ def sync_account(db: Session, acc: PaperAccount, now: int | None = None) -> Pape
 
 
 # ------------------------------------------------------------- serialisation
-def order_to_dict(o: PaperOrder | Order) -> dict:
-    return {
+def order_to_dict(o: PaperOrder | Order, broker: PaperBroker | None = None) -> dict:
+    """An order for the UI. With `broker`, `effective_leverage` (the leverage the fill will use: the order's own or
+    the account default capped by the instrument) is added."""
+    out = {
         "id": o.id,
         "symbol": o.symbol,
         "side": o.side,
@@ -300,6 +315,10 @@ def order_to_dict(o: PaperOrder | Order) -> dict:
         "reason": (o.meta or {}).get("reason"),
         "leverage": (o.meta or {}).get("leverage"),  # requested per-order leverage; None → account default
     }
+    if broker is not None:
+        order = o if isinstance(o, Order) else _order_from_row(o)
+        out["effective_leverage"] = broker.order_leverage(order)
+    return out
 
 
 def position_to_dict(p: Position, broker: PaperBroker) -> dict:
@@ -320,6 +339,10 @@ def position_to_dict(p: Position, broker: PaperBroker) -> dict:
         "initial_qty": p.initial_qty,
         "entry_price": p.entry_price,
         "mark_price": mark,
+        # False when no market price could be read for the instrument (mark_price then falls back to the entry
+        # price, so the UI should show DATA NOT AVAILABLE for the live P/L instead of the number)
+        "mark_available": p.symbol in broker.marks,
+        "mark_ts": broker.mark_ts.get(p.symbol),
         "stop_loss": p.stop_loss,
         "take_profit": p.take_profit,
         "initial_stop": p.initial_stop,
@@ -394,7 +417,7 @@ def account_view(db: Session, acc: PaperAccount, broker: PaperBroker, now: int |
         equity.append(equity[-1] + t["net_pnl"])
     metrics = trade_metrics(trades, equity, acc.initial_balance)
     _, dd_pct = max_drawdown(equity + [snap["equity"]])
-    orders = [order_to_dict(o) for o in broker.s.orders.values() if o.is_active and not o.reduce_only]
+    orders = [order_to_dict(o, broker) for o in broker.s.orders.values() if o.is_active and not o.reduce_only]
     margin_level = snap["margin_level"]
     return {
         "account": {
@@ -594,16 +617,22 @@ def preview_order(db: Session, user: User, acc: PaperAccount, req: dict, now: in
     per_unit_risk = plan["potential_loss"] / qty if plan["potential_loss"] is not None and qty > 0 else None
     risk_pct = req.get("risk_pct")
     risk_amount = snap["equity"] * float(risk_pct) / 100 if risk_pct and snap["equity"] > 0 else None
+    max_qty = broker.max_qty(symbol, entry=entry, leverage=lev_req, ts=now)
+    qty_for_risk = (
+        spec.round_qty(risk_amount / per_unit_risk) if risk_amount and per_unit_risk and per_unit_risk > 0 else None
+    )
     sizing = {
         "per_unit_risk": per_unit_risk,
-        "max_qty": broker.max_qty(symbol, entry=entry, leverage=lev_req, ts=now),
+        "max_qty": max_qty,
         "min_qty": spec.min_qty,
         "qty_step": spec.qty_step,
         "risk_pct": risk_pct,
         "risk_amount": risk_amount,
-        "qty_for_risk": (
-            spec.round_qty(risk_amount / per_unit_risk) if risk_amount and per_unit_risk and per_unit_risk > 0 else None
-        ),
+        "qty_for_risk": qty_for_risk,
+        # qty_for_risk limited by the free margin at the chosen leverage (what can actually be opened)
+        "qty_for_risk_capped": min(qty_for_risk, max_qty) if qty_for_risk is not None else None,
+        "capped_by_margin": qty_for_risk is not None and qty_for_risk > max_qty,
+        "below_min_qty": qty_for_risk is not None and min(qty_for_risk, max_qty) < spec.min_qty,
     }
     return {
         "symbol": symbol,
@@ -647,7 +676,7 @@ def preview_order(db: Session, user: User, acc: PaperAccount, req: dict, now: in
 def place_order(db: Session, user: User, acc: PaperAccount, req: dict, now: int | None = None) -> dict:
     now = int(now or time.time())
     preview = preview_order(db, user, acc, req, now)
-    broker = load_broker(db, acc)  # fresh state after the sync performed by preview_order
+    broker = load_broker(db, acc, now=now)  # fresh state after the sync performed by preview_order
     symbol = req["symbol"]
     broker.set_mark(symbol, (preview["bid"] + preview["ask"]) / 2, now)
     bar = market_service.last_closed_1m(symbol, now)
@@ -701,8 +730,9 @@ def place_order(db: Session, user: User, acc: PaperAccount, req: dict, now: int 
                     )
                 )
         db.commit()
+    out = order_to_dict(order, broker)
     broker = sync_account(db, acc, now)
-    return {"order": order_to_dict(order), "preview": preview, "view": account_view(db, acc, broker, now)}
+    return {"order": out, "preview": preview, "view": account_view(db, acc, broker, now)}
 
 
 def instrument_info(db: Session, acc: PaperAccount, symbol: str, now: int | None = None) -> dict:
@@ -710,7 +740,7 @@ def instrument_info(db: Session, acc: PaperAccount, symbol: str, now: int | None
     quote-currency conversion). Missing market data gives available:false + reason instead of an error."""
     now = int(now or time.time())
     spec = get_asset(symbol)
-    broker = load_broker(db, acc)
+    broker = load_broker(db, acc, now=now)
     out: dict = {
         "symbol": spec.symbol,
         "name": spec.name,
@@ -741,6 +771,7 @@ def instrument_info(db: Session, acc: PaperAccount, symbol: str, now: int | None
         "spread": None,
         "source": None,
         "conversion": None,
+        "market_status": market_status(spec, now),
     }
     try:
         ticker = market_service.ticker(symbol, now=now)

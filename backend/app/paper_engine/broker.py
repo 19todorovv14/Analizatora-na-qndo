@@ -421,6 +421,69 @@ class PaperBroker:
             return 0.0
         return spec.round_qty(free / per_unit)
 
+    def risk_per_unit(
+        self,
+        symbol: str,
+        *,
+        side: str,
+        entry: float,
+        stop: float,
+        ts: int | None = None,
+        include_fees: bool = True,
+    ) -> float | None:
+        """USD lost per unit of quantity when a `side` (buy|sell|long|short) entry at `entry` exits at `stop`.
+
+        The price distance is converted at the rate AT THE STOP (exact for USD/XXX instruments, whose rate is
+        1 / price); taker fees on entry and exit are included when fees are enabled. None when `stop` is not on
+        the losing side of `entry`. Raises ConversionUnavailableError when no conversion rate exists.
+        """
+        if entry is None or stop is None or entry <= 0 or stop <= 0:
+            return None
+        sign = 1 if side in (BUY, LONG) else -1
+        dist = (entry - stop) * sign
+        if dist <= 0:
+            return None
+        when = self.event_ts(symbol) if ts is None else int(ts)
+        stop_rate = self.fx_rate(symbol, price=stop, ts=when, strict=True)
+        loss = dist * stop_rate
+        if include_fees:
+            fee = self._fee_rate(symbol, "taker")
+            if fee > 0:
+                entry_rate = self.fx_rate(symbol, price=entry, ts=when, strict=True)
+                loss += entry * entry_rate * fee + stop * stop_rate * fee
+        return loss
+
+    def qty_for_risk(
+        self,
+        symbol: str,
+        *,
+        side: str,
+        entry: float,
+        stop: float,
+        risk_amount: float,
+        leverage: float | None = None,
+        ts: int | None = None,
+        cap_by_margin: bool = True,
+    ) -> float:
+        """Quantity whose loss at `stop` (fees included, in USD) stays within `risk_amount` USD.
+
+        Rounded DOWN to the instrument's qty step and, with `cap_by_margin`, capped by what the current free
+        margin can open at `entry` with `leverage` (default: the account default). Returns 0.0 when the stop is
+        on the wrong side or the amount is not positive; the result can be below the instrument's min_qty (the
+        caller decides whether to skip the trade). Works for every quote currency — backtests, bots and replay
+        size positions with it so the risk is the same in USD whatever the instrument is quoted in.
+        """
+        if not risk_amount or risk_amount <= 0:
+            return 0.0
+        per_unit = self.risk_per_unit(symbol, side=side, entry=entry, stop=stop, ts=ts)
+        if not per_unit or per_unit <= 0:
+            return 0.0
+        spec = self.specs[symbol]
+        qty = spec.round_qty(risk_amount / per_unit)
+        if cap_by_margin:
+            qty = min(qty, self.max_qty(symbol, entry=entry, leverage=leverage, ts=ts))
+        return max(qty, 0.0)
+
     def order_estimate(
         self,
         *,
