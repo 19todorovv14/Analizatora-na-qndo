@@ -263,7 +263,7 @@ export function CandleDrilldown({
   if (error) {
     body =
       error instanceof ApiError && error.status === 503 ? (
-        <DataNotAvailable reason={error.message} provider={symbol} compact />
+        <DataNotAvailable reason={error.message} provider={symbol} />
       ) : (
         <ErrorState title="Drill-down не се зареди" description={error instanceof Error ? error.message : undefined} onRetry={() => mutate()} />
       );

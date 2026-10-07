@@ -1,38 +1,48 @@
 "use client";
 
-import { Bot, ChevronRight } from "lucide-react";
+import { Bot, ChevronRight, Funnel as FunnelIcon } from "lucide-react";
 import Link from "next/link";
 
 import { StatusPill } from "@/components/bots/StatusPill";
 import type { BotRow } from "@/components/bots/types";
+import { signalTone } from "@/components/strategy/SignalCheck";
 import { Badge, EmptyState, RegimeBadge } from "@/components/ui";
 import { TF_LABEL, cx, fmtMoney, fmtPct, fmtR, pnlClass } from "@/lib/format";
 
-function signalTone(sig?: string) {
-  if (!sig) return "neutral" as const;
-  if (sig.includes("LONG")) return "up" as const;
-  if (sig.includes("SHORT")) return "down" as const;
-  return "neutral" as const;
+function Metric({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
+  return (
+    <div className={cx("min-w-0 rounded-lg bg-black/15 px-2.5 py-1.5 ring-1 ring-inset ring-white/[0.05]", className)}>
+      <div className="truncate text-[10px] font-medium uppercase tracking-[0.06em] text-faint">{label}</div>
+      <div className="num mt-0.5 truncate text-[13px] font-semibold text-text">{children}</div>
+    </div>
+  );
 }
 
-/** Mini funnel "setups → all met → trades" used in the bot list. */
-function Funnel({ b }: { b: BotRow }) {
+/** "setups → all met → trades" with a proportional bar (from the bot's evaluation statistics). */
+function FunnelLine({ b }: { b: BotRow }) {
   const g = b.setups_generated ?? 0;
-  if (!g) return <span className="text-faint">—</span>;
   const met = b.all_conditions_met ?? 0;
-  return (
-    <span className="inline-flex flex-col gap-1">
-      <span className="num text-[11px] text-muted">
-        {g} → <span className="text-text/90">{met}</span> → <span className="text-accent2">{b.trades}</span>
+  if (!g)
+    return (
+      <span className="inline-flex items-center gap-1.5 text-[11px] text-faint">
+        <FunnelIcon size={12} strokeWidth={2} aria-hidden /> Още няма обработени свещи
       </span>
-      <span className="flex h-1 w-24 overflow-hidden rounded-full bg-white/[0.06]" aria-hidden>
+    );
+  return (
+    <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+      <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] text-muted">
+        <FunnelIcon size={12} strokeWidth={2} className="shrink-0 text-accent2" aria-hidden />
+        <span className="num truncate">{b.coach_headline || `${g} setups → ${met} с изпълнени условия → ${b.trades} сделки`}</span>
+      </span>
+      <span className="relative flex h-1.5 w-28 shrink-0 overflow-hidden rounded-full bg-white/[0.06]" aria-hidden>
         <span className="h-full bg-accent/70" style={{ width: `${Math.min(100, (met / g) * 100)}%` }} />
+        <span className="absolute inset-y-0 left-0 bg-violet" style={{ width: `${Math.min(100, (b.trades / g) * 100)}%` }} />
       </span>
     </span>
   );
 }
 
-/** "Моите ботове" table: status pills RUNNING / PAUSED / STOPPED, virtual P/L, funnel, last signal. */
+/** "Моите ботове": one card per bot — status pill RUNNING / PAUSED / STOPPED, virtual P/L, stats, setups funnel, last signal. */
 export function BotList({ bots }: { bots: BotRow[] }) {
   if (!bots.length)
     return (
@@ -43,62 +53,56 @@ export function BotList({ bots }: { bots: BotRow[] }) {
       />
     );
   return (
-    <div className="-mx-4 overflow-x-auto px-4">
-      <table className="w-full min-w-[920px] text-sm">
-        <thead className="text-left text-[10.5px] uppercase tracking-[0.06em] text-muted">
-          <tr className="border-b border-white/[0.07]">
-            <th className="py-2 pr-3 font-semibold">Bot</th>
-            <th className="py-2 pr-3 font-semibold">Status</th>
-            <th className="py-2 pr-3 text-right font-semibold">Equity</th>
-            <th className="py-2 pr-3 text-right font-semibold">P/L</th>
-            <th className="py-2 pr-3 text-right font-semibold">Trades</th>
-            <th className="py-2 pr-3 text-right font-semibold">Win · Avg R</th>
-            <th className="py-2 pr-3 text-right font-semibold">DD</th>
-            <th className="py-2 pr-3 font-semibold">Setups funnel</th>
-            <th className="py-2 pr-3 font-semibold">Regime</th>
-            <th className="py-2 font-semibold">Last signal</th>
-            <th className="w-6" />
-          </tr>
-        </thead>
-        <tbody>
-          {bots.map((b) => (
-            <tr key={b.id} className="group border-b border-white/[0.04] transition-colors last:border-0 hover:bg-white/[0.025]">
-              <td className="py-2.5 pr-3">
-                <Link href={`/bots/${b.id}`} className="block min-w-0 font-semibold text-text hover:text-accent2">
-                  {b.name}
-                </Link>
-                <span className="num text-[11px] text-muted">
+    <ul className="space-y-2.5">
+      {bots.map((b) => (
+        <li key={b.id} className="@container">
+          <Link
+            href={`/bots/${b.id}`}
+            aria-label={`Отвори ${b.name}`}
+            className={cx(
+              "group block rounded-xl border bg-white/[0.02] p-3.5 transition-colors hover:border-white/[0.14] hover:bg-white/[0.035]",
+              b.status === "RUNNING" ? "border-up/20" : b.status === "PAUSED" ? "border-warn/25" : "border-white/[0.07]",
+            )}
+          >
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="min-w-0 truncate text-[14px] font-semibold text-text group-hover:text-accent2">{b.name}</span>
+                  <StatusPill status={b.status} />
+                </div>
+                <div className="num mt-0.5 truncate text-[11px] text-muted">
                   {b.symbol} · {TF_LABEL[b.timeframe] ?? b.timeframe} · {b.run_mode === "warm_start" ? "warm start" : "forward"}
-                  {(b.max_positions ?? 1) > 1 ? ` · max ${b.max_positions}` : ""}
-                </span>
-              </td>
-              <td className="py-2.5 pr-3">
-                <StatusPill status={b.status} />
-                {b.pause_reason && <div className="mt-1 max-w-40 truncate text-[10.5px] text-warn" title={b.pause_reason}>{b.pause_reason}</div>}
-              </td>
-              <td className="num py-2.5 pr-3 text-right">{fmtMoney(b.equity)}</td>
-              <td className={cx("num py-2.5 pr-3 text-right font-medium", pnlClass(b.pnl))}>{fmtMoney(b.pnl, true)}</td>
-              <td className="num py-2.5 pr-3 text-right">{b.trades}</td>
-              <td className="num py-2.5 pr-3 text-right text-xs">
-                {fmtPct(b.win_rate, 0)} · <span className={pnlClass(b.average_r)}>{fmtR(b.average_r)}</span>
-              </td>
-              <td className="num py-2.5 pr-3 text-right text-xs text-muted">{fmtPct(b.drawdown_pct)}</td>
-              <td className="py-2.5 pr-3">
-                <Funnel b={b} />
-              </td>
-              <td className="py-2.5 pr-3">{b.regime ? <RegimeBadge regime={b.regime} /> : <span className="text-faint">—</span>}</td>
-              <td className="py-2.5">
-                {b.last_signal?.signal ? <Badge tone={signalTone(b.last_signal.signal)}>{b.last_signal.signal}</Badge> : <span className="text-xs text-faint">—</span>}
-              </td>
-              <td className="py-2.5 text-right">
-                <Link href={`/bots/${b.id}`} aria-label={`Отвори ${b.name}`} className="inline-flex text-faint transition-colors group-hover:text-accent2">
-                  <ChevronRight size={16} strokeWidth={2} aria-hidden />
-                </Link>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+                  {(b.max_positions ?? 1) > 1 ? ` · max ${b.max_positions} позиции` : ""}
+                </div>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className="num text-[15px] font-semibold text-text">{fmtMoney(b.equity)}</div>
+                <div className={cx("num text-xs font-medium", pnlClass(b.pnl))}>{fmtMoney(b.pnl, true)}</div>
+              </div>
+              <ChevronRight size={16} strokeWidth={2} className="mt-1 hidden shrink-0 text-faint transition-colors group-hover:text-accent2 @md:block" aria-hidden />
+            </div>
+
+            {b.pause_reason && <p className="mt-2 truncate rounded-md bg-warn/[0.08] px-2 py-1 text-[11px] text-warn" title={b.pause_reason}>{b.pause_reason}</p>}
+
+            <div className="mt-3 grid grid-cols-3 gap-1.5 @xl:grid-cols-6">
+              <Metric label="Trades">{b.trades}</Metric>
+              <Metric label="Win rate">{fmtPct(b.win_rate, 0)}</Metric>
+              <Metric label="Avg R">
+                <span className={pnlClass(b.average_r)}>{fmtR(b.average_r)}</span>
+              </Metric>
+              <Metric label="Drawdown">{fmtPct(b.drawdown_pct)}</Metric>
+              <Metric label="Regime">{b.regime ? <RegimeBadge regime={b.regime} /> : <span className="text-faint">—</span>}</Metric>
+              <Metric label="Last signal">
+                {b.last_signal?.signal ? <Badge tone={signalTone(b.last_signal.signal)}>{b.last_signal.signal}</Badge> : <span className="text-faint">—</span>}
+              </Metric>
+            </div>
+
+            <div className="mt-2.5 flex min-w-0 items-center">
+              <FunnelLine b={b} />
+            </div>
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }

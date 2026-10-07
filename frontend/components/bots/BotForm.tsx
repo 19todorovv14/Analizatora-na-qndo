@@ -3,81 +3,17 @@
 import { Bot, CalendarClock, ShieldX, Target } from "lucide-react";
 import { useState } from "react";
 
+import { WEEKDAYS, botFormProblem, withBotStrategy, type BotFormState } from "@/components/bots/formState";
 import { PaperBotLabel } from "@/components/bots/StatusPill";
 import { SymbolPicker } from "@/components/charts/ChartControls";
 import { NumField } from "@/components/strategy/fields";
 import { RulesPreview, StrategySelect } from "@/components/strategy/StrategySelect";
+import { stopText as ruleStopText, targetText as ruleTargetText } from "@/components/strategy/meta";
 import type { StrategyRow } from "@/components/strategy/types";
 import { Button, ErrorText, Field, InfoTip, Segmented, Spinner, Switch, Term } from "@/components/ui";
 import { TF_LABEL, TIMEFRAMES, cx } from "@/lib/format";
 
-const DAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"];
-
-export type BotFormState = {
-  name: string;
-  symbol: string;
-  timeframe: string;
-  strategy_id: number;
-  run_mode: "warm_start" | "forward";
-  warm_start_days: number;
-  risk_per_trade_pct: number;
-  max_positions: number;
-  daily_loss_limit_pct: number;
-  start_hour: number;
-  end_hour: number;
-  days: number[];
-  allow_short: boolean;
-  initial_balance: number;
-  stop_type: "" | "atr" | "percent" | "swing";
-  stop_value: number;
-  tp_type: "" | "r_multiple" | "atr" | "percent" | "none";
-  tp_value: number;
-};
-
-export function defaultBotForm(): BotFormState {
-  return {
-    name: "Мой paper бот",
-    symbol: "BTC/USDT",
-    timeframe: "1h",
-    strategy_id: 0,
-    run_mode: "warm_start",
-    warm_start_days: 30,
-    risk_per_trade_pct: 1,
-    max_positions: 1,
-    daily_loss_limit_pct: 3,
-    start_hour: 0,
-    end_hour: 24,
-    days: [0, 1, 2, 3, 4, 5, 6],
-    allow_short: true,
-    initial_balance: 10_000,
-    stop_type: "",
-    stop_value: 2,
-    tp_type: "",
-    tp_value: 2,
-  };
-}
-
-export function botPayload(f: BotFormState) {
-  return {
-    name: f.name.trim() || "Paper бот",
-    symbol: f.symbol,
-    timeframe: f.timeframe,
-    strategy_id: f.strategy_id,
-    run_mode: f.run_mode,
-    max_positions: f.max_positions,
-    stop: f.stop_type ? { type: f.stop_type, value: f.stop_value } : undefined,
-    take_profit: f.tp_type ? { type: f.tp_type, value: f.tp_value } : undefined,
-    config: {
-      risk_per_trade_pct: f.risk_per_trade_pct,
-      max_open_positions: f.max_positions,
-      daily_loss_limit_pct: f.daily_loss_limit_pct,
-      trading_hours: { start: f.start_hour, end: f.end_hour, days: [...f.days].sort() },
-      allow_short: f.allow_short,
-      initial_balance: f.initial_balance,
-      warm_start_days: f.warm_start_days,
-    },
-  };
-}
+export { botPayload, defaultBotForm, type BotFormState } from "@/components/bots/formState";
 
 function Group({ icon: Icon, title, children, right }: { icon: typeof Bot; title: React.ReactNode; children: React.ReactNode; right?: React.ReactNode }) {
   return (
@@ -112,12 +48,11 @@ export function BotForm({
   const [schedule, setSchedule] = useState(false);
   const set = <K extends keyof BotFormState>(k: K, v: BotFormState[K]) => onChange({ ...form, [k]: v });
   const strategy = strategies.find((s) => s.id === form.strategy_id);
-  const hoursBad = form.start_hour >= form.end_hour;
-  const noDays = !form.days.length;
-  const sStop = strategy?.definition.stop;
-  const sTp = strategy?.definition.take_profit;
-  const stopText = sStop ? (sStop.type === "atr" ? `ATR × ${sStop.value}` : sStop.type === "percent" ? `${sStop.value}%` : `swing (${sStop.lookback ?? 10} свещи)`) : "—";
-  const tpText = sTp ? (sTp.type === "r_multiple" ? `${sTp.value}R` : sTp.type === "atr" ? `ATR × ${sTp.value}` : sTp.type === "percent" ? `${sTp.value}%` : "няма") : "—";
+  const problem = botFormProblem(form);
+  const hoursBad = problem === "hours";
+  const noDays = problem === "days";
+  const stopText = ruleStopText(strategy?.definition.stop);
+  const tpText = ruleTargetText(strategy?.definition.take_profit);
   const allDay = form.start_hour === 0 && form.end_hour === 24 && form.days.length === 7;
 
   return (
@@ -125,7 +60,7 @@ export function BotForm({
       className="space-y-3.5"
       onSubmit={(e) => {
         e.preventDefault();
-        if (!busy && form.strategy_id && !hoursBad && !noDays) onSubmit();
+        if (!busy && !problem) onSubmit();
       }}
     >
       <PaperBotLabel compact />
@@ -136,7 +71,7 @@ export function BotForm({
         <StrategySelect
           strategies={strategies}
           value={form.strategy_id}
-          onChange={(s) => onChange({ ...form, strategy_id: s.id, symbol: s.symbol, timeframe: s.timeframe, risk_per_trade_pct: s.definition.risk_per_trade_pct ?? form.risk_per_trade_pct })}
+          onChange={(s) => onChange(withBotStrategy(form, s))}
         />
       </Field>
       {strategy && <RulesPreview lines={strategy.summary} dense />}
@@ -264,14 +199,14 @@ export function BotForm({
             <div>
               <span className="label">Days</span>
               <div className="flex flex-wrap gap-1">
-                {DAYS.map((d, i) => {
+                {WEEKDAYS.map((d, i) => {
                   const on = form.days.includes(i);
                   return (
                     <button
                       key={d}
                       type="button"
                       aria-pressed={on}
-                      onClick={() => set("days", on ? form.days.filter((x) => x !== i) : [...form.days, i].sort())}
+                      onClick={() => set("days", on ? form.days.filter((x) => x !== i) : [...form.days, i].sort((a, b) => a - b))}
                       className={cx(
                         "h-7 min-w-9 rounded-md border px-2 text-[11px] font-semibold transition-colors",
                         on ? "border-accent/40 bg-accent/15 text-accent2" : "border-white/[0.08] text-muted hover:border-white/20 hover:text-text",
@@ -299,7 +234,7 @@ export function BotForm({
       </Group>
 
       <ErrorText error={error} />
-      <Button type="submit" size="lg" variant="up" className="w-full" disabled={busy || !form.strategy_id || hoursBad || noDays}>
+      <Button type="submit" size="lg" variant="up" className="w-full" disabled={busy || !!problem}>
         {busy ? <Spinner className="h-4 w-4 border-white/30 border-t-white" /> : <Bot size={16} strokeWidth={2} aria-hidden />}
         Create paper bot
       </Button>

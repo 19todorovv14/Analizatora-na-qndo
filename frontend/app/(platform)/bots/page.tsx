@@ -5,14 +5,15 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import useSWR from "swr";
 
-import { BotForm, botPayload, defaultBotForm, type BotFormState } from "@/components/bots/BotForm";
+import { BotForm } from "@/components/bots/BotForm";
+import { applyBotPrefill, botPayload, defaultBotForm, type BotFormState } from "@/components/bots/formState";
 import { BotList } from "@/components/bots/BotList";
 import { PaperBotLabel } from "@/components/bots/StatusPill";
 import type { BotRow } from "@/components/bots/types";
 import type { StrategyRow } from "@/components/strategy/types";
 import { Card, ErrorState, PageHeader, Skeleton, SkeletonText, StatTile, TableSkeleton, pnlTone } from "@/components/ui";
 import { errorMessage, fetcher, post } from "@/lib/api";
-import { TIMEFRAMES, fmtMoney } from "@/lib/format";
+import { fmtMoney } from "@/lib/format";
 import { LearnHint } from "@/lib/workspace";
 
 function BotsInner() {
@@ -33,18 +34,7 @@ function BotsInner() {
   const [prefilled, setPrefilled] = useState<string | null>(null);
   if (strategies && prefilled !== prefillKey) {
     setPrefilled(prefillKey);
-    const all = strategies.strategies;
-    const s = all.find((x) => x.id === qStrategy) ?? all.find((x) => !x.is_template) ?? all[0];
-    if (s) {
-      setForm((f) => ({
-        ...f,
-        strategy_id: s.id,
-        symbol: qSymbol || s.symbol,
-        timeframe: qTimeframe && (TIMEFRAMES as readonly string[]).includes(qTimeframe) ? qTimeframe : s.timeframe,
-        risk_per_trade_pct: s.definition.risk_per_trade_pct ?? f.risk_per_trade_pct,
-        name: qStrategy ? `Paper бот · ${s.name}`.slice(0, 100) : f.name,
-      }));
-    }
+    setForm((f) => applyBotPrefill(f, strategies.strategies, { strategy: qStrategy, symbol: qSymbol, timeframe: qTimeframe }));
   }
 
   const create = async () => {
@@ -99,7 +89,7 @@ function BotsInner() {
         <StatTile label="Сделки" value={data ? totalTrades : "—"} icon={Activity} sub="затворени paper сделки" loading={!data && !listError} />
       </div>
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_400px]">
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_400px]">
         <div className="min-w-0 space-y-4">
           <Card
             title={
@@ -119,7 +109,7 @@ function BotsInner() {
           </LearnHint>
         </div>
 
-        <div id="new-bot" className="scroll-mt-4 xl:sticky xl:top-4">
+        <div id="new-bot" className="min-w-0 scroll-mt-4">
           <Card
             title={
               <>

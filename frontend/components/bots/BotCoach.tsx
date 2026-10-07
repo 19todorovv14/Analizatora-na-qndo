@@ -4,26 +4,35 @@ import { ArrowUpRight, BookOpen, BrainCircuit, CircleSlash, FlaskConical, Lightb
 import Link from "next/link";
 import { useState } from "react";
 
+import { funnel, type FunnelStep } from "@/components/bots/formState";
 import { COACH_DISCLAIMER, type CoachGroup, type CoachResponse } from "@/components/bots/types";
 import { Badge, Card, Disclaimer, EmptyState, ErrorState, RegimeBadge, Segmented, Skeleton, SkeletonText } from "@/components/ui";
 import { cx, fmtDate, fmtMoney, fmtPct, fmtR, pnlClass } from "@/lib/format";
 
 const STEP_ICON: Record<string, typeof BookOpen> = { backtest: FlaskConical, strategy: Blocks, journal: NotebookPen, lesson: BookOpen };
 
-function FunnelRow({ label, value, of, tone, hint }: { label: string; value: number; of: number; tone: string; hint?: string }) {
-  const pct = of > 0 ? (value / of) * 100 : 0;
+const FUNNEL_META: Record<FunnelStep["key"], { label: string; hint: string; tone: string }> = {
+  setups: { label: "Setups generated", hint: "тригерът (1-во условие) е изпълнен", tone: "bg-gradient-to-r from-accent/70 to-accent2" },
+  met: { label: "All conditions met", hint: "всички условия са изпълнени", tone: "bg-up/75" },
+  rejected: { label: "Rejected", hint: "setup без всички условия", tone: "bg-down/60" },
+  trades: { label: "Paper trades", hint: "отворени виртуални позиции", tone: "bg-violet/70" },
+};
+
+function FunnelRow({ step }: { step: FunnelStep }) {
+  const m = FUNNEL_META[step.key];
+  const pct = step.pct ?? 0;
   return (
-    <li className="grid grid-cols-[minmax(0,148px)_minmax(0,1fr)_auto] items-center gap-3 text-xs">
+    <li className="grid grid-cols-[minmax(0,150px)_minmax(0,1fr)_auto] items-center gap-3 text-xs">
       <span className="min-w-0">
-        <span className="block truncate font-medium text-text/90">{label}</span>
-        {hint && <span className="block truncate text-[10.5px] text-faint">{hint}</span>}
+        <span className="block font-medium leading-tight text-text/90">{m.label}</span>
+        <span className="block text-[10.5px] leading-tight text-faint">{m.hint}</span>
       </span>
       <span className="h-2.5 min-w-0 overflow-hidden rounded-full bg-white/[0.05]">
-        <span className={cx("block h-full rounded-full transition-[width] duration-500", tone)} style={{ width: `${Math.max(pct, value ? 1.5 : 0)}%` }} />
+        <span className={cx("block h-full rounded-full transition-[width] duration-500", m.tone)} style={{ width: `${Math.max(pct, step.value ? 1.5 : 0)}%` }} />
       </span>
       <span className="num w-20 text-right">
-        <b className="text-sm font-semibold text-text">{value}</b>
-        <span className="ml-1 text-[10.5px] text-faint">{of > 0 ? `${pct.toFixed(0)}%` : ""}</span>
+        <b className="text-sm font-semibold text-text">{step.value}</b>
+        <span className="ml-1 text-[10.5px] text-faint">{step.pct !== null ? `${step.pct.toFixed(0)}%` : ""}</span>
       </span>
     </li>
   );
@@ -126,17 +135,16 @@ export function BotCoach({ data, error, onRetry, advanced }: { data?: CoachRespo
       <div className="space-y-5">
         <div>
           <p className="text-[11px] text-faint">{data.source_label}</p>
-          <p className="num mt-1 text-[15px] font-semibold leading-snug text-text">{data.headline}</p>
+          <p className="mt-1 text-[15px] font-semibold leading-snug text-text">{data.headline}</p>
         </div>
 
         <div className="grid gap-5 lg:grid-cols-2">
           <section aria-label="Setups funnel" className="min-w-0">
             <div className="label">Setups funnel</div>
             <ul className="space-y-2.5">
-              <FunnelRow label="Setups generated" hint="тригерът (1-во условие) е изпълнен" value={data.setups_generated} of={data.setups_generated} tone="bg-gradient-to-r from-accent/70 to-accent2" />
-              <FunnelRow label="All conditions met" hint="всички условия са изпълнени" value={data.all_conditions_met} of={data.setups_generated} tone="bg-up/75" />
-              <FunnelRow label="Rejected" hint="setup без всички условия" value={data.rejected} of={data.setups_generated} tone="bg-down/60" />
-              <FunnelRow label="Paper trades" hint="реално отворени (виртуално)" value={data.entries} of={data.setups_generated} tone="bg-violet/70" />
+              {funnel(data).map((step) => (
+                <FunnelRow key={step.key} step={step} />
+              ))}
             </ul>
           </section>
 

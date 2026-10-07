@@ -8,6 +8,7 @@ import useSWR from "swr";
 
 import { EXIT_LABEL, exitTone, signTone } from "@/components/backtest/format";
 import { BotCoach } from "@/components/bots/BotCoach";
+import { hoursText, withStartPoint } from "@/components/bots/formState";
 import { PaperBotLabel, StatusPill } from "@/components/bots/StatusPill";
 import type { BotView, CoachResponse } from "@/components/bots/types";
 import { EquityChart } from "@/components/charts/EquityChart";
@@ -33,11 +34,10 @@ import {
   type Tone,
 } from "@/components/ui";
 import { ApiError, del, errorMessage, fetcher, post } from "@/lib/api";
-import { TF_LABEL, cx, fmtMoney, fmtPct, fmtPrice, fmtR, fmtTime, pnlClass } from "@/lib/format";
+import { TF_LABEL, TF_SECONDS, cx, fmtMoney, fmtPct, fmtPrice, fmtR, fmtTime, pnlClass } from "@/lib/format";
 import { useSession } from "@/lib/session";
 
 const LEVEL_TONE: Record<string, Tone> = { info: "neutral", signal: "info", trade: "up", warn: "warn", error: "down" };
-const DAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"];
 
 function DetailSkeleton() {
   return (
@@ -63,11 +63,9 @@ function DetailSkeleton() {
   );
 }
 
-function hoursText(cfg: BotView["config"]): string {
-  const h = cfg.trading_hours;
-  if (!h) return "24/7";
-  const days = h.days?.length === 7 ? "всеки ден" : (h.days ?? []).map((d) => DAYS[d] ?? d).join(", ");
-  return `${String(h.start).padStart(2, "0")}:00–${String(h.end).padStart(2, "0")}:00 UTC · ${days}`;
+function price(v: number): string {
+  const a = Math.abs(v);
+  return v.toLocaleString("en-US", { maximumFractionDigits: a >= 1000 ? 2 : a >= 1 ? 4 : 6 });
 }
 
 export default function BotDashboard() {
@@ -130,8 +128,10 @@ export default function BotDashboard() {
 
   const m = bot.metrics;
   const cfg = bot.config;
-  const eq = bot.equity_curve.length ? ([[bot.equity_curve[0][0] - 1, bot.initial_balance], ...bot.equity_curve] as [number, number][]) : [];
-  const dd = bot.drawdown_curve?.length ? ([[bot.drawdown_curve[0][0] - 1, 0], ...bot.drawdown_curve] as [number, number][]) : undefined;
+  const barSec = TF_SECONDS[bot.timeframe] ?? 3600;
+  const firstTs = bot.evaluation_stats?.first_ts ?? null;
+  const eq = withStartPoint(bot.equity_curve, bot.initial_balance, firstTs, barSec);
+  const dd = bot.drawdown_curve?.length ? withStartPoint(bot.drawdown_curve, 0, firstTs, barSec) : undefined;
   const conditions = Object.entries(bot.last_signal?.conditions ?? {});
   const logs = logLevel === "all" ? bot.logs : bot.logs.filter((l) => (logLevel === "warn" ? l.level === "warn" || l.level === "error" : l.level === logLevel));
   const trades = [...bot.trades].sort((a, b) => b.closed_ts - a.closed_ts);
@@ -199,7 +199,7 @@ export default function BotDashboard() {
         <StatTile label="Errors" value={bot.error_count} tone={bot.error_count ? "down" : "neutral"} icon={CircleAlert} sub={bot.error_count ? "виж Logs" : "няма"} />
       </div>
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
         <Card
           title={
             <>
@@ -253,7 +253,7 @@ export default function BotDashboard() {
 
       <BotCoach data={coach} error={coachError} onRetry={() => mutateCoach()} advanced={!beginner} />
 
-      <div className="grid items-start gap-4 xl:grid-cols-2">
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
         <Card
           title={
             <>
@@ -351,7 +351,7 @@ export default function BotDashboard() {
         </Card>
       </div>
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 items-start gap-4 2xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
         <Card
           title={
             <>
@@ -362,7 +362,7 @@ export default function BotDashboard() {
         >
           {trades.length ? (
             <div className="max-h-[420px] overflow-auto">
-              <table className="w-full min-w-[640px] text-xs">
+              <table className="w-full min-w-[660px] text-xs">
                 <thead className="sticky top-0 z-[1] bg-surface text-left text-[10.5px] uppercase tracking-[0.06em] text-muted">
                   <tr className="border-b border-white/[0.07]">
                     <th className="py-1.5 font-semibold">Closed</th>
@@ -382,7 +382,7 @@ export default function BotDashboard() {
                         <Badge tone={t.side === "long" ? "up" : "down"}>{t.side}</Badge>
                       </td>
                       <td className="num py-1.5 text-text/90">
-                        {t.entry_price.toLocaleString("en-US")} <span className="text-faint">→</span> {t.exit_price.toLocaleString("en-US")}
+                        {price(t.entry_price)} <span className="text-faint">→</span> {price(t.exit_price)}
                       </td>
                       <td className="py-1.5">
                         <Badge tone={exitTone(t.exit_reason)}>{EXIT_LABEL[t.exit_reason] ?? t.exit_reason.replace(/_/g, " ")}</Badge>

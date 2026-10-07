@@ -10,6 +10,7 @@ import { LearningPathTimeline } from "@/components/learn/LearningPath";
 import type { LearningDashboard, LearningPath } from "@/components/learn/types";
 import { Badge, ErrorState, PageHeader, Section, Skeleton, SkeletonText } from "@/components/ui";
 import { fetcher } from "@/lib/api";
+import { cx } from "@/lib/format";
 import { LearnHint } from "@/lib/workspace";
 
 function HeroSkeleton() {
@@ -119,18 +120,21 @@ export default function LearnPage() {
         )}
       </Section>
 
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <Section
-          title={
-            <>
-              <Route size={13} strokeWidth={2} aria-hidden /> Learning path · LEVEL 0 → 10
-            </>
-          }
-        >
-          {pathError ? null : !path ? <PathSkeleton /> : <LearningPathTimeline path={path} />}
-        </Section>
+      <div className={cx("grid items-start gap-5", !pathError && "xl:grid-cols-[minmax(0,1fr)_380px]")}>
+        {!pathError && (
+          <Section
+            title={
+              <>
+                <Route size={13} strokeWidth={2} aria-hidden /> Learning path · LEVEL 0 → 10
+              </>
+            }
+          >
+            {!path ? <PathSkeleton /> : <LearningPathTimeline path={path} />}
+          </Section>
+        )}
 
-        <div className="space-y-4 xl:pt-[34px]">
+        {/* dashboard side cards: a column next to the path, or a grid when the path failed to load */}
+        <div className={cx(pathError ? "grid items-start gap-4 md:grid-cols-2 2xl:grid-cols-4" : "space-y-4 xl:pt-[34px]")}>
           {dash ? (
             <>
               <RecommendationsCard items={dash.recommendations} />

@@ -6,9 +6,10 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 
-import { BacktestForm, defaultForm, toPayload, type BacktestFormState } from "@/components/backtest/BacktestForm";
+import { BacktestForm } from "@/components/backtest/BacktestForm";
 import { BacktestHistory } from "@/components/backtest/BacktestHistory";
 import { BacktestResults } from "@/components/backtest/BacktestResults";
+import { applyPrefill, defaultForm, toPayload, type BacktestFormState } from "@/components/backtest/formState";
 import type { BacktestDetail, BacktestRow } from "@/components/backtest/types";
 import type { StrategyRow } from "@/components/strategy/types";
 import {
@@ -25,7 +26,6 @@ import {
   SkeletonText,
 } from "@/components/ui";
 import { ApiError, del, errorMessage, fetcher, post } from "@/lib/api";
-import { TIMEFRAMES } from "@/lib/format";
 import { useSession } from "@/lib/session";
 
 const NOT_AVAILABLE = /DATA[_ ]NOT[_ ]AVAILABLE|not available|няма налични данни|недостъпн/i;
@@ -149,19 +149,9 @@ function BacktestingInner() {
   const prefillKey = `${qStrategy}|${qSymbol}|${qTimeframe}`;
   const [prefilled, setPrefilled] = useState<string | null>(null);
   if (strategies && prefilled !== prefillKey) {
-    const all = strategies.strategies;
-    const s = all.find((x) => x.id === qStrategy) ?? (form.strategy_id ? all.find((x) => x.id === form.strategy_id) : undefined) ?? all.find((x) => !x.is_template) ?? all[0];
     setPrefilled(prefillKey);
     setFocusRegime(qRegime);
-    if (s) {
-      setForm((f) => ({
-        ...f,
-        strategy_id: s.id,
-        symbol: qSymbol || s.symbol,
-        timeframe: qTimeframe && (TIMEFRAMES as readonly string[]).includes(qTimeframe) ? qTimeframe : s.timeframe,
-        risk_per_trade_pct: s.definition.risk_per_trade_pct ?? f.risk_per_trade_pct,
-      }));
-    }
+    setForm((f) => applyPrefill(f, strategies.strategies, { strategy: qStrategy, symbol: qSymbol, timeframe: qTimeframe }));
   }
 
   // returning user without a deep link → show the latest result
@@ -236,8 +226,8 @@ function BacktestingInner() {
         }
       />
 
-      <div className="grid items-start gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <div className="space-y-4 xl:sticky xl:top-4">
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-4">
           <Card title="Настройки на теста" right={focusRegime ? <Badge tone="warn">фокус: {focusRegime.replace(/_/g, " ")}</Badge> : undefined}>
             {stratError && !strategies ? (
               <ErrorState title="Стратегиите не се заредиха" onRetry={() => retryStrategies()} />
@@ -287,7 +277,7 @@ export default function BacktestingPage() {
       fallback={
         <div className="mx-auto max-w-[1600px] space-y-5">
           <Skeleton className="h-10 w-72" />
-          <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
             <div className="card p-4">
               <FormSkeleton />
             </div>

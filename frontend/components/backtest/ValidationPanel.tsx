@@ -14,7 +14,7 @@ import {
   Users,
 } from "lucide-react";
 
-import { REGIME_BAR, fmtPF, fmtSigned } from "@/components/backtest/format";
+import { REGIME_BAR, costShare, fmtPF, fmtSigned, riskTone, wfVerdict } from "@/components/backtest/format";
 import { PAST_PERFORMANCE, type MetricsV2, type OosComparisonRow, type RunSummary, type Validation, type WalkForward } from "@/components/backtest/types";
 import { REGIME_LABEL } from "@/components/strategy/meta";
 import { Badge, Card, Meter, Notice, RegimeBadge, Term, Tooltip, type Tone } from "@/components/ui";
@@ -41,7 +41,6 @@ function Explain({ show, children }: { show: boolean; children: React.ReactNode 
   return <p className="mt-2.5 text-[11.5px] leading-relaxed text-muted">{children}</p>;
 }
 
-const RISK_TONE: Record<string, Tone> = { LOW: "up", MEDIUM: "warn", HIGH: "down" };
 const RISK_TEXT: Record<string, string> = { LOW: "text-up", MEDIUM: "text-warn", HIGH: "text-down" };
 
 /* ─────────────────────────────────────────────── past performance */
@@ -75,7 +74,7 @@ function OverfittingCard({ v, beginner }: { v: Validation; beginner: boolean }) 
       </Panel>
     );
   }
-  const tone = RISK_TONE[o.risk] ?? "neutral";
+  const tone = riskTone(o.risk);
   const inputs = o.inputs ?? {};
   return (
     <Panel className={cx(o.risk === "HIGH" && "border-down/25 bg-down/[0.035]", o.risk === "MEDIUM" && "border-warn/20")}>
@@ -294,8 +293,6 @@ function OosPanel({ v, beginner }: { v: Validation; beginner: boolean }) {
 
 /* ─────────────────────────────────────────────── walk-forward */
 
-const WF_TONE: Record<string, Tone> = { consistent: "up", inconsistent: "warn", insufficient: "neutral" };
-
 function WalkForwardChart({ wf }: { wf: WalkForward }) {
   const ws = wf.windows;
   const vals = ws.map((w) => w.return_pct ?? 0);
@@ -344,6 +341,7 @@ function WalkForwardChart({ wf }: { wf: WalkForward }) {
 
 function WalkForwardPanel({ v, beginner }: { v: Validation; beginner: boolean }) {
   const wf = v.walk_forward;
+  const verdict = wf ? wfVerdict(wf) : null;
   return (
     <Panel>
       <SubHead
@@ -354,7 +352,7 @@ function WalkForwardPanel({ v, beginner }: { v: Validation; beginner: boolean })
               <span className="num text-[11px] text-muted">
                 {wf.profitable_windows ?? wf.windows.filter((w) => w.profitable).length} / {wf.windows.length} печеливши прозореца
               </span>
-              <Badge tone={WF_TONE[wf.verdict] ?? "neutral"}>{wf.verdict}</Badge>
+              {verdict && <Badge tone={verdict.tone}>{verdict.label}</Badge>}
             </>
           ) : undefined
         }
@@ -367,13 +365,13 @@ function WalkForwardPanel({ v, beginner }: { v: Validation; beginner: boolean })
       ) : !wf.available || !wf.windows.length ? (
         <p className="text-sm text-muted">{wf.text ?? "Периодът е твърде кратък за няколко последователни прозореца."}</p>
       ) : (
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.6fr)]">
+        <div className="grid grid-cols-1 gap-3 2xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.6fr)]">
           <div className="min-w-0">
             <WalkForwardChart wf={wf} />
             {wf.text && <p className="mt-2.5 text-[12.5px] leading-relaxed text-text/90">{wf.text}</p>}
           </div>
           <div className="min-w-0 overflow-x-auto">
-            <table className="w-full min-w-[520px] text-xs">
+            <table className="w-full min-w-[540px] text-xs">
               <thead className="text-left text-[10.5px] uppercase tracking-[0.06em] text-muted">
                 <tr className="border-b border-white/[0.07]">
                   <th className="py-1.5 font-semibold">Прозорец</th>
@@ -580,7 +578,7 @@ function CostsPanel({ v, beginner }: { v: Validation; beginner: boolean }) {
     { label: "Такси", value: -c.fees, tone: "text-down", bar: "bg-down/45" },
     { label: "Slippage (оценка, вкл. в цените)", value: -c.slippage_est, tone: "text-warn", bar: "bg-warn/50" },
   ];
-  const eaten = gross > 0 ? Math.min(999, ((c.fees + c.slippage_est) / gross) * 100) : null;
+  const eaten = costShare(c);
   return (
     <Panel>
       <SubHead icon={Coins} right={eaten !== null ? <Badge tone={eaten > 50 ? "down" : eaten > 25 ? "warn" : "neutral"}>разходи = {eaten.toFixed(0)}% от брутното</Badge> : undefined}>

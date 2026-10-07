@@ -34,15 +34,15 @@ export function RuleLine({ line, dense }: { line: string; dense?: boolean }) {
   );
 }
 
-/** Rules preview (describe() lines) for a saved strategy. */
-export function RulesPreview({ lines, dense, className }: { lines: string[]; dense?: boolean; className?: string }) {
+/** Rules preview (describe() lines) for a saved strategy. `columns` lays the lines out in two columns on wide screens. */
+export function RulesPreview({ lines, dense, className, columns }: { lines: string[]; dense?: boolean; className?: string; columns?: boolean }) {
   if (!lines.length) return null;
   return (
     <div className={cx("min-w-0", className)}>
       <div className="mb-1.5 flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-faint">
         <ScrollText size={12} strokeWidth={2} aria-hidden /> Правила
       </div>
-      <ul className="space-y-1">
+      <ul className={cx(columns ? "grid gap-1.5 lg:grid-cols-2" : "space-y-1")}>
         {lines.map((l) => (
           <RuleLine key={l} line={l} dense={dense} />
         ))}

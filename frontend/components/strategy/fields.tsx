@@ -79,7 +79,7 @@ export function NumField({
       className={cx(
         "input num text-right",
         size === "sm" ? "h-8 !px-2 !py-1 text-xs" : "",
-        suffix && "!pr-7",
+        suffix && (suffix.length >= 3 ? "!pr-10" : suffix.length === 2 ? "!pr-8" : "!pr-6"),
         className,
       )}
     />

@@ -1,15 +1,17 @@
 "use client";
 
 import { CalendarRange, FileText, LineChart, ListOrdered, Sparkles } from "lucide-react";
+import Link from "next/link";
 
 import { TradesTable } from "@/components/backtest/TradesTable";
 import { ValidationPanel } from "@/components/backtest/ValidationPanel";
 import { barsToText, fmtPF, pfTone, signTone } from "@/components/backtest/format";
 import type { BacktestDetail, MetricsV2 } from "@/components/backtest/types";
 import { EquityChart } from "@/components/charts/EquityChart";
+import { RulesPreview } from "@/components/strategy/StrategySelect";
 import { Badge, Card, SourceBadge, Stat, StatTile } from "@/components/ui";
 import { LearnHint } from "@/lib/workspace";
-import { TF_LABEL, TF_SECONDS, cx, fmtDate, fmtDuration, fmtMoney, fmtNum, fmtPct, fmtR } from "@/lib/format";
+import { TF_LABEL, TF_SECONDS, fmtDate, fmtDuration, fmtMoney, fmtNum, fmtPct, fmtR } from "@/lib/format";
 
 export type { BacktestDetail } from "@/components/backtest/types";
 
@@ -158,43 +160,39 @@ export function BacktestResults({ bt, beginner, focusRegime }: { bt: BacktestDet
 
       <ValidationPanel v={v} m={m} beginner={beginner} focusRegime={focusRegime} />
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <Card
-          title={
-            <>
-              <ListOrdered size={15} strokeWidth={2} className="text-accent2" aria-hidden />
-              Trade list
-              <span className="num font-normal text-muted">({fmtNum(bt.trades?.length ?? 0, 0)})</span>
-            </>
-          }
-        >
-          <TradesTable trades={bt.trades ?? []} focusRegime={focusRegime} />
-        </Card>
-        <Card
-          title={
-            <>
-              <FileText size={15} strokeWidth={2} className="text-accent2" aria-hidden />
-              Тествани правила
-            </>
-          }
-        >
-          {bt.strategy_description?.length ? (
-            <ul className="space-y-1.5">
-              {bt.strategy_description.map((l) => (
-                <li key={l} className={cx("num rounded-lg border border-white/[0.05] bg-white/[0.02] px-2.5 py-2 text-[12px] leading-relaxed text-text/90")}>
-                  {l}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-muted">Описанието не е налично.</p>
-          )}
-          <p className="mt-3 flex items-start gap-1.5 text-[11px] leading-relaxed text-faint">
-            <Sparkles size={12} strokeWidth={2} className="mt-0.5 shrink-0" aria-hidden />
-            Snapshot на правилата към момента на теста — по-късни промени в стратегията не променят този резултат.
-          </p>
-        </Card>
-      </div>
+      <Card
+        title={
+          <>
+            <ListOrdered size={15} strokeWidth={2} className="text-accent2" aria-hidden />
+            Trade list
+            <span className="num font-normal text-muted">({fmtNum(bt.trades?.length ?? 0, 0)})</span>
+          </>
+        }
+      >
+        <TradesTable trades={bt.trades ?? []} focusRegime={focusRegime} />
+      </Card>
+
+      <Card
+        title={
+          <>
+            <FileText size={15} strokeWidth={2} className="text-accent2" aria-hidden />
+            Тествани правила
+          </>
+        }
+        right={
+          bt.strategy_id ? (
+            <Link href={`/strategies?strategy=${bt.strategy_id}`} className="text-xs font-medium text-accent2 hover:text-text">
+              Strategy Builder →
+            </Link>
+          ) : undefined
+        }
+      >
+        {bt.strategy_description?.length ? <RulesPreview lines={bt.strategy_description} columns /> : <p className="text-sm text-muted">Описанието не е налично.</p>}
+        <p className="mt-3 flex items-start gap-1.5 text-[11px] leading-relaxed text-faint">
+          <Sparkles size={12} strokeWidth={2} className="mt-0.5 shrink-0" aria-hidden />
+          Snapshot на правилата към момента на теста — по-късни промени в стратегията не променят този резултат.
+        </p>
+      </Card>
     </div>
   );
 }

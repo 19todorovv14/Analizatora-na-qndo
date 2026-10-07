@@ -59,3 +59,36 @@ export function fmtSigned(v: number | null | undefined, digits = 2): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return "—";
   return `${v > 0 ? "+" : ""}${v.toFixed(digits)}`;
 }
+
+/**
+ * Walk-forward verdict badge. The backend calls BOTH "≥ 75% of windows positive" and "≤ 25% positive"
+ * `consistent` (stable sign), so the tone must come from the profitable fraction: consistently negative
+ * windows are a red flag, not a green one.
+ */
+export function wfVerdict(wf: {
+  verdict: string;
+  available?: boolean;
+  profitable_fraction?: number | null;
+  windows?: { profitable: boolean }[];
+}): { label: string; tone: Tone } {
+  if (wf.available === false || wf.verdict === "insufficient") return { label: "insufficient data", tone: "neutral" };
+  const n = wf.windows?.length ?? 0;
+  const fraction = wf.profitable_fraction ?? (n ? (wf.windows ?? []).filter((w) => w.profitable).length / n : null);
+  if (wf.verdict === "consistent") {
+    if (fraction !== null && fraction < 0.5) return { label: "consistently negative", tone: "down" };
+    return { label: "consistent", tone: "up" };
+  }
+  if (wf.verdict === "inconsistent") return { label: "inconsistent", tone: "warn" };
+  return { label: wf.verdict.replace(/_/g, " "), tone: "neutral" };
+}
+
+/** Overfitting risk → badge tone. */
+export function riskTone(risk: string | null | undefined): Tone {
+  return risk === "LOW" ? "up" : risk === "MEDIUM" ? "warn" : risk === "HIGH" ? "down" : "neutral";
+}
+
+/** Share of fees + slippage in the gross profit (null when there is no gross profit to eat into). */
+export function costShare(c: { fees: number; slippage_est: number; gross_pnl_before_fees: number }): number | null {
+  if (!(c.gross_pnl_before_fees > 0)) return null;
+  return Math.min(999, ((c.fees + c.slippage_est) / c.gross_pnl_before_fees) * 100);
+}

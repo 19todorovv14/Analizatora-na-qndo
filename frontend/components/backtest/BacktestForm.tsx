@@ -3,96 +3,26 @@
 import { ChevronDown, Play, SlidersHorizontal } from "lucide-react";
 import { useState } from "react";
 
+import { MAX_BARS, RANGES, WARMUP_BARS, estimateBars, fitStart, rangeStart, todayInput, withStrategy, type BacktestFormState } from "@/components/backtest/formState";
 import { SymbolPicker } from "@/components/charts/ChartControls";
 import { NumField } from "@/components/strategy/fields";
 import { RulesPreview, StrategySelect } from "@/components/strategy/StrategySelect";
 import type { StrategyRow } from "@/components/strategy/types";
 import { Button, ErrorText, Field, InfoTip, Segmented, Spinner, Switch, Term } from "@/components/ui";
-import { TF_LABEL, TF_SECONDS, TIMEFRAMES, cx, fromDateInput, toDateInput } from "@/lib/format";
+import { TF_LABEL, TIMEFRAMES, cx, fromDateInput } from "@/lib/format";
 
-export const MAX_BARS = 20_000;
-const WARMUP_BARS = 200;
-
-export type BacktestFormState = {
-  strategy_id: number;
-  symbol: string;
-  timeframe: string;
-  start: string;
-  end: string;
-  range: string | null;
-  initial_balance: number;
-  risk_per_trade_pct: number;
-  fees_enabled: boolean;
-  fee_bps: number | null;
-  slippage_bps: number;
-  spread_enabled: boolean;
-  allow_short: boolean;
-  intrabar_policy: "worst_case" | "path";
-  max_open_positions: number;
-};
-
-export const RANGES: { key: string; label: string; days: number }[] = [
-  { key: "1M", label: "1M", days: 30 },
-  { key: "3M", label: "3M", days: 91 },
-  { key: "6M", label: "6M", days: 182 },
-  { key: "1Y", label: "1Y", days: 365 },
-  { key: "2Y", label: "2Y", days: 730 },
-];
-
-export function todayInput(): string {
-  return toDateInput(Math.floor(Date.now() / 1000));
-}
-
-export function rangeStart(end: string, days: number): string {
-  return toDateInput(fromDateInput(end) - days * 86400);
-}
-
-export function defaultForm(): BacktestFormState {
-  const end = todayInput();
-  return {
-    strategy_id: 0,
-    symbol: "BTC/USDT",
-    timeframe: "1h",
-    start: rangeStart(end, 182),
-    end,
-    range: "6M",
-    initial_balance: 10_000,
-    risk_per_trade_pct: 1,
-    fees_enabled: true,
-    fee_bps: null,
-    slippage_bps: 1,
-    spread_enabled: true,
-    allow_short: true,
-    intrabar_policy: "worst_case",
-    max_open_positions: 1,
-  };
-}
-
-/** Bars the backend will load (requested range + warm-up), used for the MAX_BARS guard. */
-export function estimateBars(f: Pick<BacktestFormState, "start" | "end" | "timeframe">): number {
-  const sec = TF_SECONDS[f.timeframe] ?? 3600;
-  const span = fromDateInput(f.end) + 86399 - fromDateInput(f.start);
-  return Math.max(0, Math.floor(span / sec)) + WARMUP_BARS;
-}
-
-export function toPayload(f: BacktestFormState) {
-  return {
-    strategy_id: f.strategy_id,
-    symbol: f.symbol,
-    timeframe: f.timeframe,
-    start_ts: fromDateInput(f.start),
-    end_ts: fromDateInput(f.end) + 86399,
-    initial_balance: f.initial_balance,
-    risk_per_trade_pct: f.risk_per_trade_pct,
-    fees_enabled: f.fees_enabled,
-    fee_bps: f.fees_enabled && f.fee_bps !== null ? f.fee_bps : undefined,
-    slippage_bps: f.slippage_bps,
-    spread_enabled: f.spread_enabled,
-    allow_short: f.allow_short,
-    intrabar_policy: f.intrabar_policy,
-    max_open_positions: f.max_open_positions,
-  };
-}
+export {
+  MAX_BARS,
+  RANGES,
+  WARMUP_BARS,
+  applyPrefill,
+  defaultForm,
+  estimateBars,
+  rangeStart,
+  toPayload,
+  todayInput,
+  type BacktestFormState,
+} from "@/components/backtest/formState";
 
 /**
  * Backtest settings: Strategy, Asset, Timeframe, Period (quick ranges), balance, risk, fees, slippage and an
@@ -123,11 +53,7 @@ export function BacktestForm({
   const badDates = fromDateInput(form.end) <= fromDateInput(form.start);
   const hasShortRules = !!strategy?.definition.entry_short;
 
-  const fitPeriod = () => {
-    const sec = TF_SECONDS[form.timeframe] ?? 3600;
-    const days = Math.floor(((MAX_BARS - WARMUP_BARS - 50) * sec) / 86400);
-    onChange({ ...form, start: rangeStart(form.end, days), range: null });
-  };
+  const fitPeriod = () => onChange({ ...form, start: fitStart(form), range: null });
 
   return (
     <form
@@ -141,9 +67,7 @@ export function BacktestForm({
         <StrategySelect
           strategies={strategies}
           value={form.strategy_id}
-          onChange={(s) =>
-            onChange({ ...form, strategy_id: s.id, symbol: s.symbol, timeframe: s.timeframe, risk_per_trade_pct: s.definition.risk_per_trade_pct ?? form.risk_per_trade_pct })
-          }
+          onChange={(s) => onChange(withStrategy(form, s))}
         />
       </Field>
       {strategy && <RulesPreview lines={strategy.summary} dense />}
@@ -225,7 +149,7 @@ export function BacktestForm({
         <div className="min-w-0">
           <span className="label flex items-center gap-1">
             <Term k="fees">Fees</Term>
-            <InfoTip text="Празно = таксите на инструмента (taker). 10 bps = 0.1% на страна." />
+            <InfoTip text="Празно (auto) = таксите на инструмента (taker). 10 bps = 0.1% на страна." />
           </span>
           <div className="flex items-center gap-2">
             <Switch checked={form.fees_enabled} onChange={(v) => set("fees_enabled", v)} ariaLabel="Такси" />
@@ -234,7 +158,7 @@ export function BacktestForm({
               value={form.fee_bps}
               onChange={(v) => set("fee_bps", v)}
               onClear={() => set("fee_bps", null)}
-              placeholder="default"
+              placeholder="auto"
               min={0}
               max={100}
               step={1}
