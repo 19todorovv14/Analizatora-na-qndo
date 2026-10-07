@@ -6,9 +6,9 @@ import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import useSWR from "swr";
 
-import { EXIT_LABEL, exitTone, signTone } from "@/components/backtest/format";
+import { EXIT_LABEL, exitTone, fmtTradePrice, shortTime, signTone } from "@/components/backtest/format";
 import { BotCoach } from "@/components/bots/BotCoach";
-import { hoursText, withStartPoint } from "@/components/bots/formState";
+import { filterLogs, hoursText, withStartPoint, type LogLevelFilter } from "@/components/bots/formState";
 import { PaperBotLabel, StatusPill } from "@/components/bots/StatusPill";
 import type { BotView, CoachResponse } from "@/components/bots/types";
 import { EquityChart } from "@/components/charts/EquityChart";
@@ -63,11 +63,6 @@ function DetailSkeleton() {
   );
 }
 
-function price(v: number): string {
-  const a = Math.abs(v);
-  return v.toLocaleString("en-US", { maximumFractionDigits: a >= 1000 ? 2 : a >= 1 ? 4 : 6 });
-}
-
 export default function BotDashboard() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -79,7 +74,7 @@ export default function BotDashboard() {
   const [busy, setBusy] = useState<"start" | "pause" | "stop" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [logLevel, setLogLevel] = useState<"all" | "signal" | "trade" | "warn">("all");
+  const [logLevel, setLogLevel] = useState<LogLevelFilter>("all");
 
   if (botError && !bot) {
     if (botError instanceof ApiError && botError.status === 404)
@@ -133,7 +128,7 @@ export default function BotDashboard() {
   const eq = withStartPoint(bot.equity_curve, bot.initial_balance, firstTs, barSec);
   const dd = bot.drawdown_curve?.length ? withStartPoint(bot.drawdown_curve, 0, firstTs, barSec) : undefined;
   const conditions = Object.entries(bot.last_signal?.conditions ?? {});
-  const logs = logLevel === "all" ? bot.logs : bot.logs.filter((l) => (logLevel === "warn" ? l.level === "warn" || l.level === "error" : l.level === logLevel));
+  const logs = filterLogs(bot.logs, logLevel);
   const trades = [...bot.trades].sort((a, b) => b.closed_ts - a.closed_ts);
 
   return (
@@ -145,9 +140,15 @@ export default function BotDashboard() {
         title={bot.name}
         icon={Bot}
         subtitle={
-          <span className="num">
-            {bot.symbol} · {TF_LABEL[bot.timeframe] ?? bot.timeframe} · {bot.run_mode === "warm_start" ? `warm start ${cfg.warm_start_days ?? 30} дни` : "forward only"}
-            {bot.last_processed_ts ? ` · последна свещ ${fmtTime(bot.last_processed_ts)}` : ""}
+          <span>
+            <span className="num text-text/90">{bot.symbol}</span> · <span className="num">{TF_LABEL[bot.timeframe] ?? bot.timeframe}</span> ·{" "}
+            {bot.run_mode === "warm_start" ? `warm start ${cfg.warm_start_days ?? 30} дни` : "forward only"}
+            {bot.last_processed_ts ? (
+              <>
+                {" "}
+                · последна свещ <span className="num">{shortTime(bot.last_processed_ts)}</span>
+              </>
+            ) : null}
           </span>
         }
         badge={
@@ -377,12 +378,14 @@ export default function BotDashboard() {
                 <tbody>
                   {trades.map((t) => (
                     <tr key={t.id} className="border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02]">
-                      <td className="num py-1.5 text-muted">{fmtTime(t.closed_ts)}</td>
+                      <td className="num whitespace-nowrap py-1.5 text-muted" title={`${fmtTime(t.opened_ts)} → ${fmtTime(t.closed_ts)}`}>
+                        {shortTime(t.closed_ts)}
+                      </td>
                       <td className="py-1.5">
                         <Badge tone={t.side === "long" ? "up" : "down"}>{t.side}</Badge>
                       </td>
                       <td className="num py-1.5 text-text/90">
-                        {price(t.entry_price)} <span className="text-faint">→</span> {price(t.exit_price)}
+                        {fmtTradePrice(t.entry_price)} <span className="text-faint">→</span> {fmtTradePrice(t.exit_price)}
                       </td>
                       <td className="py-1.5">
                         <Badge tone={exitTone(t.exit_reason)}>{EXIT_LABEL[t.exit_reason] ?? t.exit_reason.replace(/_/g, " ")}</Badge>
@@ -425,8 +428,10 @@ export default function BotDashboard() {
           {logs.length ? (
             <ul className="max-h-[420px] space-y-1 overflow-y-auto pr-1 text-xs">
               {logs.map((l, i) => (
-                <li key={`${l.ts}-${i}`} className="grid grid-cols-[92px_auto_minmax(0,1fr)] items-start gap-2 rounded-md px-1.5 py-1 hover:bg-white/[0.02]">
-                  <span className="num pt-0.5 text-[10.5px] text-faint">{fmtTime(l.ts)}</span>
+                <li key={`${l.ts}-${i}`} className="grid grid-cols-[86px_auto_minmax(0,1fr)] items-start gap-2 rounded-md px-1.5 py-1 hover:bg-white/[0.02]">
+                  <span className="num whitespace-nowrap pt-0.5 text-[10.5px] text-faint" title={fmtTime(l.ts)}>
+                    {shortTime(l.ts)}
+                  </span>
                   <Badge tone={LEVEL_TONE[l.level] ?? "neutral"}>{l.level}</Badge>
                   <span className="min-w-0 leading-relaxed text-text/90">{l.message}</span>
                 </li>

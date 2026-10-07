@@ -32,7 +32,7 @@ function FunnelLine({ b }: { b: BotRow }) {
     <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
       <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] text-muted">
         <FunnelIcon size={12} strokeWidth={2} className="shrink-0 text-accent2" aria-hidden />
-        <span className="num truncate">{b.coach_headline || `${g} setups → ${met} с изпълнени условия → ${b.trades} сделки`}</span>
+        <span className="truncate tabular-nums">{b.coach_headline || `${g} setups → ${met} с изпълнени условия → ${b.trades} сделки`}</span>
       </span>
       <span className="relative flex h-1.5 w-28 shrink-0 overflow-hidden rounded-full bg-white/[0.06]" aria-hidden>
         <span className="h-full bg-accent/70" style={{ width: `${Math.min(100, (met / g) * 100)}%` }} />

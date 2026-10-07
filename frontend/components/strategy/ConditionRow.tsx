@@ -12,6 +12,7 @@ import {
   defaultOperand,
   hasExtras,
   needsRight,
+  operandTerm,
   operatorList,
   structureOf,
   uiKind,
@@ -21,7 +22,9 @@ import {
   type UiKind,
 } from "@/components/strategy/meta";
 import type { BuilderMeta, ConditionV2, OperandV2 } from "@/components/strategy/types";
-import { IconButton, InfoTip } from "@/components/ui";
+import { GlossaryTip, IconButton, InfoTip } from "@/components/ui";
+import { useExplain } from "@/lib/explain";
+import { GLOSSARY } from "@/lib/glossary";
 import { cx } from "@/lib/format";
 
 export { conditionSentence };
@@ -246,19 +249,25 @@ export function ConditionRow({
   const [extrasOpen, setExtrasOpen] = useState(false);
   // extras stay visible while a condition uses them (otherwise the × / bars-back values would be hidden)
   const extras = advanced && (extrasOpen || used);
+  const { explain } = useExplain();
+  // explain mode: glossary cards for the indicators / structures used in the sentence
+  const terms = [...new Set([operandTerm(value.left), showRight && value.right ? operandTerm(value.right) : undefined])].filter(
+    (k): k is string => !!k && !!GLOSSARY[k],
+  );
 
   return (
     <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-2 py-1.5">
       <div className="flex min-w-0 items-start gap-1.5">
+        {/* the connector has its own column so wrapped operands line up under the sentence, not under "IF" */}
+        <span
+          className={cx(
+            "mt-2 inline-flex h-6 w-10 shrink-0 items-center justify-center rounded-md text-[10.5px] font-bold tracking-[0.06em]",
+            index === 0 ? "bg-accent/15 text-accent2" : "bg-white/[0.05] text-muted",
+          )}
+        >
+          {connector}
+        </span>
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-          <span
-            className={cx(
-              "inline-flex h-6 w-10 shrink-0 items-center justify-center rounded-md text-[10.5px] font-bold tracking-[0.06em]",
-              index === 0 ? "bg-accent/15 text-accent2" : "bg-white/[0.05] text-muted",
-            )}
-          >
-            {connector}
-          </span>
           <OperandEditor value={value.left} onChange={(l) => onChange(withLeft(value, l, meta))} meta={meta} advanced={advanced} extras={extras} side="left" />
           <MiniSelect ariaLabel="Оператор" value={value.op} onChange={(op) => onChange(withOperator(value, op, meta))} className="!text-accent2 font-semibold">
             {ops.map((o) => (
@@ -279,7 +288,7 @@ export function ConditionRow({
           )}
         </div>
         {!readOnly && (
-          <span className="inline-flex shrink-0 items-center gap-0.5 pt-0.5">
+          <span className="inline-flex shrink-0 items-center gap-0.5 pt-1.5">
             {advanced && (
               <IconButton
                 icon={SlidersHorizontal}
@@ -296,9 +305,10 @@ export function ConditionRow({
         )}
       </div>
       {beginner && (
-        <div className="mt-1 flex items-center gap-1.5 pl-11 text-[11px] leading-4 text-muted">
-          <Caption className="!text-[9.5px]">значи</Caption>
+        <div className="mt-1 flex items-start gap-1.5 pl-[46px] text-[11px] leading-4 text-muted">
+          <Caption className="shrink-0 pt-px !text-[9.5px]">значи</Caption>
           <span className="min-w-0">{conditionSentence(value, meta)}</span>
+          {explain && terms.map((k) => <GlossaryTip key={k} k={k} className="shrink-0" />)}
         </div>
       )}
     </div>

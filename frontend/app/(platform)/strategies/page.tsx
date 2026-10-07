@@ -331,6 +331,7 @@ function StrategiesInner() {
                 <span className="label">Timeframe</span>
                 <Segmented
                   fullWidth
+                  className="[&>button]:px-1 sm:[&>button]:px-3"
                   ariaLabel="Timeframe"
                   value={draft.timeframe}
                   onChange={(tf) => set("timeframe", tf)}

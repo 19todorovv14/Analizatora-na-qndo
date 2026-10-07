@@ -1,5 +1,6 @@
 "use client";
 
+import { GraduationCap } from "lucide-react";
 import { useState } from "react";
 
 import { AiText, Badge, Button, InfoTip, RegimeBadge, WhyButton } from "@/components/ui";
@@ -53,12 +54,12 @@ export function DecisionPanel({
       </div>
       <p className="text-xs text-warn">Confidence НЕ означава вероятност за печалба. Това е образователен анализ, не сигнал за реални пари.</p>
 
-      <div className="overflow-hidden rounded-md border border-line">
+      <div className="overflow-x-auto rounded-lg border border-line">
         <table className="w-full text-sm">
           <tbody>
             {rows.map(([label, key]) => (
               <tr key={key} className="border-b border-line last:border-0">
-                <td className="w-40 bg-panel2 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-muted">{label}</td>
+                <td className="w-32 bg-panel2 px-3 py-1.5 sm:w-40 text-[11px] font-bold uppercase tracking-wider text-muted">{label}</td>
                 <td className="px-3 py-1.5">
                   {key === "REGIME" ? <RegimeBadge regime={String(panel[key])} /> : <span className="text-text/90">{String(panel[key] ?? "—")}</span>}
                   {key === "REGIME" && <div className="mt-0.5 text-xs text-muted">{analysis.regime.reasons.join(" ")}</div>}
@@ -91,7 +92,13 @@ export function DecisionPanel({
 
       <div>
         <Button variant={teach ? "outline" : "primary"} onClick={() => setTeach((t) => !t)}>
-          {teach ? "Скрий" : "🎓 Teach me why"}
+          {teach ? (
+            "Скрий"
+          ) : (
+            <>
+              <GraduationCap size={15} aria-hidden /> Teach me why
+            </>
+          )}
         </Button>
         {teach && (
           <div className="fade-in mt-3 rounded-md border border-accent/40 bg-accent/5 p-4">

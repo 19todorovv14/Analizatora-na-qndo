@@ -125,3 +125,23 @@ export function shortTime(ts: number | null | undefined): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${String(d.getFullYear()).slice(2)} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
+
+/**
+ * Trade price with a CONSISTENT number of decimals (so "86,163.40 → 81,021.00" lines up in a column):
+ * 2 for prices ≥ 1000, 4 for ≥ 1, 6 below; an explicit instrument precision wins.
+ */
+export function fmtTradePrice(v: number | null | undefined, precision?: number | null): string {
+  if (v === null || v === undefined || !Number.isFinite(v)) return "—";
+  const a = Math.abs(v);
+  const d = precision !== null && precision !== undefined && precision >= 0 ? Math.min(precision, 8) : a >= 1000 ? 2 : a >= 1 ? 4 : 6;
+  return v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+
+/** Matches backend / provider messages that mean "no market data for this instrument or period". */
+export const NOT_AVAILABLE_RE = /DATA[_ ]NOT[_ ]AVAILABLE|not available|няма налични данни|недостъпн/i;
+
+/** Reason text for <DataNotAvailable/> without a repeated "DATA NOT AVAILABLE:" prefix (the panel already says it). */
+export function unavailableReason(message: string | null | undefined): string | undefined {
+  const m = (message ?? "").replace(/^\s*DATA[_ ]NOT[_ ]AVAILABLE\s*[:—-]?\s*/i, "").trim();
+  return m || undefined;
+}

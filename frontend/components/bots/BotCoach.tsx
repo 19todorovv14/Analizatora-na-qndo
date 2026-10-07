@@ -1,6 +1,19 @@
 "use client";
 
-import { ArrowUpRight, BookOpen, BrainCircuit, CircleSlash, FlaskConical, Lightbulb, NotebookPen, ShieldAlert, Blocks, TrendingDown, TrendingUp } from "lucide-react";
+import {
+  ArrowUpRight,
+  Blocks,
+  BookOpen,
+  BrainCircuit,
+  CircleSlash,
+  FlaskConical,
+  Hourglass,
+  Lightbulb,
+  NotebookPen,
+  ShieldAlert,
+  TrendingDown,
+  TrendingUp,
+} from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -15,6 +28,7 @@ const FUNNEL_META: Record<FunnelStep["key"], { label: string; hint: string; tone
   setups: { label: "Setups generated", hint: "тригерът (1-во условие) е изпълнен", tone: "bg-gradient-to-r from-accent/70 to-accent2" },
   met: { label: "All conditions met", hint: "всички условия са изпълнени", tone: "bg-up/75" },
   rejected: { label: "Rejected", hint: "setup без всички условия", tone: "bg-down/60" },
+  filtered: { label: "Blocked by filters", hint: "режим, часове, max positions…", tone: "bg-warn/60" },
   trades: { label: "Paper trades", hint: "отворени виртуални позиции", tone: "bg-violet/70" },
 };
 
@@ -22,15 +36,18 @@ function FunnelRow({ step }: { step: FunnelStep }) {
   const m = FUNNEL_META[step.key];
   const pct = step.pct ?? 0;
   return (
-    <li className="grid grid-cols-[minmax(0,150px)_minmax(0,1fr)_auto] items-center gap-3 text-xs">
+    <li className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-3 text-xs sm:grid-cols-[minmax(0,172px)_minmax(0,1fr)_auto]">
       <span className="min-w-0">
         <span className="block font-medium leading-tight text-text/90">{m.label}</span>
         <span className="block text-[10.5px] leading-tight text-faint">{m.hint}</span>
       </span>
       <span className="h-2.5 min-w-0 overflow-hidden rounded-full bg-white/[0.05]">
-        <span className={cx("block h-full rounded-full transition-[width] duration-500", m.tone)} style={{ width: `${Math.max(pct, step.value ? 1.5 : 0)}%` }} />
+        <span
+          className={cx("block h-full rounded-full transition-[width] duration-500", m.tone)}
+          style={{ width: `${Math.max(pct, step.value ? 1.5 : 0)}%` }}
+        />
       </span>
-      <span className="num w-20 text-right">
+      <span className="num w-[74px] text-right">
         <b className="text-sm font-semibold text-text">{step.value}</b>
         <span className="ml-1 text-[10.5px] text-faint">{step.pct !== null ? `${step.pct.toFixed(0)}%` : ""}</span>
       </span>
@@ -51,7 +68,12 @@ function RegimeCard({ kind, r }: { kind: "worst" | "best"; r: CoachResponse["wor
   const worst = kind === "worst";
   const Icon = worst ? TrendingDown : TrendingUp;
   return (
-    <div className={cx("min-w-0 rounded-xl border p-3", worst ? "border-down/20 bg-down/[0.04]" : "border-up/20 bg-up/[0.04]")}>
+    <div
+      className={cx(
+        "min-w-0 rounded-xl border p-3",
+        !r ? "border-white/[0.07] bg-white/[0.02]" : worst ? "border-down/20 bg-down/[0.04]" : "border-up/20 bg-up/[0.04]",
+      )}
+    >
       <div className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.07em] text-muted">
         <Icon size={13} strokeWidth={2} className={worst ? "text-down" : "text-up"} aria-hidden />
         {worst ? "Най-слаб режим" : "Най-силен режим"}
@@ -66,7 +88,9 @@ function RegimeCard({ kind, r }: { kind: "worst" | "best"; r: CoachResponse["wor
           </div>
         </>
       ) : (
-        <p className="mt-2 text-xs text-faint">{worst ? "Няма режим с отрицателен среден R (мин. 3 сделки)." : "Няма режим с положителен среден R (мин. 3 сделки)."}</p>
+        <p className="mt-2 text-xs text-faint">
+          {worst ? "Няма режим с отрицателен среден R (мин. 3 сделки)." : "Няма режим с положителен среден R (мин. 3 сделки)."}
+        </p>
       )}
     </div>
   );
@@ -80,7 +104,13 @@ function Breakdown({ groups }: { groups: CoachGroup[] }) {
   return (
     <ul className="space-y-1.5">
       {groups.map((g) => (
-        <li key={g.value} className={cx("grid grid-cols-[minmax(0,1fr)_minmax(0,120px)_auto] items-center gap-2 text-xs", !g.enough_trades && "opacity-55")}>
+        <li
+          key={g.value}
+          className={cx(
+            "grid grid-cols-[minmax(0,1fr)_56px_auto] items-center gap-2 text-xs sm:grid-cols-[minmax(0,1fr)_minmax(0,120px)_auto]",
+            !g.enough_trades && "opacity-55",
+          )}
+        >
           <span className="min-w-0 truncate text-text/90" title={g.label}>
             {g.label}
           </span>
@@ -125,7 +155,14 @@ export function BotCoach({ data, error, onRetry, advanced }: { data?: CoachRespo
   if (error && !data) body = <ErrorState title="BOT AI COACH не се зареди" onRetry={onRetry} />;
   else if (!data) body = <CoachSkeleton />;
   else if (data.source === "unavailable")
-    body = <EmptyState compact icon={CircleSlash} title="Няма данни за анализ" description={data.source_label || "Ботът още не е обработил свещи и историята не е налична."} />;
+    body = (
+      <EmptyState
+        compact
+        icon={CircleSlash}
+        title="Няма данни за анализ"
+        description={data.source_label || "Ботът още не е обработил свещи и историята не е налична."}
+      />
+    );
   else {
     const maxBlock = Math.max(1, ...data.top_blockers.map((b) => b.count));
     const breakdowns = data.breakdowns ?? {};
@@ -142,9 +179,12 @@ export function BotCoach({ data, error, onRetry, advanced }: { data?: CoachRespo
           <section aria-label="Setups funnel" className="min-w-0">
             <div className="label">Setups funnel</div>
             <ul className="space-y-2.5">
-              {funnel(data).map((step) => (
-                <FunnelRow key={step.key} step={step} />
-              ))}
+              {funnel({ ...data, rejected_by_filters: data.rejected_by_filters ?? null })
+                // the estimate only re-evaluates the rules (no simulated positions) → no "paper trades" step
+                .filter((step) => data.source !== "estimate" || step.key !== "trades")
+                .map((step) => (
+                  <FunnelRow key={step.key} step={step} />
+                ))}
             </ul>
           </section>
 
@@ -162,7 +202,10 @@ export function BotCoach({ data, error, onRetry, advanced }: { data?: CoachRespo
                       <span className="num font-semibold text-text">{b.count}</span>
                     </div>
                     <span className="mt-1 block h-1.5 rounded-full bg-white/[0.04]">
-                      <span className={cx("block h-full rounded-full", b.kind === "filter" ? "bg-warn/60" : "bg-white/30")} style={{ width: `${(b.count / maxBlock) * 100}%` }} />
+                      <span
+                        className={cx("block h-full rounded-full", b.kind === "filter" ? "bg-warn/60" : "bg-white/30")}
+                        style={{ width: `${(b.count / maxBlock) * 100}%` }}
+                      />
                     </span>
                   </li>
                 ))}
@@ -173,42 +216,67 @@ export function BotCoach({ data, error, onRetry, advanced }: { data?: CoachRespo
           </section>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <MiniStat label="Сделки" value={data.trades} />
-          <MiniStat label="Win rate" value={fmtPct(data.win_rate, 0)} />
-          <MiniStat label="Average R" value={fmtR(data.average_r)} tone={pnlClass(data.average_r)} />
-          <MiniStat label="Net P/L (virtual)" value={fmtMoney(data.net_pnl, true)} tone={pnlClass(data.net_pnl)} />
-        </div>
-
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)]">
-          <div className={cx("min-w-0 rounded-xl border p-3", data.main_losing_condition ? "border-down/25 bg-down/[0.05]" : "border-white/[0.07] bg-white/[0.02]")}>
-            <div className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.07em] text-muted">
-              <ShieldAlert size={13} strokeWidth={2} className="text-down" aria-hidden />
-              Main losing condition
-            </div>
-            {data.main_losing_condition ? (
-              <>
-                <div className="mt-2 text-[13.5px] font-semibold text-text">{data.main_losing_condition.description}</div>
-                <div className="text-[11px] text-faint">{data.main_losing_condition.attribute_label}</div>
-                <div className="num mt-2 text-xs text-muted">
-                  {data.main_losing_condition.trades} сделки · win {fmtPct(data.main_losing_condition.win_rate, 0)} · среден{" "}
-                  <span className="text-down">{fmtR(data.main_losing_condition.average_r)}</span> ·{" "}
-                  <span className={pnlClass(data.main_losing_condition.net_pnl)}>{fmtMoney(data.main_losing_condition.net_pnl, true)}</span>
-                </div>
-              </>
-            ) : (
-              <p className="mt-2 text-xs text-faint">Няма ясно изразен губещ контекст (нужни са поне 3 сделки в група и разлика между групите).</p>
-            )}
+        {data.trades === 0 ? (
+          <div className="flex items-start gap-2.5 rounded-xl border border-white/[0.07] bg-white/[0.02] px-3 py-2.5 text-xs leading-relaxed text-muted">
+            <Hourglass size={14} strokeWidth={2} className="mt-0.5 shrink-0 text-faint" aria-hidden />
+            <span className="min-w-0">
+              Още няма затворени paper сделки. Основният губещ контекст и най-слабият / най-силният режим се изчисляват след поне 3 сделки в група
+              {data.source === "estimate" ? " — оценката по-горе брои само условията и филтрите, без да симулира позиции" : ""}.
+            </span>
           </div>
-          <RegimeCard kind="worst" r={data.worst_regime} />
-          <RegimeCard kind="best" r={data.best_regime} />
-        </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <MiniStat label="Сделки" value={data.trades} />
+              <MiniStat label="Win rate" value={fmtPct(data.win_rate, 0)} />
+              <MiniStat label="Average R" value={fmtR(data.average_r)} tone={pnlClass(data.average_r)} />
+              <MiniStat label="Net P/L (virtual)" value={fmtMoney(data.net_pnl, true)} tone={pnlClass(data.net_pnl)} />
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)]">
+              <div
+                className={cx(
+                  "min-w-0 rounded-xl border p-3",
+                  data.main_losing_condition ? "border-down/25 bg-down/[0.05]" : "border-white/[0.07] bg-white/[0.02]",
+                )}
+              >
+                <div className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.07em] text-muted">
+                  <ShieldAlert size={13} strokeWidth={2} className="text-down" aria-hidden />
+                  Main losing condition
+                </div>
+                {data.main_losing_condition ? (
+                  <>
+                    <div className="mt-2 text-[13.5px] font-semibold text-text">{data.main_losing_condition.description}</div>
+                    <div className="text-[11px] text-faint">{data.main_losing_condition.attribute_label}</div>
+                    <div className="num mt-2 text-xs text-muted">
+                      {data.main_losing_condition.trades} сделки · win {fmtPct(data.main_losing_condition.win_rate, 0)} · среден{" "}
+                      <span className="text-down">{fmtR(data.main_losing_condition.average_r)}</span> ·{" "}
+                      <span className={pnlClass(data.main_losing_condition.net_pnl)}>{fmtMoney(data.main_losing_condition.net_pnl, true)}</span>
+                    </div>
+                  </>
+                ) : (
+                  <p className="mt-2 text-xs text-faint">
+                    Няма ясно изразен губещ контекст (нужни са поне 3 сделки в група и разлика между групите).
+                  </p>
+                )}
+              </div>
+              <RegimeCard kind="worst" r={data.worst_regime} />
+              <RegimeCard kind="best" r={data.best_regime} />
+            </div>
+          </>
+        )}
 
         {advanced && tabs.length > 0 && activeTab && (
           <section aria-label="Разбивки" className="min-w-0">
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <span className="label !mb-0">Average R по контекст</span>
-              <Segmented size="sm" ariaLabel="Разбивка" value={activeTab} onChange={setTab} options={tabs.map((k) => ({ value: k, label: BREAKDOWN_LABEL[k] }))} />
+              <Segmented
+                size="sm"
+                ariaLabel="Разбивка"
+                value={activeTab}
+                onChange={setTab}
+                options={tabs.map((k) => ({ value: k, label: BREAKDOWN_LABEL[k] }))}
+              />
             </div>
             <Breakdown groups={breakdowns[activeTab] ?? []} />
             <p className="mt-1.5 text-[10.5px] text-faint">Бледите редове са с под 3 сделки — твърде малко за изводи.</p>
@@ -220,7 +288,10 @@ export function BotCoach({ data, error, onRetry, advanced }: { data?: CoachRespo
             <div className="label">Insights</div>
             <ul className="space-y-1.5">
               {data.insights.map((t) => (
-                <li key={t} className="flex gap-2 rounded-lg border border-white/[0.05] bg-white/[0.02] px-2.5 py-2 text-[12.5px] leading-relaxed text-text/90">
+                <li
+                  key={t}
+                  className="flex gap-2 rounded-lg border border-white/[0.05] bg-white/[0.02] px-2.5 py-2 text-[12.5px] leading-relaxed text-text/90"
+                >
                   <Lightbulb size={14} strokeWidth={2} className="mt-0.5 shrink-0 text-gold" aria-hidden />
                   <span className="min-w-0">{t}</span>
                 </li>
@@ -277,7 +348,9 @@ export function BotCoach({ data, error, onRetry, advanced }: { data?: CoachRespo
                 {fmtDate(data.period.from_ts)} – {fmtDate(data.period.to_ts)} · {data.period.bars_evaluated} свещи
               </span>
             )}
-            <Badge tone={data.source === "bot" ? "violet" : "warn"}>{data.source === "bot" ? "bot stats" : data.source === "estimate" ? "оценка" : data.source}</Badge>
+            <Badge tone={data.source === "bot" ? "violet" : "warn"}>
+              {data.source === "bot" ? "bot stats" : data.source === "estimate" ? "оценка" : data.source}
+            </Badge>
           </div>
         ) : undefined
       }

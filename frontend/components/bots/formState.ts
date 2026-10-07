@@ -137,16 +137,42 @@ export function withStartPoint(curve: Pt[] | null | undefined, startValue: numbe
   return [[ts, startValue], ...curve];
 }
 
-export type FunnelStep = { key: "setups" | "met" | "rejected" | "trades"; value: number; pct: number | null };
+export type FunnelStep = { key: "setups" | "met" | "rejected" | "filtered" | "trades"; value: number; pct: number | null };
 
-/** Setups funnel: generated → all conditions met → rejected → paper trades (pct of generated). */
-export function funnel(s: Pick<EvaluationStats, "setups_generated" | "all_conditions_met" | "rejected" | "entries">): FunnelStep[] {
+/** Setups with every condition met that a filter (regime, hours, max positions, daily loss…) still stopped. */
+export function filteredTotal(byFilter: Record<string, number | undefined> | null | undefined): number {
+  if (!byFilter) return 0;
+  return Object.values(byFilter).reduce<number>((a, v) => a + (Number.isFinite(v) && (v as number) > 0 ? (v as number) : 0), 0);
+}
+
+/**
+ * Setups funnel: generated → all conditions met → rejected (setup without every condition) → blocked by filters →
+ * paper trades. Percentages are of the generated setups; the filter step is only listed when the payload has the
+ * per-filter counters.
+ */
+export function funnel(
+  s: Pick<EvaluationStats, "setups_generated" | "all_conditions_met" | "rejected" | "entries"> & { rejected_by_filters?: Record<string, number | undefined> | null },
+): FunnelStep[] {
   const g = s.setups_generated || 0;
   const pct = (v: number) => (g > 0 ? Math.round((v / g) * 1000) / 10 : null);
-  return [
+  const steps: FunnelStep[] = [
     { key: "setups", value: g, pct: g > 0 ? 100 : null },
     { key: "met", value: s.all_conditions_met || 0, pct: pct(s.all_conditions_met || 0) },
     { key: "rejected", value: s.rejected || 0, pct: pct(s.rejected || 0) },
-    { key: "trades", value: s.entries || 0, pct: pct(s.entries || 0) },
   ];
+  if (s.rejected_by_filters) {
+    const f = filteredTotal(s.rejected_by_filters);
+    steps.push({ key: "filtered", value: f, pct: pct(f) });
+  }
+  steps.push({ key: "trades", value: s.entries || 0, pct: pct(s.entries || 0) });
+  return steps;
+}
+
+export type LogLevelFilter = "all" | "signal" | "trade" | "warn";
+
+/** Bot log filter: "warn" also shows errors. */
+export function filterLogs<T extends { level: string }>(logs: T[], level: LogLevelFilter): T[] {
+  if (level === "all") return logs;
+  if (level === "warn") return logs.filter((l) => l.level === "warn" || l.level === "error");
+  return logs.filter((l) => l.level === level);
 }

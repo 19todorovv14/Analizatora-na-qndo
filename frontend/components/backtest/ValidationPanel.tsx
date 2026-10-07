@@ -15,7 +15,8 @@ import {
 } from "lucide-react";
 
 import { REGIME_BAR, costShare, fmtPF, fmtSigned, riskTone, wfVerdict } from "@/components/backtest/format";
-import { PAST_PERFORMANCE, type MetricsV2, type OosComparisonRow, type RunSummary, type Validation, type WalkForward } from "@/components/backtest/types";
+import { PAST_PERFORMANCE, type MetricsV2, type RunSummary, type Validation, type WalkForward } from "@/components/backtest/types";
+import { baseSummary, comparisonRows, costShareLabel, deltaTone, flipsSign, fmtCmp, sensitivityFlips, wfGeometry } from "@/components/backtest/validation";
 import { REGIME_LABEL } from "@/components/strategy/meta";
 import { Badge, Card, Meter, Notice, RegimeBadge, Term, Tooltip, type Tone } from "@/components/ui";
 import { cx, fmtDate, fmtMoney, fmtPct, fmtR, pnlClass } from "@/lib/format";
@@ -188,48 +189,6 @@ function SampleSizeCard({ v, m, beginner }: { v: Validation; m: MetricsV2; begin
 
 /* ───────────────────────────────────────────── in-sample vs OOS */
 
-function fmtCmp(key: string, v: number | null | undefined, delta = false): string {
-  if (v === null || v === undefined || !Number.isFinite(v)) return "—";
-  switch (key) {
-    case "total_trades":
-      return delta ? fmtSigned(v, 0) : String(Math.round(v));
-    case "win_rate":
-    case "return_pct":
-    case "max_drawdown_pct":
-      return delta ? `${fmtSigned(v, 1)} pp` : fmtPct(v, key === "return_pct" ? 2 : 1, key === "return_pct");
-    case "profit_factor":
-      return delta ? fmtSigned(Math.max(-99, Math.min(99, v))) : fmtPF(v);
-    case "expectancy_r":
-      return fmtR(v);
-    case "net_pnl":
-      return fmtMoney(v, true);
-    default:
-      return delta ? fmtSigned(v) : v.toFixed(2);
-  }
-}
-
-function deltaTone(key: string, d: number | null): string {
-  if (d === null || !Number.isFinite(d) || d === 0 || key === "total_trades") return "text-muted";
-  const good = key === "max_drawdown_pct" ? d < 0 : d > 0;
-  return good ? "text-up" : "text-down";
-}
-
-function summaryRows(is: RunSummary, oos: RunSummary): OosComparisonRow[] {
-  const keys: [keyof RunSummary, string][] = [
-    ["total_trades", "Trades"],
-    ["win_rate", "Win rate %"],
-    ["profit_factor", "Profit factor"],
-    ["expectancy_r", "Expectancy (R)"],
-    ["net_pnl", "Net P/L"],
-    ["max_drawdown_pct", "Max drawdown %"],
-  ];
-  return keys.map(([k, label]) => {
-    const a = is[k] as number | null;
-    const b = oos[k] as number | null;
-    return { key: k, label, in_sample: a, out_of_sample: b, delta: a !== null && b !== null && Number.isFinite(a) && Number.isFinite(b) ? b - a : null };
-  });
-}
-
 const DEGRADE_TONE: Record<string, Tone> = { reversed: "down", much_weaker: "down", weaker: "warn", similar_or_better: "up" };
 
 function OosPanel({ v, beginner }: { v: Validation; beginner: boolean }) {
@@ -258,7 +217,7 @@ function OosPanel({ v, beginner }: { v: Validation; beginner: boolean }) {
                 </tr>
               </thead>
               <tbody>
-                {(o.comparison?.length ? o.comparison : summaryRows(o.in_sample, o.out_of_sample)).map((r) => (
+                {comparisonRows(o).map((r) => (
                   <tr key={r.key} className="border-b border-white/[0.04] last:border-0">
                     <td className="py-1.5 text-muted">{r.label}</td>
                     <td className="num py-1.5 text-right text-text/90">{fmtCmp(r.key, r.in_sample)}</td>
@@ -295,32 +254,31 @@ function OosPanel({ v, beginner }: { v: Validation; beginner: boolean }) {
 
 function WalkForwardChart({ wf }: { wf: WalkForward }) {
   const ws = wf.windows;
-  const vals = ws.map((w) => w.return_pct ?? 0);
-  const maxAbs = Math.max(0.5, ...vals.map((x) => Math.abs(x)));
+  const { zero, bars } = wfGeometry(ws);
   const W = 100 / Math.max(1, ws.length);
   return (
-    <div className="relative h-36 w-full rounded-lg border border-white/[0.05] bg-black/15 px-2 pb-6 pt-3" role="img" aria-label="Walk-forward: доходност по прозорци">
-      <div className="relative h-full">
-        <span className="absolute inset-x-0 top-1/2 h-px bg-white/15" aria-hidden />
-        {ws.map((w, i) => {
-          const v = w.return_pct ?? 0;
-          const h = (Math.abs(v) / maxAbs) * 40;
+    <div className="rounded-lg border border-white/[0.05] bg-black/15 px-2 pb-1.5" role="img" aria-label="Walk-forward: доходност по прозорци">
+      {/* plot: the label rows above / below keep room for the value captions */}
+      <div className="relative mx-1 mb-5 mt-5 h-28">
+        <span className="absolute inset-x-0 h-px bg-white/20" style={{ top: `${zero}%` }} aria-hidden />
+        {bars.map((b, i) => {
+          const w = ws[i];
           return (
-            <span key={w.index} className="absolute inset-y-0 block" style={{ left: `${i * W}%`, width: `${W}%` }}>
+            <span key={b.index} className="absolute inset-y-0 block" style={{ left: `${i * W}%`, width: `${W}%` }}>
               <Tooltip
                 content={`W${w.index}: ${fmtDate(w.start_ts)} – ${fmtDate(w.end_ts)} · ${w.trades} сделки · ${fmtPct(w.return_pct, 2, true)}`}
                 className="absolute inset-0 block"
               >
                 <span className="absolute inset-0 block">
                   <span
-                    className={cx("absolute left-1/2 w-[46%] max-w-14 -translate-x-1/2 rounded-sm", v >= 0 ? "bg-up/75" : "bg-down/75", !w.trades && "opacity-30")}
-                    style={v >= 0 ? { bottom: "50%", height: `${Math.max(h, 1)}%` } : { top: "50%", height: `${Math.max(h, 1)}%` }}
+                    className={cx("absolute left-1/2 w-[46%] max-w-14 -translate-x-1/2 rounded-sm", b.positive ? "bg-up/75" : "bg-down/75", b.empty && "opacity-30")}
+                    style={{ top: `${b.top}%`, height: `${b.height}%` }}
                   />
                   <span
-                    className={cx("num absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] font-medium", v >= 0 ? "text-up" : "text-down")}
-                    style={v >= 0 ? { bottom: `calc(50% + ${Math.max(h, 1)}% + 2px)` } : { top: `calc(50% + ${Math.max(h, 1)}% + 2px)` }}
+                    className={cx("num absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] font-medium leading-none", b.positive ? "text-up" : "text-down")}
+                    style={b.positive ? { bottom: `calc(${100 - b.top}% + 3px)` } : { top: `calc(${b.top + b.height}% + 3px)` }}
                   >
-                    {fmtSigned(v, 1)}%
+                    {b.empty ? "0 сделки" : `${fmtSigned(b.value, 1)}%`}
                   </span>
                 </span>
               </Tooltip>
@@ -328,7 +286,7 @@ function WalkForwardChart({ wf }: { wf: WalkForward }) {
           );
         })}
       </div>
-      <div className="absolute inset-x-2 bottom-1 flex">
+      <div className="flex border-t border-white/[0.05] pt-1">
         {ws.map((w) => (
           <span key={w.index} className="text-center text-[10px] font-semibold uppercase tracking-[0.06em] text-faint" style={{ width: `${W}%` }}>
             W{w.index}
@@ -419,21 +377,13 @@ function WalkForwardPanel({ v, beginner }: { v: Validation; beginner: boolean })
 /* ──────────────────────────────────────── stress + sensitivity */
 
 function StressPanel({ v, m, beginner }: { v: Validation; m: MetricsV2; beginner: boolean }) {
-  const base: RunSummary = {
-    total_trades: m.total_trades,
-    net_pnl: m.net_pnl,
-    win_rate: m.win_rate,
-    profit_factor: m.profit_factor,
-    expectancy_r: m.expectancy_r,
-    max_drawdown_pct: m.max_drawdown_pct,
-    return_pct: m.return_pct,
-  };
+  const base = baseSummary(m);
   const rows: { label: React.ReactNode; s: RunSummary; kind: "base" | "stress" | "variant" }[] = [
     { label: "Основен тест", s: base, kind: "base" },
     { label: "Stress: 3× slippage, 2× spread", s: v.stress_test, kind: "stress" },
     ...v.sensitivity.map((s) => ({ label: s.variant, s, kind: "variant" as const })),
   ];
-  const flips = v.sensitivity.filter((s) => Math.sign(s.net_pnl) !== Math.sign(base.net_pnl) && s.total_trades > 0).length;
+  const flips = sensitivityFlips(base, v.sensitivity);
   return (
     <Panel>
       <SubHead
@@ -461,7 +411,7 @@ function StressPanel({ v, m, beginner }: { v: Validation; m: MetricsV2; beginner
           </thead>
           <tbody>
             {rows.map((r, i) => {
-              const flip = r.kind === "variant" && Math.sign(r.s.net_pnl) !== Math.sign(base.net_pnl) && r.s.total_trades > 0;
+              const flip = r.kind === "variant" && flipsSign(base, r.s);
               return (
                 <tr
                   key={i}
@@ -579,9 +529,10 @@ function CostsPanel({ v, beginner }: { v: Validation; beginner: boolean }) {
     { label: "Slippage (оценка, вкл. в цените)", value: -c.slippage_est, tone: "text-warn", bar: "bg-warn/50" },
   ];
   const eaten = costShare(c);
+  const eatenLabel = costShareLabel(eaten);
   return (
     <Panel>
-      <SubHead icon={Coins} right={eaten !== null ? <Badge tone={eaten > 50 ? "down" : eaten > 25 ? "warn" : "neutral"}>разходи = {eaten.toFixed(0)}% от брутното</Badge> : undefined}>
+      <SubHead icon={Coins} right={eaten !== null && eatenLabel ? <Badge tone={eaten > 50 ? "down" : eaten > 25 ? "warn" : "neutral"}>{eatenLabel}</Badge> : undefined}>
         <Term k="fees">Transaction costs</Term>
       </SubHead>
       <ul className="space-y-2">

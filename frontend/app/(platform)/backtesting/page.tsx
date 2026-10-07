@@ -9,6 +9,7 @@ import useSWR from "swr";
 import { BacktestForm } from "@/components/backtest/BacktestForm";
 import { BacktestHistory } from "@/components/backtest/BacktestHistory";
 import { BacktestResults } from "@/components/backtest/BacktestResults";
+import { NOT_AVAILABLE_RE, unavailableReason } from "@/components/backtest/format";
 import { applyPrefill, defaultForm, toPayload, type BacktestFormState } from "@/components/backtest/formState";
 import type { BacktestDetail, BacktestRow } from "@/components/backtest/types";
 import type { StrategyRow } from "@/components/strategy/types";
@@ -27,8 +28,6 @@ import {
 } from "@/components/ui";
 import { ApiError, del, errorMessage, fetcher, post } from "@/lib/api";
 import { useSession } from "@/lib/session";
-
-const NOT_AVAILABLE = /DATA[_ ]NOT[_ ]AVAILABLE|not available|няма налични данни|недостъпн/i;
 
 function FormSkeleton() {
   return (
@@ -80,7 +79,10 @@ function RunningCard({ bt }: { bt: BacktestRow | BacktestDetail | undefined }) {
         </div>
         <ul className="mt-4 grid gap-2 sm:grid-cols-2">
           {steps.map((s) => (
-            <li key={s.label} className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2 text-xs text-muted">
+            <li
+              key={s.label}
+              className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2 text-xs text-muted"
+            >
               <s.icon size={14} strokeWidth={2} className="shrink-0 text-accent2" aria-hidden />
               {s.label}
             </li>
@@ -141,7 +143,11 @@ function BacktestingInner() {
   const [focusRegime, setFocusRegime] = useState<string | null>(qRegime);
   const resultsRef = useRef<HTMLDivElement>(null);
 
-  const { data: detail, error: detailError, mutate: retryDetail } = useSWR<BacktestDetail>(activeId ? `/backtests/${activeId}` : null, fetcher, {
+  const {
+    data: detail,
+    error: detailError,
+    mutate: retryDetail,
+  } = useSWR<BacktestDetail>(activeId ? `/backtests/${activeId}` : null, fetcher, {
     refreshInterval: (d) => (d && (d.status === "pending" || d.status === "running") ? 1500 : 0),
   });
 
@@ -176,7 +182,7 @@ function BacktestingInner() {
       mutateList();
       if (window.innerWidth < 1280) resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (e) {
-      if (e instanceof ApiError && (e.status === 503 || NOT_AVAILABLE.test(e.message))) setUnavailable(e.message);
+      if (e instanceof ApiError && (e.status === 503 || NOT_AVAILABLE_RE.test(e.message))) setUnavailable(e.message);
       else setError(errorMessage(e));
     } finally {
       setSubmitting(false);
@@ -197,13 +203,14 @@ function BacktestingInner() {
   const running = !!detail && (detail.status === "pending" || detail.status === "running");
 
   let results: React.ReactNode;
-  if (unavailable) results = <DataNotAvailable reason={unavailable} provider={form.symbol} />;
+  if (unavailable) results = <DataNotAvailable reason={unavailableReason(unavailable)} />;
   else if (!activeId) results = <IntroCard />;
-  else if (detailError && !detail) results = <ErrorState title="Резултатът не се зареди" description={errorMessage(detailError)} onRetry={() => retryDetail()} />;
+  else if (detailError && !detail)
+    results = <ErrorState title="Резултатът не се зареди" description={errorMessage(detailError)} onRetry={() => retryDetail()} />;
   else if (!detail || running) results = <RunningCard bt={detail ?? activeRow} />;
   else if (detail.status === "failed")
-    results = NOT_AVAILABLE.test(detail.error ?? "") ? (
-      <DataNotAvailable reason={detail.error ?? undefined} provider={detail.symbol} />
+    results = NOT_AVAILABLE_RE.test(detail.error ?? "") ? (
+      <DataNotAvailable reason={unavailableReason(detail.error)} />
     ) : (
       <ErrorState title="Backtest-ът не успя" description={detail.error ?? "Неизвестна грешка."} onRetry={run} />
     );
@@ -255,7 +262,21 @@ function BacktestingInner() {
             }
             right={list ? <span className="num text-[11px] text-muted">{list.backtests.length}</span> : undefined}
           >
-            {!list ? <SkeletonText lines={4} /> : <BacktestHistory rows={list.backtests} activeId={activeId} onOpen={(id) => setActiveId(id)} onDelete={remove} />}
+            {!list ? (
+              <SkeletonText lines={4} />
+            ) : (
+              <BacktestHistory
+                rows={list.backtests}
+                activeId={activeId}
+                onOpen={(id) => {
+                  // a stored result replaces a previous "data not available" / error notice
+                  setUnavailable(null);
+                  setError(null);
+                  setActiveId(id);
+                }}
+                onDelete={remove}
+              />
+            )}
           </Card>
         </div>
         <div ref={resultsRef} className="min-w-0 scroll-mt-4">

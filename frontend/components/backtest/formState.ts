@@ -71,10 +71,10 @@ export function estimateBars(f: Pick<BacktestFormState, "start" | "end" | "timef
   return Math.max(0, Math.floor(span / sec)) + WARMUP_BARS;
 }
 
-/** Longest start date (for the current end + timeframe) that stays under MAX_BARS. */
+/** Longest start date (for the current end + timeframe) that stays under MAX_BARS (the end day counts in full). */
 export function fitStart(f: Pick<BacktestFormState, "end" | "timeframe">): string {
   const sec = TF_SECONDS[f.timeframe] ?? 3600;
-  const days = Math.floor(((MAX_BARS - WARMUP_BARS - 50) * sec) / 86400);
+  const days = Math.max(0, Math.floor(((MAX_BARS - WARMUP_BARS - 50) * sec - 86399) / 86400));
   return rangeStart(f.end, days);
 }
 

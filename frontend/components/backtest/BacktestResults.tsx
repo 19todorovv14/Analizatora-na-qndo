@@ -6,7 +6,8 @@ import Link from "next/link";
 import { TradesTable } from "@/components/backtest/TradesTable";
 import { ValidationPanel } from "@/components/backtest/ValidationPanel";
 import { barsToText, fmtPF, pfTone, signTone } from "@/components/backtest/format";
-import type { BacktestDetail, MetricsV2 } from "@/components/backtest/types";
+import type { BacktestDetail } from "@/components/backtest/types";
+import { drawdownTone, plainReading } from "@/components/backtest/validation";
 import { EquityChart } from "@/components/charts/EquityChart";
 import { RulesPreview } from "@/components/strategy/StrategySelect";
 import { Badge, Card, SourceBadge, Stat, StatTile } from "@/components/ui";
@@ -17,21 +18,9 @@ export type { BacktestDetail } from "@/components/backtest/types";
 
 const INTRABAR: Record<string, string> = { worst_case: "Worst case", path: "OHLC path" };
 
-/** Plain-language reading of the key numbers (beginner mode). */
-function plainReading(m: MetricsV2): string[] {
-  const out: string[] = [];
-  if (!m.total_trades) return ["Няма сделки — условията не са се изпълнили. Пробвай по-дълъг период или по-малко условия."];
-  out.push(
-    `${m.total_trades} сделки, от които ${m.winning_trades} печеливши (win rate ${fmtPct(m.win_rate, 0)}). Win rate сам по себе си не казва дали стратегията печели — важно е колко печели средно печелившата спрямо губещата.`,
-  );
-  if (m.expectancy_r !== null && m.expectancy_r !== undefined)
-    out.push(
-      m.expectancy_r > 0
-        ? `Expectancy ${fmtR(m.expectancy_r)}: средно всяка сделка е донесла ${m.expectancy_r.toFixed(2)} пъти риска. Положително, но малко предимство лесно изчезва при други пазарни условия.`
-        : `Expectancy ${fmtR(m.expectancy_r)}: средно всяка сделка е губила част от риска. Правилата не са дали предимство в този период.`,
-    );
-  out.push(`Max drawdown ${fmtPct(m.max_drawdown_pct)}: в най-лошия момент сметката е била толкова под предишния си връх. Питай се дали би издържал(а) това психологически.`);
-  return out;
+/** KPI label that may wrap to two lines on narrow tiles instead of being cut off. */
+function Wrap({ children }: { children: React.ReactNode }) {
+  return <span className="whitespace-normal">{children}</span>;
 }
 
 /**
@@ -77,8 +66,8 @@ export function BacktestResults({ bt, beginner, focusRegime }: { bt: BacktestDet
         </div>
       </div>
 
-      {/* KPI tiles */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
+      {/* KPI tiles — order keeps related pairs side by side at 2 / 3 / 4 columns */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-4">
         <StatTile label="Net P/L" value={fmtMoney(m.net_pnl, true)} tone={signTone(m.net_pnl)} sub={`${fmtPct(m.return_pct, 2, true)} · equity ${fmtMoney(m.final_equity ?? initial + m.net_pnl)}`} />
         <StatTile label="Total trades" value={m.total_trades} sub={`${m.winning_trades} W · ${m.losing_trades} L${m.trades_per_month ? ` · ${m.trades_per_month.toFixed(1)}/мес.` : ""}`} />
         <StatTile label="Win rate" term="winrate" value={fmtPct(m.win_rate, 1)} sub={`avg win ${fmtR(m.avg_win_r ?? m.average_win_r)} · loss ${fmtR(m.avg_loss_r ?? m.average_loss_r)}`} />
@@ -89,9 +78,10 @@ export function BacktestResults({ bt, beginner, focusRegime }: { bt: BacktestDet
           label="Max drawdown"
           term="drawdown"
           value={fmtPct(-Math.abs(m.max_drawdown_pct), 2)}
-          tone={m.max_drawdown_pct > 20 ? "down" : m.max_drawdown_pct > 10 ? "warn" : "neutral"}
+          tone={drawdownTone(m.max_drawdown_pct)}
           sub={`${fmtMoney(m.max_drawdown)}${m.max_drawdown_duration_bars ? ` · ${barsToText(m.max_drawdown_duration_bars, tfSec)} под връх` : ""}`}
         />
+        <StatTile label="Fees" term="fees" value={fmtMoney(m.fees_total)} sub={`+ slippage ≈ ${fmtMoney(m.slippage_cost_est)}`} />
         <StatTile
           label="Best trade"
           value={best ? fmtMoney(best.pnl, true) : fmtMoney(m.largest_win, true)}
@@ -104,13 +94,17 @@ export function BacktestResults({ bt, beginner, focusRegime }: { bt: BacktestDet
           tone="down"
           sub={worst ? `${fmtR(worst.r)} · ${worst.side.toUpperCase()} · ${fmtDate(worst.entry_ts)}` : "—"}
         />
-        <StatTile label="Longest losing streak" value={m.longest_loss_streak ?? m.max_consecutive_losses} tone={(m.longest_loss_streak ?? m.max_consecutive_losses) >= 6 ? "warn" : "neutral"} sub="поредни загуби" />
-        <StatTile label="Longest winning streak" value={m.longest_win_streak ?? "—"} sub="поредни печалби" />
-        <StatTile label="Fees" term="fees" value={fmtMoney(m.fees_total)} sub={`+ slippage ≈ ${fmtMoney(m.slippage_cost_est)}`} />
+        <StatTile
+          label={<Wrap>Longest losing streak</Wrap>}
+          value={m.longest_loss_streak ?? m.max_consecutive_losses}
+          tone={(m.longest_loss_streak ?? m.max_consecutive_losses) >= 6 ? "warn" : "neutral"}
+          sub="поредни загуби"
+        />
+        <StatTile label={<Wrap>Longest winning streak</Wrap>} value={m.longest_win_streak ?? "—"} sub="поредни печалби" />
       </div>
 
       {!beginner && (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 2xl:grid-cols-8">
           <Stat label="Return" value={fmtPct(m.return_pct, 2, true)} tone={signTone(m.return_pct) === "up" ? "text-up" : signTone(m.return_pct) === "down" ? "text-down" : undefined} />
           <Stat label="Buy & hold" value={fmtPct(m.buy_and_hold_pct, 1, true)} />
           <Stat label="Exposure" value={fmtPct(m.exposure_pct ?? m.time_in_market_pct, 0)} />

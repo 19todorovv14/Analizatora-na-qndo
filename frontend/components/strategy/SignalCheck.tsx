@@ -3,36 +3,19 @@
 import { Activity, RefreshCw } from "lucide-react";
 import { useState } from "react";
 
-import { fmtValue, REGIME_LABEL } from "@/components/strategy/meta";
-import { SETUP_DISCLAIMER, type BlockKey, type BlockResult, type ConditionResult, type DefinitionV2, type SignalResponse } from "@/components/strategy/types";
-import { Badge, Button, Checklist, DataNotAvailable, Disclaimer, ErrorText, Meter, RegimeBadge, Spinner, type Tone } from "@/components/ui";
+import { unavailableReason } from "@/components/backtest/format";
+import { REGIME_LABEL } from "@/components/strategy/meta";
+import { BLOCK_TITLE, activeBlocks, conditionPass, conditionValueText, passedCount, signalTone } from "@/components/strategy/signal";
+import { SETUP_DISCLAIMER, type ConditionResult, type DefinitionV2, type SignalResponse } from "@/components/strategy/types";
+import { Badge, Button, Checklist, DataNotAvailable, Disclaimer, ErrorText, Meter, RegimeBadge, Spinner } from "@/components/ui";
 import { ApiError, errorMessage, post } from "@/lib/api";
 import { cx, fmtTime, TF_LABEL } from "@/lib/format";
 
-export const BLOCK_TITLE: Record<string, string> = {
-  entry_long: "LONG setup",
-  entry_short: "SHORT setup",
-  exit_long: "Exit LONG",
-  exit_short: "Exit SHORT",
-};
-
-export function signalTone(signal?: string | null): Tone {
-  if (!signal) return "neutral";
-  if (signal.includes("LONG")) return "up";
-  if (signal.includes("SHORT")) return "down";
-  if (signal === "WAIT") return "info";
-  return "neutral";
-}
-
-function valueDetail(c: ConditionResult): string {
-  if (c.left === null || c.left === undefined) return "Няма стойност още (warm-up на индикатора / структурата).";
-  if (c.right === null || c.right === undefined) return `стойност: ${c.left > 0 ? "да (1)" : "не (0)"}`;
-  return `${fmtValue(c.left)} vs ${fmtValue(c.right)}`;
-}
+export { BLOCK_TITLE, activeBlocks, signalTone } from "@/components/strategy/signal";
 
 /** Per-condition ✓ / ✕ list for one evaluated block. */
 export function ConditionChecklist({ title, conditions, passed, logic, compact }: { title: string; conditions: ConditionResult[]; passed?: boolean; logic?: "all" | "any"; compact?: boolean }) {
-  const n = conditions.filter((c) => c.passed).length;
+  const { passed: n } = passedCount(conditions);
   return (
     <div className="min-w-0">
       <div className="mb-2 flex items-center gap-2">
@@ -46,18 +29,13 @@ export function ConditionChecklist({ title, conditions, passed, logic, compact }
       {!compact && <Meter value={n} max={Math.max(1, conditions.length)} tone={passed ? "up" : "accent"} className="mb-2.5" />}
       <Checklist
         items={conditions.map((c) => ({
-          label: <span className="num text-[12.5px]">{c.label}</span>,
-          pass: c.left === null || c.left === undefined ? null : c.passed,
-          detail: <span className="num">{valueDetail(c)}</span>,
+          label: <span className="text-[12.5px] font-medium">{c.label}</span>,
+          pass: conditionPass(c),
+          detail: <span className="num text-[11px]">{conditionValueText(c)}</span>,
         }))}
       />
     </div>
   );
-}
-
-/** Ordered active blocks of an evaluation (entries first). */
-export function activeBlocks(ev: Partial<Record<BlockKey, BlockResult>>): [BlockKey, BlockResult][] {
-  return (["entry_long", "entry_short", "exit_long", "exit_short"] as const).filter((k) => ev[k]?.active).map((k) => [k, ev[k]!]);
 }
 
 /**
@@ -101,7 +79,7 @@ export function SignalCheck({ definition, symbol, timeframe, disabled }: { defin
         </span>
       </div>
       <ErrorText error={error} />
-      {unavailable && <DataNotAvailable compact reason={unavailable} />}
+      {unavailable && <DataNotAvailable compact reason={unavailableReason(unavailable)} />}
       {data && (
         <div className={cx("fade-in space-y-3 rounded-xl border border-white/[0.07] bg-black/20 p-3", stale && "opacity-60")}>
           <div className="flex flex-wrap items-center gap-2">

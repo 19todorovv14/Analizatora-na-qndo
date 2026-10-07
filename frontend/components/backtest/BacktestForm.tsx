@@ -225,15 +225,18 @@ export function BacktestForm({
         )}
       </div>
 
-      <ErrorText error={error} />
-      <Button type="submit" size="lg" className="w-full" disabled={running || tooLong || badDates || !form.strategy_id}>
-        {running ? <Spinner className="h-4 w-4 border-white/30 border-t-white" /> : <Play size={16} strokeWidth={2.25} aria-hidden />}
-        Run backtest
-      </Button>
       <p className="text-[11px] leading-relaxed text-faint">
         Сигнал на close → вход на open на следващата свещ (без lookahead). Същият paper engine с такси, spread и slippage. Включва out-of-sample,
         walk-forward, stress и sensitivity проверки.
       </p>
+      {/* wide screens: the settings panel scrolls on its own — keep the run button reachable at its bottom edge */}
+      <div className="space-y-2 xl:sticky xl:bottom-0 xl:z-[1] xl:-mx-4 xl:-mb-4 xl:rounded-b-xl xl:bg-[linear-gradient(to_top,var(--color-surface)_72%,transparent)] xl:px-4 xl:pb-4 xl:pt-4">
+        <ErrorText error={error} />
+        <Button type="submit" size="lg" className="w-full" disabled={running || tooLong || badDates || !form.strategy_id}>
+          {running ? <Spinner className="h-4 w-4 border-white/30 border-t-white" /> : <Play size={16} strokeWidth={2.25} aria-hidden />}
+          Run backtest
+        </Button>
+      </div>
     </form>
   );
 }
