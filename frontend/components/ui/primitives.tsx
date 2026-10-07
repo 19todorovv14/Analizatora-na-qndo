@@ -43,7 +43,9 @@ export function Card({
       {(title || right) && (
         <header className="flex min-h-11 items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-2.5">
           <h2 className="flex min-w-0 items-center gap-1.5 text-[13px] font-semibold tracking-[-0.005em] text-text">{title}</h2>
-          {right && <div className="flex min-w-0 items-center justify-end gap-2">{right}</div>}
+          {/* right slot: keeps its natural width up to 75% of the header; wider content (e.g. a symbol
+              <select>) shrinks inside it instead of spilling over the title */}
+          {right && <div className="flex min-w-0 max-w-[75%] shrink-0 items-center justify-end-safe gap-2 [&>*]:min-w-0">{right}</div>}
         </header>
       )}
       <div className={cx(!hasPadding(bodyClass) && "p-4", bodyClass)}>{loading ? <SkeletonText lines={3} /> : children}</div>

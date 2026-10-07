@@ -1,139 +1,151 @@
 "use client";
 
+import { Bot, GraduationCap, LayoutDashboard, Route } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
 import useSWR from "swr";
 
-import { Badge, Button, Card, Loading, ProgressBar } from "@/components/ui";
+import { ContinueCard, LearnFlow, XpCard } from "@/components/learn/AcademyHero";
+import { DashboardKpis, MistakeCard, RecommendationsCard, RiskDisciplineCard, SkillsCard } from "@/components/learn/LearningDashboard";
+import { LearningPathTimeline } from "@/components/learn/LearningPath";
+import type { LearningDashboard, LearningPath } from "@/components/learn/types";
+import { Badge, ErrorState, PageHeader, Section, Skeleton, SkeletonText } from "@/components/ui";
 import { fetcher } from "@/lib/api";
-import { cx } from "@/lib/format";
+import { LearnHint } from "@/lib/workspace";
 
-type ModuleDetail = {
-  key: string;
-  title: string;
-  category: string;
-  description: string;
-  lessons_total: number;
-  lessons_completed: number;
-  percent: number;
-  quiz_score: number | null;
-  quiz_passed: boolean;
-  unlocked: boolean;
-  quiz_questions: number;
-  lessons: { slug: string; title: string; summary: string; xp: number; completed: boolean; visual: string | null }[];
-};
+function HeroSkeleton() {
+  return (
+    <div className="grid gap-3 lg:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
+      <div className="card flex items-center gap-5 p-5">
+        <Skeleton className="h-[92px] w-[92px] shrink-0 !rounded-full" />
+        <div className="min-w-0 flex-1 space-y-3">
+          <Skeleton className="h-3 w-40" />
+          <Skeleton className="h-5 w-3/4" />
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className="h-10 w-64" />
+        </div>
+      </div>
+      <div className="card p-5">
+        <SkeletonText lines={4} />
+      </div>
+    </div>
+  );
+}
 
-type Progress = { xp: number; level: number; lessons_completed: number; lessons_total: number; categories: { category: string; percent: number }[] };
+function PathSkeleton() {
+  return (
+    <div className="space-y-3.5">
+      {Array.from({ length: 5 }, (_, i) => (
+        <div key={i} className="relative pl-[68px]">
+          <Skeleton className="absolute left-1 top-3 h-[46px] w-[46px] !rounded-full" />
+          <div className="card space-y-2.5 p-4">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-4 w-1/2" />
+            <Skeleton className="h-3 w-5/6" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function LearnPage() {
-  const { data } = useSWR<{ modules: ModuleDetail[] }>("/academy/modules", fetcher);
-  const { data: prog } = useSWR<Progress>("/academy/progress", fetcher);
-  const [open, setOpen] = useState<string | null>(null);
-  if (!data || !prog) return <Loading />;
-  const current = open ?? data.modules.find((m) => m.unlocked && m.percent < 100)?.key ?? data.modules[0].key;
+  const { data: path, error: pathError, mutate: retryPath } = useSWR<LearningPath>("/learn/path", fetcher);
+  const { data: dash, error: dashError, mutate: retryDash } = useSWR<LearningDashboard>("/learn/dashboard", fetcher);
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
-      <div className="space-y-3">
-        <div>
-          <h1 className="text-xl font-bold">Trading Academy</h1>
-          <p className="text-sm text-muted">
-            Започни от Level 0. Следващият модул се отключва след quiz с поне 70%. Знаеш материала? Направи quiz-а директно.
-          </p>
+    <div className="mx-auto max-w-[1400px] space-y-5">
+      <PageHeader
+        title="Trading Academy"
+        icon={GraduationCap}
+        subtitle="Път от LEVEL 0 до LEVEL 10: от „какво е свещ“ до цялостен анализ. Всяко ниво има уроци, quiz и практика — всичко с виртуални пари."
+        badge={path ? <Badge tone="accent">{path.levels.length} нива · {path.lessons_total} урока</Badge> : undefined}
+        actions={
+          <Link
+            href="/ai?mode=teach"
+            className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-1.5 text-sm font-medium text-text shadow-[inset_0_1px_0_0_rgb(255_255_255/0.04)] transition-colors hover:border-white/[0.18] hover:bg-white/[0.07]"
+          >
+            <Bot size={15} strokeWidth={1.9} className="text-accent2" aria-hidden />
+            AI Teacher
+          </Link>
+        }
+      />
+
+      {pathError ? (
+        <ErrorState title="Пътят на обучение не се зареди" onRetry={() => retryPath()} />
+      ) : !path ? (
+        <HeroSkeleton />
+      ) : (
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
+          <ContinueCard path={path} />
+          {dash ? (
+            <XpCard dash={dash} />
+          ) : (
+            <div className="card p-5">
+              <SkeletonText lines={4} />
+            </div>
+          )}
         </div>
-        {data.modules.map((m, idx) => {
-          const expanded = current === m.key;
-          return (
-            <section key={m.key} className={cx("card", !m.unlocked && "opacity-60")}>
-              <button className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => setOpen(expanded ? "__none" : m.key)}>
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-panel3 text-sm font-bold">
-                  {m.unlocked ? (m.percent === 100 ? "✓" : idx) : "🔒"}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold">{m.title}</span>
-                    <Badge>{m.category}</Badge>
-                    {m.quiz_passed && <Badge tone="up">quiz {Math.round((m.quiz_score ?? 0) * 100)}%</Badge>}
-                  </span>
-                  <span className="block truncate text-xs text-muted">{m.description}</span>
-                </span>
-                <span className="hidden w-32 sm:block">
-                  <ProgressBar value={m.percent} tone={m.percent === 100 ? "up" : "accent"} />
-                  <span className="num text-[11px] text-muted">
-                    {m.lessons_completed}/{m.lessons_total} уроци · {m.percent}%
-                  </span>
-                </span>
-              </button>
-              {expanded && (
-                <div className="border-t border-line px-4 py-3">
-                  {!m.unlocked && (
-                    <p className="mb-2 text-xs text-warn">
-                      Модулът е заключен — завърши quiz-а на предишния модул. Можеш да разглеждаш уроците, но прогресът се отключва
-                      последователно.
-                    </p>
-                  )}
-                  <ol className="grid gap-1.5 sm:grid-cols-2">
-                    {m.lessons.map((l, i) => (
-                      <li key={l.slug}>
-                        <Link
-                          href={`/learn/${l.slug}`}
-                          className="flex items-start gap-2 rounded-md border border-transparent px-2 py-1.5 hover:border-line hover:bg-panel2"
-                        >
-                          <span className={cx("mt-0.5 text-xs", l.completed ? "text-up" : "text-faint")}>{l.completed ? "●" : "○"}</span>
-                          <span>
-                            <span className="text-sm">
-                              {i + 1}. {l.title}
-                            </span>
-                            <span className="block text-[11px] text-muted">{l.summary}</span>
-                          </span>
-                        </Link>
-                      </li>
-                    ))}
-                  </ol>
-                  <div className="mt-3 flex items-center gap-2">
-                    <Link href={`/learn/quiz/${m.key}`}>
-                      <Button size="sm" variant={m.quiz_passed ? "outline" : "primary"}>
-                        {m.quiz_passed ? "Повтори quiz" : `Quiz (${m.quiz_questions} въпроса)`}
-                      </Button>
-                    </Link>
-                    <span className="text-xs text-muted">+50 XP при успешен quiz</span>
-                  </div>
-                </div>
-              )}
-            </section>
-          );
-        })}
-      </div>
-      <div className="space-y-3">
-        <Card title="Твоят прогрес">
-          <div className="mb-3 flex items-baseline justify-between">
-            <span className="text-2xl font-bold text-gold">{prog.xp} XP</span>
-            <span className="text-sm text-muted">Level {prog.level}</span>
-          </div>
-          <div className="space-y-2">
-            {prog.categories.map((c) => (
-              <div key={c.category}>
-                <div className="flex justify-between text-xs">
-                  <span>{c.category}</span>
-                  <span className="num text-muted">{c.percent}%</span>
-                </div>
-                <ProgressBar value={c.percent} tone={c.percent === 100 ? "up" : "accent"} />
+      )}
+
+      {path && <LearnFlow path={path} dash={dash} />}
+
+      <LearnHint title="Как да учиш ефективно">
+        Прочети урока и пипни интерактивния пример → намери същото на графиката → попитай AI Teacher, ако нещо не е ясно → направи
+        quiz-а (грешките идват с обяснения) → упражни в Labs, Replay и Paper Trading. Следващото ниво се отключва с quiz ≥ 70% или
+        когато започнеш урок от него.
+      </LearnHint>
+
+      <Section
+        title={
+          <>
+            <LayoutDashboard size={13} strokeWidth={2} aria-hidden /> Learning dashboard
+          </>
+        }
+      >
+        {dashError ? (
+          <ErrorState title="Таблото не се зареди" onRetry={() => retryDash()} />
+        ) : !dash ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+            {Array.from({ length: 6 }, (_, i) => (
+              <div key={i} className="card space-y-3 px-4 py-3.5">
+                <Skeleton className="h-2.5 w-16" />
+                <Skeleton className="h-6 w-20" />
+                <Skeleton className="h-2.5 w-24" />
               </div>
             ))}
           </div>
-          <p className="mt-3 text-xs text-muted">
-            {prog.lessons_completed}/{prog.lessons_total} урока завършени
-          </p>
-        </Card>
-        <Card title="Как да учиш ефективно">
-          <ul className="space-y-1.5 text-xs text-muted">
-            <li>1. Прочети урока и разгледай интерактивната визуализация.</li>
-            <li>2. Отвори Charts и намери същото на живата (demo) графика.</li>
-            <li>3. Попитай AI Teacher, ако нещо не е ясно.</li>
-            <li>4. Направи quiz — грешките идват с обяснения.</li>
-            <li>5. Упражни в Market Replay или Paper Trading.</li>
-          </ul>
-        </Card>
+        ) : (
+          <DashboardKpis data={dash} />
+        )}
+      </Section>
+
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <Section
+          title={
+            <>
+              <Route size={13} strokeWidth={2} aria-hidden /> Learning path · LEVEL 0 → 10
+            </>
+          }
+        >
+          {pathError ? null : !path ? <PathSkeleton /> : <LearningPathTimeline path={path} />}
+        </Section>
+
+        <div className="space-y-4 xl:pt-[34px]">
+          {dash ? (
+            <>
+              <RecommendationsCard items={dash.recommendations} />
+              <SkillsCard data={dash} />
+              <RiskDisciplineCard risk={dash.risk_discipline} />
+              <MistakeCard mistake={dash.most_common_mistake} />
+            </>
+          ) : dashError ? null : (
+            Array.from({ length: 3 }, (_, i) => (
+              <div key={i} className="card p-4">
+                <SkeletonText lines={4} />
+              </div>
+            ))
+          )}
+        </div>
       </div>
     </div>
   );

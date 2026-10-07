@@ -17,6 +17,7 @@ import { useExplain } from "@/lib/explain";
 import { cx } from "@/lib/format";
 import { useHotkeys, type HotkeyHandler } from "@/lib/hotkeys";
 import { useSession } from "@/lib/session";
+import { useWorkspace, type WorkspaceMode } from "@/lib/workspace";
 
 type SidebarState = "expanded" | "collapsed";
 const asSidebar = (v: unknown): SidebarState | undefined => (v === "expanded" || v === "collapsed" ? v : undefined);
@@ -42,6 +43,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
   }, [loading, user, router]);
+
+  // the LEARN | TRADE switch mirrors the workspace you are in, however you got there (sidebar, g t, palette…)
+  // (runs on navigation only; writing the same value is a no-op for the store)
+  const { setMode: setWorkspace } = useWorkspace();
+  useEffect(() => {
+    const target: WorkspaceMode | null = /^\/trade(\/|$)/.test(pathname) ? "trade" : /^\/learn(\/|$)/.test(pathname) ? "learn" : null;
+    if (target) setWorkspace(target);
+  }, [pathname, setWorkspace]);
 
   // close the mobile drawer whenever the route changes (state-during-render: no effect needed)
   const [routeSeen, setRouteSeen] = useState(pathname);

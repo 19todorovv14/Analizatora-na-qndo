@@ -15,8 +15,12 @@ export default function NotFound() {
           <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 bg-gradient-to-b from-white/[0.09] to-white/[0.02] text-accent2 shadow-[inset_0_1px_0_0_rgb(255_255_255/0.07)]">
             <Compass size={22} strokeWidth={1.75} aria-hidden />
           </span>
-          <div className="num mt-5 text-5xl font-semibold tracking-[-0.04em] text-gradient">404</div>
-          <h1 className="mt-2 text-lg font-semibold">404 — страницата не е намерена</h1>
+          <div aria-hidden className="num mt-5 text-5xl font-semibold tracking-[-0.04em] text-gradient">
+            404
+          </div>
+          <h1 className="mt-2 text-lg font-semibold">
+            <span className="sr-only">404 — </span>Страницата не е намерена
+          </h1>
           <p className="mx-auto mt-2 max-w-xs text-sm leading-relaxed text-muted">Адресът може да е грешен или секцията да е преместена.</p>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
             <Link
