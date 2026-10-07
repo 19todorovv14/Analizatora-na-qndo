@@ -444,16 +444,19 @@ def rr_assessment(decisions: Sequence[dict]) -> dict:
 
 def flags_summary(decisions: Sequence[dict]) -> list[dict]:
     counts: Counter = Counter()
+    lessons: dict[str, Counter] = {}
     for d in decisions:
         for f in d.get("flags") or []:
             counts[f["key"]] += 1
+            if f.get("lesson"):  # a flag can carry a side-specific lesson (support vs resistance)
+                lessons.setdefault(f["key"], Counter())[f["lesson"]] += 1
     return [
         {
             "key": k,
             "label": FLAGS[k]["label"],
             "severity": FLAGS[k]["severity"],
             "count": n,
-            "lesson": FLAGS[k]["lesson"],
+            "lesson": lessons[k].most_common(1)[0][0] if k in lessons else FLAGS[k]["lesson"],
         }
         for k, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
         if k in FLAGS
@@ -486,9 +489,11 @@ def recommended_lessons(
         key=lambda kv: (-sum(2 if f.get("severity") == "warning" else 1 for f in kv[1]), kv[0]),
     )
     for slug, items in ranked:
-        f = items[0]
-        n = len(items)
-        add(slug, f"{f['label']} ×{n}: {f['text']}", flag=f["key"], count=n)
+        by_key = Counter(f["key"] for f in items)
+        # the most serious flag explains the lesson; every flag behind it is counted by its own label
+        main = min(items, key=lambda f: (f.get("severity") != "warning", -by_key[f["key"]]))
+        counted = ", ".join(f"{FLAGS[k]['label'] if k in FLAGS else k} ×{n}" for k, n in by_key.most_common())
+        add(slug, f"{counted}: {main['text']}", flag=main["key"], flags=list(by_key), count=len(items))
     stopped = [d for d in decisions if (d.get("outcome") or {}).get("status") == "stop" and not d.get("flags")]
     if stopped:
         add(

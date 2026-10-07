@@ -17,6 +17,7 @@ Session score = outcome-weighted mean of the FINAL decision scores (target/stop 
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 
 from app import indicators as ind
@@ -62,6 +63,11 @@ class DecisionError(ValueError):
 
 def _fmt(v: float | None, precision: int) -> str:
     return "—" if v is None else f"{v:,.{precision}f}"
+
+
+def _below(v: float) -> str:
+    """2 decimals rounded DOWN, so a value under a threshold is never printed as the threshold (0.497 → 0.49)."""
+    return f"{math.floor(round(v * 100, 6)) / 100:.2f}"
 
 
 def _flag(key: str, text: str, **extra) -> dict:
@@ -230,12 +236,13 @@ def assess_entry(
         comps["stop"] = {
             "score": 15,
             "distance_atr": round(dist_atr, 2),
-            "text": f"Stop на {dist_atr:.2f} ATR — вътре в нормалния шум.",
+            "text": f"Stop на {_below(dist_atr)} ATR — вътре в нормалния шум.",
         }
         flags.append(
             _flag(
                 "stop_in_noise",
-                f"Stop-ът е само на {dist_atr:.2f} ATR от входа (< {NOISE_STOP_ATR:g} ATR) — обикновеният шум може да го вземе.",
+                f"Stop-ът е само на {_below(dist_atr)} ATR от входа (< {NOISE_STOP_ATR:g} ATR) — обикновеният шум "
+                "може да го вземе.",
                 distance_atr=round(dist_atr, 2),
             )
         )
@@ -357,7 +364,7 @@ def assess_entry(
 
     return {
         "planned_rr": round(rr, 3) if rr is not None else None,
-        "risk": dist,
+        "risk": round(dist, p + 2) if dist is not None else None,
         "risk_atr": round(dist_atr, 3) if dist_atr is not None else None,
         "components": comps,
         "flags": flags,

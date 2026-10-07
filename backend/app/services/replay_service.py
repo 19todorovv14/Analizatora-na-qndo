@@ -337,28 +337,31 @@ def _decision_score(rows: list[ReplayDecision], *, final: bool) -> float | None:
 
 
 def _risk_qty(broker, spec, acc: PaperAccount, side: str, stop: float, risk_pct: float) -> float:
+    """Quantity whose loss at `stop` (entry + exit fees included) is `risk_pct`% of the equity, in the account
+    currency (USD) — instruments quoted in another currency (USD/JPY, EUR/GBP, …) are converted at the cursor."""
     q = broker.quote(spec.symbol)
     price = q.ask if side == "buy" else q.bid
-    dist = abs(price - stop)
-    if dist <= 0:
+    if abs(price - stop) <= 0:
         raise ReplayError("Stop-ът е на цената на входа — няма как да се изчисли размер по риск.")
     snap = broker.snapshot()
-    # the loss at the stop incl. entry + exit fees, in the account currency (USD): instruments quoted in another
-    # currency (EUR/JPY, …) are converted with the broker's rate at the cursor — never sized in the wrong currency
-    fx_rate = getattr(broker, "fx_rate", None)
-    rate = float(fx_rate(spec.symbol, price=price, strict=True)) if callable(fx_rate) else 1.0
-    per_unit = (dist + price * 2 * spec.taker_fee) * rate
-    qty = snap["equity"] * risk_pct / 100 / per_unit
+    risk_amount = snap["equity"] * risk_pct / 100
+    qty_for_risk = getattr(broker, "qty_for_risk", None)
+    if callable(qty_for_risk):  # the paper engine's own sizing (FX-aware, fees as configured)
+        qty = qty_for_risk(spec.symbol, side=side, entry=price, stop=stop, risk_amount=risk_amount, cap_by_margin=False)
+    else:
+        fx_rate = getattr(broker, "fx_rate", None)
+        rate = float(fx_rate(spec.symbol, price=price, strict=True)) if callable(fx_rate) else 1.0
+        qty = risk_amount / ((abs(price - stop) + price * 2 * spec.taker_fee) * rate)
     cap = None
     max_qty = getattr(broker, "max_qty", None)
-    if max_qty is not None:
+    if callable(max_qty):
         try:
             cap = max_qty(spec.symbol, entry=price)
         except Exception:  # noqa: BLE001 - fall back to the simple margin cap below
             cap = None
     if cap is None:
         cap = max(snap["free_margin"], 0.0) * acc.leverage / price
-    qty = spec.round_qty(min(qty, cap * 0.95))
+    qty = spec.round_qty(min(qty, cap * 0.95))  # headroom: the fill is at the next candle's open
     if qty < spec.min_qty:
         raise ReplayError(
             f"Размерът по риск ({risk_pct:g}% до stop-а) е под минималното количество {spec.min_qty:g} — "
@@ -736,6 +739,29 @@ def _trade_reviews(db: Session, user: User, s: ReplaySession, acc: PaperAccount)
     return trades, reviews
 
 
+def _paper_trade(t: dict) -> dict:
+    """A closed paper trade of the replay account (trade mode) — for the markers on the review chart."""
+    return {
+        k: t.get(k)
+        for k in (
+            "id",
+            "position_id",
+            "side",
+            "qty",
+            "entry_price",
+            "exit_price",
+            "stop_price",
+            "target_price",
+            "net_pnl",
+            "fees",
+            "r_multiple",
+            "exit_reason",
+            "opened_ts",
+            "closed_ts",
+        )
+    }
+
+
 def finish(db: Session, user: User, s: ReplaySession) -> dict:
     """Close the period: open positions are closed at the cursor, pending orders cancelled, every decision gets its
     final resolution (on the window AND the next NEXT_BARS candles, now revealed) and the AI HISTORY REVIEW is built
@@ -839,6 +865,7 @@ def finish(db: Session, user: User, s: ReplaySession) -> dict:
         "reviews": reviews,
         "summary": summary,
         "what_happened_next": [c.to_dict() for c in hidden_after],
+        "paper_trades": [_paper_trade(t) for t in trades],
         "history_review": hr,
     }
 
@@ -850,6 +877,8 @@ def stored_review(db: Session, s: ReplaySession) -> dict | None:
         return None
     spec = get_asset(s.symbol)
     rows = _window_candles(s)
+    acc = db.get(PaperAccount, s.account_id)
+    trades = paper_service.closed_trades(db, [acc.id]) if acc is not None else []
     return {
         "session": _session_info(db, s, spec.price_precision, rows),
         "precision": spec.price_precision,
@@ -857,6 +886,7 @@ def stored_review(db: Session, s: ReplaySession) -> dict | None:
         "candles": [c.to_dict() for c in rows],
         "what_happened_next": [c.to_dict() for c in _after_cursor(s)],
         "decisions": [serialize_decision(d) for d in _decision_rows(db, s)],
+        "paper_trades": [_paper_trade(t) for t in trades],
         "history_review": hr,
     }
 

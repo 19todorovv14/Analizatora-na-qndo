@@ -172,3 +172,66 @@ def test_list_limit(guest):
     rows = guest.get("/api/replay?limit=2").json()["sessions"]
     assert len(rows) == 2 and rows[0]["id"] > rows[1]["id"]
     assert guest.get("/api/replay?limit=0").status_code == 422
+
+
+# ------------------------------------------------------------------------------------------------ review helpers
+def _flag(key: str, text: str, **extra) -> dict:
+    info = scoring.FLAGS[key]
+    return {
+        "key": key,
+        "label": info["label"],
+        "severity": info["severity"],
+        "text": text,
+        "lesson": info["lesson"],
+        **extra,
+    }
+
+
+def test_lessons_count_each_flag_under_its_own_label():
+    from app.replay import review
+
+    decisions = [
+        {"bar_ts": 1, "action": "long", "flags": [_flag("stop_inside_structure", "stop над swing low")]},
+        {"bar_ts": 2, "action": "long", "flags": [_flag("stop_in_noise", "stop на 0.2 ATR")]},
+        {"bar_ts": 3, "action": "short", "flags": [_flag("ignored_structure", "точно над support", lesson="support")]},
+    ]
+    lessons = {item["slug"]: item for item in review.recommended_lessons(decisions)}
+    stop = lessons["stop-loss-placement"]
+    assert stop["count"] == 2 and set(stop["flags"]) == {"stop_in_noise", "stop_inside_structure"}
+    assert stop["flag"] == "stop_in_noise"  # the warning explains the lesson, the info flag is still counted
+    assert "Stop in noise ×1" in stop["reason"] and "Stop inside structure ×1" in stop["reason"]
+    assert stop["reason"].endswith("stop на 0.2 ATR")
+    assert "support" in lessons and "resistance" not in lessons  # side-specific lesson of a SHORT
+    summary = {f["key"]: f for f in review.flags_summary(decisions)}
+    assert summary["ignored_structure"]["lesson"] == "support"
+    assert summary["stop_in_noise"]["lesson"] == "stop-loss-placement"
+
+
+def test_noise_stop_text_never_prints_the_threshold():
+    ctx = {"atr": 100.0, "regime": "RANGING", "structure": "mixed"}
+    a = scoring.assess_entry("long", 1000.0, 1000.0 - 49.7, 1100.0, ctx)  # 0.497 ATR
+    noise = next(f for f in a["flags"] if f["key"] == "stop_in_noise")
+    assert "0.49 ATR" in noise["text"] and "0.50 ATR" not in noise["text"]
+    assert a["components"]["stop"]["score"] == 15
+    assert a["risk"] == 49.7
+
+
+def test_finish_and_review_list_the_paper_trades_for_chart_markers(guest):
+    s = guest.post(
+        "/api/replay", json={"symbol": "BTC/USDT", "timeframe": "1h", "start_ts": _base(), "bars": 40}
+    ).json()
+    sid = s["session"]["id"]
+    price = s["candles"][-1]["close"]
+    guest.post(f"/api/replay/{sid}/order", json={"side": "buy", "qty": 0.01, "stop_loss": round(price * 0.9, 2)})
+    guest.post(f"/api/replay/{sid}/step", json={"n": 3})
+    fin = guest.post(f"/api/replay/{sid}/finish").json()
+    assert len(fin["paper_trades"]) == 1
+    t = fin["paper_trades"][0]
+    assert t["side"] == "long" and t["exit_reason"] == "manual" and t["stop_price"] == round(price * 0.9, 2)
+    assert s["session"]["start_ts"] < t["opened_ts"] <= t["closed_ts"] == fin["session"]["cursor_ts"]
+    rv = guest.get(f"/api/replay/{sid}/review").json()
+    assert rv["paper_trades"] == fin["paper_trades"]
+    pr = guest.post(
+        "/api/replay", json={"symbol": "BTC/USDT", "timeframe": "1h", "start_ts": _base(), "mode": "predict"}
+    )
+    assert guest.post(f"/api/replay/{pr.json()['session']['id']}/finish").json()["paper_trades"] == []
