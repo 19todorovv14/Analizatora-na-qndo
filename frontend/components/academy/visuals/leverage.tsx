@@ -74,11 +74,12 @@ function LeverageSim({ account, focus }: { account?: number; focus: string }) {
               <span className="absolute inset-y-0 left-1/4 w-px bg-down" aria-hidden />
               <span className="absolute inset-y-0 left-1/2 w-px bg-white/30" aria-hidden />
             </div>
-            <div className="mt-1 flex justify-between text-[10px] text-faint">
-              <span className="num">0%</span>
-              <span className="num text-down">stop-out 50%</span>
-              <span className="num">100%</span>
-              <span className="num">200%</span>
+            {/* scale: the bar spans 0–200% margin level, so 50% sits at 25% of the width and 100% at the middle */}
+            <div className="relative mt-1 h-3.5 text-[10px] text-faint" aria-hidden>
+              <span className="num absolute left-0">0%</span>
+              <span className="num absolute left-1/4 -translate-x-1/2 text-down">stop-out 50%</span>
+              <span className="num absolute left-1/2 -translate-x-1/2">100%</span>
+              <span className="num absolute right-0">200%</span>
             </div>
           </div>
         </div>

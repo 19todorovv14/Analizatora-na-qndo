@@ -22,8 +22,9 @@ import {
 import Link from "next/link";
 
 import { STATUS_META } from "@/components/learn/LearningPath";
-import { ProgressRing } from "@/components/learn/ProgressRing";
 import { XpProgress } from "@/components/learn/LearningDashboard";
+import { currentLevel, fmtXp, learningFlow, overallPercent, type FlowKey } from "@/components/learn/model";
+import { ProgressRing } from "@/components/learn/ProgressRing";
 import type { LearningDashboard, LearningPath, NextStep } from "@/components/learn/types";
 import { Badge } from "@/components/ui";
 import { cx } from "@/lib/format";
@@ -35,12 +36,12 @@ const NEXT_KIND: Record<NextStep["type"], { label: string; icon: LucideIcon }> =
 };
 
 export function ContinueCard({ path, className }: { path: LearningPath; className?: string }) {
-  const level = path.levels.find((l) => l.level === path.current_level) ?? path.levels[0];
+  const level = currentLevel(path);
   const next = path.next;
   const kind = next ? NEXT_KIND[next.type] : null;
   const KindIcon = kind?.icon ?? BookOpen;
-  const total = path.lessons_total || 1;
-  const overall = Math.round((path.lessons_completed / total) * 100);
+  const overall = overallPercent(path);
+  if (!level) return null;
   const meta = STATUS_META[level.status];
   return (
     <section className={cx("card relative overflow-hidden", className)}>
@@ -104,7 +105,7 @@ export function XpCard({ dash, className }: { dash: LearningDashboard; className
         <div>
           <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Опит</div>
           <div className="num mt-1 text-[28px] font-semibold leading-none tracking-[-0.02em] text-gold">
-            {dash.xp.toLocaleString("en-US")} <span className="text-sm font-medium text-muted">XP</span>
+            {fmtXp(dash.xp)} <span className="text-sm font-medium text-muted">XP</span>
           </div>
         </div>
         <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gold/10 text-gold ring-1 ring-inset ring-gold/25">
@@ -128,69 +129,73 @@ export function XpCard({ dash, className }: { dash: LearningDashboard; className
   );
 }
 
-type FlowStep = { key: string; label: string; bg: string; icon: LucideIcon; href: string; done: boolean };
+const FLOW_ICON: Record<FlowKey, LucideIcon> = {
+  learn: BookOpen,
+  understand: Bot,
+  practice: FlaskConical,
+  replay: Rewind,
+  backtest: TrendingUp,
+  paper: Wallet,
+  review: NotebookPen,
+  improve: Sparkles,
+};
 
-function flowSteps(path: LearningPath, dash: LearningDashboard | undefined): FlowStep[] {
-  const labs = path.levels.flatMap((l) => l.labs);
-  const attempted = (href: string) => labs.some((l) => l.href === href && l.attempted === true);
-  const anyLab = labs.some((l) => l.attempted === true);
-  const nextHref = path.next?.href ?? "/learn";
-  const steps: Omit<FlowStep, "done">[] = [
-    { key: "learn", label: "LEARN", bg: "Уроци", icon: BookOpen, href: nextHref },
-    { key: "understand", label: "UNDERSTAND", bg: "Quiz + AI Teacher", icon: Bot, href: "/ai?mode=teach" },
-    { key: "practice", label: "PRACTICE", bg: "Labs", icon: FlaskConical, href: "/learn/candlesticks" },
-    { key: "replay", label: "REPLAY", bg: "Свещ по свещ", icon: Rewind, href: "/replay" },
-    { key: "backtest", label: "BACKTEST", bg: "Тест на правила", icon: TrendingUp, href: "/backtesting" },
-    { key: "paper", label: "PAPER TRADE", bg: "Виртуални пари", icon: Wallet, href: "/trade" },
-    { key: "review", label: "REVIEW", bg: "Дневник", icon: NotebookPen, href: "/journal" },
-    { key: "improve", label: "IMPROVE", bg: "AI coach", icon: Sparkles, href: "/ai?mode=review_trade" },
-  ];
-  const done: Record<string, boolean> = {
-    learn: path.lessons_completed > 0,
-    understand: (dash?.quizzes_passed ?? 0) > 0,
-    practice: anyLab,
-    replay: (dash?.replay_sessions ?? 0) > 0 || attempted("/replay"),
-    backtest: attempted("/backtesting"),
-    paper: (dash?.paper_trades ?? 0) > 0,
-    review: attempted("/journal"),
-  };
-  done.improve = Object.values(done).every(Boolean);
-  return steps.map((s) => ({ ...s, done: !!done[s.key] }));
-}
-
-/** The 8-step learning loop with ✓ for steps the user has evidence of, and the next one highlighted. */
+/**
+ * The 8-step learning loop LEARN → … → IMPROVE. A step shows ✓ once the user has evidence of it
+ * (lessons, a passed quiz, a lab, replay, backtest, paper trades, journal); the first missing step is
+ * highlighted as the next one. Horizontal stepper with connectors on wide screens, a grid below.
+ */
 export function LearnFlow({ path, dash, className }: { path: LearningPath; dash?: LearningDashboard; className?: string }) {
-  const steps = flowSteps(path, dash);
-  const nextIdx = steps.findIndex((s) => !s.done);
+  const steps = learningFlow(path, dash);
   return (
-    <nav aria-label="Learning loop" className={cx("card p-2", className)}>
-      <ol className="grid grid-cols-2 gap-1 sm:grid-cols-4 xl:grid-cols-8">
+    <nav aria-label="Learning loop" className={cx("card px-2 py-2 sm:px-3 sm:py-3", className)}>
+      <ol className="grid grid-cols-2 gap-1 sm:grid-cols-4 sm:gap-y-2 xl:grid-cols-8 xl:gap-0">
         {steps.map((s, i) => {
-          const Icon = s.icon;
-          const isNext = i === nextIdx;
+          const Icon = FLOW_ICON[s.key];
+          const last = i === steps.length - 1;
           return (
-            <li key={s.key} className="relative min-w-0">
+            <li key={s.key} className="relative min-w-0" data-flow-step={s.key} data-done={s.done || undefined}>
+              {!last && (
+                <span
+                  aria-hidden
+                  className={cx(
+                    "pointer-events-none absolute left-[calc(50%+24px)] right-[calc(-50%+24px)] top-[26px] hidden h-px xl:block",
+                    s.done ? "bg-gradient-to-r from-up/60 to-up/25" : "bg-white/[0.09]",
+                  )}
+                />
+              )}
               <Link
                 href={s.href}
+                aria-current={s.next ? "step" : undefined}
                 className={cx(
-                  "group flex h-full min-w-0 items-center gap-2.5 rounded-lg px-2.5 py-2 transition-colors",
-                  isNext ? "bg-accent/[0.1] ring-1 ring-inset ring-accent/30" : "hover:bg-white/[0.04]",
+                  "group flex h-full min-w-0 items-center gap-2.5 rounded-lg px-2.5 py-2 transition-colors sm:flex-col sm:gap-1.5 sm:px-1.5 sm:text-center",
+                  s.next ? "bg-accent/[0.08] ring-1 ring-inset ring-accent/25" : "hover:bg-white/[0.04]",
                 )}
               >
                 <span
                   className={cx(
-                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset",
-                    s.done ? "bg-up/10 text-up ring-up/25" : isNext ? "bg-accent/15 text-accent2 ring-accent/30" : "bg-white/[0.04] text-muted ring-white/10",
+                    "relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full ring-1 ring-inset transition-colors",
+                    s.done
+                      ? "bg-up/10 text-up ring-up/30"
+                      : s.next
+                        ? "bg-accent/15 text-accent2 ring-accent/40 shadow-[0_0_18px_-4px_rgb(59_130_246/0.7)]"
+                        : "bg-surface text-muted ring-white/10 group-hover:text-text",
                   )}
                 >
-                  {s.done ? <Check size={15} strokeWidth={2.4} aria-label="направено" /> : <Icon size={15} strokeWidth={1.9} aria-hidden />}
+                  {s.done ? <Check size={16} strokeWidth={2.4} aria-hidden /> : <Icon size={16} strokeWidth={1.9} aria-hidden />}
+                  {s.done && <span className="sr-only">направено</span>}
                 </span>
-                <span className="min-w-0">
-                  <span className={cx("block truncate text-[11px] font-semibold tracking-[0.06em]", s.done ? "text-up" : isNext ? "text-text" : "text-text/80")}>
+                <span className="min-w-0 sm:w-full">
+                  <span
+                    className={cx(
+                      "block truncate text-[11px] font-semibold tracking-[0.06em]",
+                      s.done ? "text-up" : s.next ? "text-text" : "text-text/80",
+                    )}
+                  >
                     <span className="num mr-1 text-faint">{i + 1}</span>
                     {s.label}
                   </span>
-                  <span className="block truncate text-[11px] text-muted">{isNext ? "следваща стъпка" : s.bg}</span>
+                  <span className={cx("block truncate text-[11px]", s.next ? "text-accent2" : "text-muted")}>{s.next ? "следваща стъпка" : s.bg}</span>
                 </span>
               </Link>
             </li>

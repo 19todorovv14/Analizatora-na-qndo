@@ -35,6 +35,7 @@ import {
 import Link from "next/link";
 import { useId, useState } from "react";
 
+import { connectorTone, defaultOpenLevels, quizIsNext, toggleLevel } from "@/components/learn/model";
 import { ProgressRing, type RingTone } from "@/components/learn/ProgressRing";
 import type { LearningPath, LevelStatus, NextStep, PathLab, PathLevel, PathQuiz } from "@/components/learn/types";
 import { Badge, Notice, type Tone } from "@/components/ui";
@@ -143,9 +144,9 @@ function NodeRing({ level, current }: { level: PathLevel; current: boolean }) {
 
 function LevelBody({ level, next }: { level: PathLevel; next: NextStep | null }) {
   const quiz = level.quiz;
-  const allLessonsDone = level.lessons_total > 0 && level.lessons_completed >= level.lessons_total;
+  const quizNext = quizIsNext(level);
   return (
-    <div className="space-y-4 border-t border-white/[0.06] px-3 pb-4 pt-3.5 sm:px-4">
+    <div className="@container space-y-4 border-t border-white/[0.06] px-3 pb-4 pt-3.5 sm:px-4">
       {level.status === "locked" && (
         <Notice tone="warn" title="Нивото е заключено">
           {level.unlock.text} Можеш да разгледаш уроците — започването на урок отключва нивото.
@@ -154,7 +155,7 @@ function LevelBody({ level, next }: { level: PathLevel; next: NextStep | null })
       {level.modules.map((m) => (
         <div key={m.key}>
           {level.modules.length > 1 && <div className="mb-2 text-xs font-semibold text-muted">{m.title}</div>}
-          <ol className="grid gap-1 md:grid-cols-2">
+          <ol className="grid gap-1 @xl:grid-cols-2">
             {m.lessons.map((l, i) => {
               const isNext = next?.type === "lesson" && next.slug === l.slug;
               return (
@@ -178,11 +179,11 @@ function LevelBody({ level, next }: { level: PathLevel; next: NextStep | null })
                       )}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="flex min-w-0 items-baseline gap-1.5">
                         <span className="num shrink-0 text-[11px] text-faint">{String(i + 1).padStart(2, "0")}</span>
-                        <span className={cx("truncate text-sm", l.completed ? "text-text/80" : "text-text")}>{l.title}</span>
+                        <span className={cx("line-clamp-2 text-sm leading-snug", l.completed ? "text-text/75" : "text-text")}>{l.title}</span>
                       </span>
-                      <span className="mt-0.5 block truncate text-xs text-muted">{l.summary}</span>
+                      <span className="mt-0.5 line-clamp-1 text-xs text-muted">{l.summary}</span>
                     </span>
                     <span className="flex shrink-0 items-center gap-1.5 pt-0.5">
                       <VisualIcon type={l.visual_type} />
@@ -196,7 +197,7 @@ function LevelBody({ level, next }: { level: PathLevel; next: NextStep | null })
         </div>
       ))}
 
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className={cx("grid gap-3", quiz && level.labs.length > 0 && "@3xl:grid-cols-2")}>
         {quiz && (
           <div className="glass-inset flex flex-wrap items-center gap-3 px-3 py-2.5">
             <span
@@ -208,7 +209,7 @@ function LevelBody({ level, next }: { level: PathLevel; next: NextStep | null })
               <Trophy size={16} strokeWidth={1.9} aria-hidden />
             </span>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium text-text">{quiz.title}</div>
+              <div className="text-sm font-medium leading-snug text-text">{quiz.title}</div>
               <div className="text-xs text-muted">
                 {quiz.questions} въпроса · праг 70%
                 {quiz.best_pct !== null && (
@@ -222,8 +223,8 @@ function LevelBody({ level, next }: { level: PathLevel; next: NextStep | null })
             <Link
               href={quiz.href}
               className={cx(
-                "inline-flex min-h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors",
-                !quiz.passed && (allLessonsDone || level.status !== "locked")
+                "inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors",
+                quizNext || (!quiz.passed && level.status !== "locked")
                   ? "border border-[#5b95f7]/40 bg-gradient-to-b from-[#3b82f6] to-[#2563eb] text-white shadow-btn hover:from-[#4a8cf7] hover:to-[#2f6df0]"
                   : "border border-white/10 bg-white/[0.04] text-text hover:border-white/[0.18] hover:bg-white/[0.07]",
               )}
@@ -295,11 +296,11 @@ function LevelItem({
           className={cx(
             "absolute left-[22px] top-[52px] w-[2px] rounded-full sm:left-[26px]",
             "bottom-[-26px]",
-            level.status === "completed"
-              ? nextStatus && nextStatus !== "locked"
-                ? "bg-gradient-to-b from-up/70 to-accent/50"
-                : "bg-gradient-to-b from-up/70 to-white/10"
-              : "bg-white/[0.08]",
+            {
+              "done-to-open": "bg-gradient-to-b from-up/70 to-accent/50",
+              done: "bg-gradient-to-b from-up/70 to-white/10",
+              idle: "bg-white/[0.08]",
+            }[connectorTone(level.status, nextStatus)],
           )}
         />
       )}
@@ -375,13 +376,8 @@ function LevelItem({
 /** The vertical LEVEL 0 → 10 timeline. Opens the current level by default; any level can be expanded. */
 export function LearningPathTimeline({ path, className }: { path: LearningPath; className?: string }) {
   const [openSet, setOpenSet] = useState<Set<number> | null>(null);
-  const open = openSet ?? new Set([path.current_level]);
-  const toggle = (lvl: number) => {
-    const s = new Set(open);
-    if (s.has(lvl)) s.delete(lvl);
-    else s.add(lvl);
-    setOpenSet(s);
-  };
+  const open = openSet ?? defaultOpenLevels(path);
+  const toggle = (lvl: number) => setOpenSet(toggleLevel(open, lvl));
   const allOpen = open.size === path.levels.length;
   return (
     <div className={className}>
@@ -398,7 +394,7 @@ export function LearningPathTimeline({ path, className }: { path: LearningPath; 
         </div>
         <button
           type="button"
-          onClick={() => setOpenSet(allOpen ? new Set([path.current_level]) : new Set(path.levels.map((l) => l.level)))}
+          onClick={() => setOpenSet(allOpen ? defaultOpenLevels(path) : new Set(path.levels.map((l) => l.level)))}
           className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted transition-colors hover:bg-white/[0.05] hover:text-text"
         >
           {allOpen ? <ChevronsDownUp size={13} strokeWidth={2} aria-hidden /> : <ChevronsUpDown size={13} strokeWidth={2} aria-hidden />}

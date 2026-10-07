@@ -1,48 +1,68 @@
 "use client";
 
-import { X } from "lucide-react";
+import { SlidersHorizontal, X } from "lucide-react";
+import { useState } from "react";
 
 import { Caption, MiniSelect, NumField } from "@/components/strategy/fields";
 import {
   IND_LABEL,
   PRICE_LABEL,
   UI_KIND_LABEL,
+  conditionSentence,
   defaultOperand,
+  hasExtras,
   needsRight,
-  operandText,
   operatorList,
   structureOf,
   uiKind,
   uiKinds,
+  withLeft,
+  withOperator,
   type UiKind,
 } from "@/components/strategy/meta";
 import type { BuilderMeta, ConditionV2, OperandV2 } from "@/components/strategy/types";
 import { IconButton, InfoTip } from "@/components/ui";
 import { cx } from "@/lib/format";
 
+export { conditionSentence };
+
 const PARAM_LABEL: Record<string, string> = { period: "N", fast: "fast", slow: "slow", signal: "signal", mult: "σ", left: "L", right: "R" };
+const PARAM_TITLE: Record<string, string> = {
+  period: "Период (брой свещи)",
+  fast: "Бърз период",
+  slow: "Бавен период",
+  signal: "Signal период",
+  mult: "Множител на стандартното отклонение",
+  left: "Свещи вляво от swing pivot",
+  right: "Свещи вдясно — pivot-ът се потвърждава след толкова свещи (без lookahead)",
+};
 
 function ParamInput({ name, value, onChange, min = 1, max = 500, integer = true }: { name: string; value: number; onChange: (v: number) => void; min?: number; max?: number; integer?: boolean }) {
   return (
-    <label className="inline-flex items-center gap-1 text-[10.5px] font-medium text-faint" title={name}>
+    <label className="inline-flex items-center gap-1 text-[10.5px] font-medium text-faint" title={PARAM_TITLE[name] ?? name}>
       {PARAM_LABEL[name] ?? name}
-      <NumField value={value} onChange={onChange} min={min} max={max} integer={integer} step={1} ariaLabel={name} className="w-14" />
+      <NumField value={value} onChange={onChange} min={min} max={max} integer={integer} step={1} ariaLabel={PARAM_TITLE[name] ?? name} className="w-14" />
     </label>
   );
 }
 
-/** Edits one operand: type → name/field/value → params (→ advanced: × multiplier, bars back). */
+/**
+ * Edits one operand: type → name / field / value → params. `extras` adds the multiplier (× n) and "bars back"
+ * fields; `advanced` adds the swing pivot L/R params of structure operands.
+ */
 export function OperandEditor({
   value,
   onChange,
   meta,
   advanced,
+  extras = false,
   side,
 }: {
   value: OperandV2;
   onChange: (o: OperandV2) => void;
   meta: BuilderMeta;
   advanced: boolean;
+  extras?: boolean;
   side: "left" | "right";
 }) {
   const kind = uiKind(value, meta);
@@ -133,24 +153,22 @@ export function OperandEditor({
               ))}
           </MiniSelect>
           {struct && <InfoTip text={struct.description} className="mx-0.5" />}
-          {advanced && swingParams && (
-            <>
-              {(["left", "right"] as const).map((p) => (
-                <ParamInput
-                  key={p}
-                  name={p}
-                  min={sp?.min ?? 1}
-                  max={sp?.max ?? 20}
-                  value={Number(value.params?.[p] ?? sp?.defaults[p] ?? 3)}
-                  onChange={(v) => onChange({ ...value, params: { left: sp?.defaults.left ?? 3, right: sp?.defaults.right ?? 3, ...value.params, [p]: v } })}
-                />
-              ))}
-            </>
-          )}
+          {advanced &&
+            swingParams &&
+            (["left", "right"] as const).map((p) => (
+              <ParamInput
+                key={p}
+                name={p}
+                min={sp?.min ?? 1}
+                max={sp?.max ?? 20}
+                value={Number(value.params?.[p] ?? sp?.defaults[p] ?? 3)}
+                onChange={(v) => onChange({ ...value, params: { left: sp?.defaults.left ?? 3, right: sp?.defaults.right ?? 3, ...value.params, [p]: v } })}
+              />
+            ))}
         </>
       )}
 
-      {advanced && value.kind !== "value" && (
+      {extras && value.kind !== "value" && (
         <>
           <label className="inline-flex items-center gap-1 text-[10.5px] font-medium text-faint" title="Множител (напр. Volume > 1.5 × average)">
             ×
@@ -166,15 +184,7 @@ export function OperandEditor({
   );
 }
 
-/** Plain-language Bulgarian sentence for a condition (beginner helper line). */
-export function conditionSentence(c: ConditionV2, meta: BuilderMeta): string {
-  const op = operatorList(meta).find((o) => o.op === c.op);
-  const left = operandText(c.left, meta);
-  if (c.op === "is_true") return `${left} — да (условието е вярно на затворената свещ)`;
-  if (c.op === "is_false") return `${left} — не (условието НЕ е вярно на затворената свещ)`;
-  return `${left} ${op?.text ?? c.op} ${c.right ? operandText(c.right, meta) : "—"}`;
-}
-
+/** One condition as a readable sentence: IF/AND/OR · left operand · operator · right operand (hidden for is true / is false). */
 export function ConditionRow({
   index,
   logic,
@@ -199,18 +209,10 @@ export function ConditionRow({
   const showRight = needsRight(value.op, meta);
   const ops = operatorList(meta);
   const connector = index === 0 ? "IF" : logic === "all" ? "AND" : "OR";
-
-  const setLeft = (left: OperandV2) => {
-    const wasBool = !needsRight(value.op, meta);
-    const isStruct = left.kind === "structure";
-    if (isStruct && !wasBool) return onChange({ left, op: "is_true", right: { kind: "value", value: 0 } });
-    if (!isStruct && wasBool && value.left.kind === "structure") return onChange({ left, op: ">", right: defaultOperand("value", meta) });
-    onChange({ ...value, left });
-  };
-  const setOp = (op: string) => {
-    const right = needsRight(op, meta) ? (value.right ?? defaultOperand("value", meta)) : (value.right ?? { kind: "value", value: 0 });
-    onChange({ ...value, op, right });
-  };
+  const used = hasExtras(value.left) || (showRight && hasExtras(value.right));
+  const [extrasOpen, setExtrasOpen] = useState(false);
+  // extras stay visible while a condition uses them (otherwise the × / bars-back values would be hidden)
+  const extras = advanced && (extrasOpen || used);
 
   return (
     <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-2 py-1.5">
@@ -223,17 +225,30 @@ export function ConditionRow({
         >
           {connector}
         </span>
-        <OperandEditor value={value.left} onChange={setLeft} meta={meta} advanced={advanced} side="left" />
-        <MiniSelect ariaLabel="Оператор" value={value.op} onChange={setOp} className="!text-accent2 font-semibold">
+        <OperandEditor value={value.left} onChange={(l) => onChange(withLeft(value, l, meta))} meta={meta} advanced={advanced} extras={extras} side="left" />
+        <MiniSelect ariaLabel="Оператор" value={value.op} onChange={(op) => onChange(withOperator(value, op, meta))} className="!text-accent2 font-semibold">
           {ops.map((o) => (
             <option key={o.op} value={o.op} title={o.text}>
               {o.label}
             </option>
           ))}
         </MiniSelect>
-        {showRight && value.right && <OperandEditor value={value.right} onChange={(r) => onChange({ ...value, right: r })} meta={meta} advanced={advanced} side="right" />}
+        {showRight && value.right && (
+          <OperandEditor value={value.right} onChange={(r) => onChange({ ...value, right: r })} meta={meta} advanced={advanced} extras={extras} side="right" />
+        )}
         {!readOnly && (
-          <span className="ml-auto">
+          <span className="ml-auto inline-flex items-center gap-0.5">
+            {advanced && (
+              <IconButton
+                icon={SlidersHorizontal}
+                label={used ? "Множител / свещи назад (използвани)" : extras ? "Скрий множител / свещи назад" : "Множител / свещи назад"}
+                size="sm"
+                active={extras}
+                onClick={() => setExtrasOpen((o) => !o)}
+                disabled={used}
+                tooltipSide="left"
+              />
+            )}
             <IconButton icon={X} label="Премахни условието" size="sm" onClick={onRemove} className="hover:!text-down" tooltipSide="left" />
           </span>
         )}

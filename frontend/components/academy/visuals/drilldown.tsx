@@ -12,6 +12,7 @@ import { ArrowRight, Microscope, TrendingDown, TrendingUp, X, Zap } from "lucide
 import { useState } from "react";
 import useSWR from "swr";
 
+import { changePct, extremeOrder, spreadLabels } from "@/components/academy/visuals/candleModel";
 import { useElementWidth, utcLabel } from "@/components/academy/visuals/shared";
 import type { Drilldown, OhlcCandle } from "@/components/learn/types";
 import { Badge, ChartSkeleton, DataNotAvailable, Disclaimer, ErrorState, IconButton, Notice, SourceBadge } from "@/components/ui";
@@ -23,15 +24,6 @@ const MONO = "var(--font-mono)";
 
 type RailItem = { k: "open" | "high" | "low" | "close"; y: number; py: number };
 
-function spreadRail(items: RailItem[], gap: number, lo: number, hi: number): RailItem[] {
-  const out = items.map((i) => ({ ...i }));
-  for (let i = 1; i < out.length; i++) out[i].y = Math.max(out[i].y, out[i - 1].y + gap);
-  if (out.length) out[out.length - 1].y = Math.min(out[out.length - 1].y, hi);
-  for (let i = out.length - 2; i >= 0; i--) out[i].y = Math.min(out[i].y, out[i + 1].y - gap);
-  if (out.length) out[0].y = Math.max(out[0].y, lo);
-  return out;
-}
-
 function DrilldownChart({ data }: { data: Drilldown }) {
   const [wrapRef, width] = useElementWidth<HTMLDivElement>(620);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
@@ -40,12 +32,13 @@ function DrilldownChart({ data }: { data: Drilldown }) {
   const precision = data.precision ?? 2;
 
   const W = Math.max(280, width);
-  const H = 250;
+  const H = 270;
   const narrow = W < 480;
   const railW = narrow ? 84 : 128;
   const parentW = narrow ? 58 : 92;
-  const top = 26;
-  const bottom = 30;
+  // room above the plot for the column headers + the HIGH marker, below for the LOW marker + time axis
+  const top = 44;
+  const bottom = 46;
   const kx0 = parentW + (narrow ? 14 : 22);
   const kx1 = W - railW - 12;
   const m = Math.max(1, kids.length);
@@ -64,11 +57,11 @@ function DrilldownChart({ data }: { data: Drilldown }) {
   const hiIdx = path?.high_index ?? -1;
   const loIdx = path?.low_index ?? -1;
   const first = path?.first_extreme ?? null;
-  const order = (which: "high" | "low") => (first === "same" ? 1 : first === which ? 1 : 2);
+  const order = extremeOrder(first);
   const bigIdx = path?.largest_move?.index ?? -1;
 
   const railX = kx1 + 12;
-  const rail = spreadRail(
+  const rail = spreadLabels<RailItem>(
     (["high", parent.close >= parent.open ? "close" : "open", parent.close >= parent.open ? "open" : "close", "low"] as RailItem["k"][]).map((k) => ({
       k,
       y: y(parent[k]),
@@ -86,19 +79,20 @@ function DrilldownChart({ data }: { data: Drilldown }) {
   };
   const labelEvery = Math.max(1, Math.ceil(48 / slot));
   const hovered = hoverIdx !== null ? kids[hoverIdx] : null;
+  const hoveredChange = hovered ? changePct(hovered) : null;
 
   return (
     <div ref={wrapRef} className="relative w-full min-w-0">
       <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="block select-none" role="img" aria-label={`${data.timeframe} свещ и нейните ${kids.length} свещи по ${data.child_timeframe}`} onPointerLeave={() => setHoverIdx(null)}>
         {/* parent zone */}
-        <rect x={2} y={top - 18} width={parentW - 4} height={H - top - bottom + 30} rx={10} fill={withAlpha(PALETTE.accent, 0.05)} stroke={withAlpha(PALETTE.accent2, 0.18)} />
-        <text x={pcx} y={top - 6} textAnchor="middle" fontSize={10} fontWeight={600} letterSpacing="0.08em" fill={PALETTE.accent2}>
+        <rect x={2} y={4} width={parentW - 4} height={H - 8} rx={10} fill={withAlpha(PALETTE.accent, 0.05)} stroke={withAlpha(PALETTE.accent2, 0.18)} />
+        <text x={pcx} y={18} textAnchor="middle" fontSize={10} fontWeight={600} letterSpacing="0.08em" fill={PALETTE.accent2}>
           {(TF_LABEL[data.timeframe] ?? data.timeframe).toUpperCase()}
         </text>
         <text x={(parentW + kx0) / 2} y={(top + H - bottom) / 2 + 4} textAnchor="middle" fontSize={13} fill={PALETTE.faint}>
           =
         </text>
-        <text x={kx0} y={top - 6} fontSize={10} fontWeight={600} letterSpacing="0.08em" fill={PALETTE.muted}>
+        <text x={kx0} y={18} fontSize={10} fontWeight={600} letterSpacing="0.08em" fill={PALETTE.muted}>
           {kids.length} × {data.child_timeframe.toUpperCase()}
         </text>
 
@@ -126,8 +120,8 @@ function DrilldownChart({ data }: { data: Drilldown }) {
           const bb = y(Math.min(c.open, c.close));
           const dim = hoverIdx !== null && hoverIdx !== i;
           return (
-            <g key={c.time} onPointerEnter={() => setHoverIdx(i)} onPointerDown={() => setHoverIdx(i)}>
-              <rect x={cx0 - slot / 2} y={top - 16} width={slot} height={H - top - bottom + 32} fill={hoverIdx === i ? withAlpha(PALETTE.accent2, 0.06) : "transparent"} />
+            <g key={c.time} data-kid={i} onPointerEnter={() => setHoverIdx(i)} onPointerDown={() => setHoverIdx(i)}>
+              <rect x={cx0 - slot / 2} y={26} width={slot} height={H - 30} fill={hoverIdx === i ? withAlpha(PALETTE.accent2, 0.06) : "transparent"} />
               {i === bigIdx && (
                 <rect x={cx0 - kidBody / 2 - 4} y={y(c.high) - 4} width={kidBody + 8} height={y(c.low) - y(c.high) + 8} rx={4} fill="none" stroke={withAlpha(PALETTE.violet, 0.75)} strokeDasharray="3 2" />
               )}
@@ -149,7 +143,7 @@ function DrilldownChart({ data }: { data: Drilldown }) {
           <g pointerEvents="none">
             <path d={`M${kcx(hiIdx) - 5},${y(kids[hiIdx].high) - 10} h10 l-5,6 z`} fill={PALETTE.up} />
             <text x={kcx(hiIdx)} y={y(kids[hiIdx].high) - 14} textAnchor="middle" fontSize={9.5} fontWeight={700} fill={PALETTE.up}>
-              {order("high")}· HIGH
+              {order.high ? `${order.high} · ` : ""}HIGH
             </text>
           </g>
         )}
@@ -157,7 +151,7 @@ function DrilldownChart({ data }: { data: Drilldown }) {
           <g pointerEvents="none">
             <path d={`M${kcx(loIdx) - 5},${y(kids[loIdx].low) + 10} h10 l-5,-6 z`} fill={PALETTE.down} />
             <text x={kcx(loIdx)} y={y(kids[loIdx].low) + 22} textAnchor="middle" fontSize={9.5} fontWeight={700} fill={PALETTE.down}>
-              {order("low")}· LOW
+              {order.low ? `${order.low} · ` : ""}LOW
             </text>
           </g>
         )}
@@ -190,7 +184,7 @@ function DrilldownChart({ data }: { data: Drilldown }) {
           <div className="mb-1 flex items-center justify-between gap-2">
             <span className="num font-semibold text-text">{utcLabel(hovered.time, data.child_timeframe)} UTC</span>
             <span className={cx("num font-medium", hovered.close >= hovered.open ? "text-up" : "text-down")}>
-              {hovered.open ? `${hovered.close >= hovered.open ? "+" : ""}${(((hovered.close - hovered.open) / hovered.open) * 100).toFixed(2)}%` : "—"}
+              {hoveredChange === null ? "—" : `${hoveredChange >= 0 ? "+" : ""}${hoveredChange.toFixed(2)}%`}
             </span>
           </div>
           {(["open", "high", "low", "close"] as const).map((k) => (

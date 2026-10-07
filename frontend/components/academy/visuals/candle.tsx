@@ -4,18 +4,41 @@
  * INTERACTIVE CANDLE (lesson visual type "candle").
  *
  * - CandleAnatomy: SVG candles drawn at real pixel width. Hover (or tap / keyboard focus) shows OPEN /
- *   HIGH / LOW / CLOSE on a price rail with leader lines, and brackets BODY / UPPER WICK / LOWER WICK
- *   next to the candle; the part under the cursor is highlighted. A read-out below repeats the numbers
- *   (touch + screen-reader friendly). Exported for other packages (e.g. the Candlestick Lab).
+ *   HIGH / LOW / CLOSE on a price rail with leader lines, and a dimension column between the candles and
+ *   the rail brackets BODY / UPPER WICK / LOWER WICK of the active candle (it never covers neighbouring
+ *   candles). The part under the cursor is highlighted together with the two prices that bound it. A
+ *   read-out below repeats the numbers (touch + screen-reader friendly). Exported for other packages
+ *   (e.g. the Candlestick Lab).
  * - CandleVisual: the lesson visual — tabs "Анатомия" (the lesson's example candles), "Реална свещ"
  *   (recent demo/live candles from /market/candles) and "Candle builder". Clicking a real candle opens
  *   the drill-down (lower-timeframe candles inside it, components/academy/visuals/drilldown.tsx);
  *   clicking a synthetic candle explains that it has no inner history.
+ * Pure maths lives in candleModel.ts (unit-tested).
  */
-import { CandlestickChart, Hammer, MousePointerClick, SlidersHorizontal, Sparkles } from "lucide-react";
+import { CandlestickChart, Hammer, Microscope, MousePointerClick, SlidersHorizontal, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
 import useSWR from "swr";
 
+import {
+  PART_LABEL,
+  PART_LABEL_SHORT,
+  PRICE_LABEL,
+  PRICE_SHORT,
+  candleAnatomy,
+  classifyCandle,
+  isValidCandle,
+  lastClosed,
+  partAtY,
+  partsFromHighlight,
+  priceFromHighlight,
+  pricesOfPart,
+  railOrder,
+  spreadLabels,
+  toCandleItem,
+  type CandleItem,
+  type CandlePart,
+  type PriceKey,
+} from "@/components/academy/visuals/candleModel";
 import { CandleDrilldown } from "@/components/academy/visuals/drilldown";
 import { Caption, RANGE_CLASS, useElementWidth, utcLabel } from "@/components/academy/visuals/shared";
 import { Badge, Button, ChartSkeleton, DataNotAvailable, ErrorState, Notice, Segmented, SourceBadge, Term, type SourceLike } from "@/components/ui";
@@ -26,65 +49,12 @@ import type { CandlesResponse } from "@/lib/types";
 
 /* ───────────────────────────────────────────────────────── model */
 
-export type CandleItem = { open: number; high: number; low: number; close: number; time?: number };
-export type CandlePart = "upper_wick" | "body" | "lower_wick";
-type PriceKey = "open" | "high" | "low" | "close";
+export type { CandleItem, CandlePart } from "@/components/academy/visuals/candleModel";
+export { candleAnatomy, toCandleItem } from "@/components/academy/visuals/candleModel";
 
 export const CLICK_CAPTION = "Click the candle to see what happened during this period.";
 
-const PART_LABEL: Record<CandlePart, string> = { upper_wick: "UPPER WICK", body: "BODY", lower_wick: "LOWER WICK" };
 const PART_TERM: Record<CandlePart, string> = { upper_wick: "wick", body: "body", lower_wick: "wick" };
-const PRICE_LABEL: Record<PriceKey, string> = { open: "OPEN", high: "HIGH", low: "LOW", close: "CLOSE" };
-const PRICE_SHORT: Record<PriceKey, string> = { open: "O", high: "H", low: "L", close: "C" };
-
-export function toCandleItem(v: unknown): CandleItem | null {
-  if (Array.isArray(v) && v.length >= 4 && v.slice(0, 4).every((x) => typeof x === "number" && Number.isFinite(x))) {
-    const [open, high, low, close] = v as number[];
-    return { open, high, low, close };
-  }
-  if (v && typeof v === "object") {
-    const o = v as Record<string, unknown>;
-    if ([o.open, o.high, o.low, o.close].every((x) => typeof x === "number")) {
-      return { open: o.open as number, high: o.high as number, low: o.low as number, close: o.close as number, time: typeof o.time === "number" ? o.time : undefined };
-    }
-  }
-  return null;
-}
-
-export function candleAnatomy(c: CandleItem) {
-  const top = Math.max(c.open, c.close);
-  const bot = Math.min(c.open, c.close);
-  const range = c.high - c.low;
-  const body = top - bot;
-  const upper = c.high - top;
-  const lower = bot - c.low;
-  const pct = (v: number) => (range > 0 ? (v / range) * 100 : 0);
-  const dir: "bullish" | "bearish" | "neutral" = range > 0 && body / range < 0.03 ? "neutral" : c.close > c.open ? "bullish" : c.close < c.open ? "bearish" : "neutral";
-  return { top, bot, range, body, upper, lower, bodyPct: pct(body), upperPct: pct(upper), lowerPct: pct(lower), dir };
-}
-
-function partsFromHighlight(h?: string | null): CandlePart[] {
-  if (h === "body") return ["body"];
-  if (h === "upper_wick") return ["upper_wick"];
-  if (h === "lower_wick") return ["lower_wick"];
-  if (h === "wick") return ["upper_wick", "lower_wick"];
-  return [];
-}
-
-function priceFromHighlight(h?: string | null): PriceKey | null {
-  return h === "open" || h === "high" || h === "low" || h === "close" ? h : null;
-}
-
-/** Spread label positions so they keep `gap` px apart inside [lo, hi] (input order = visual order). */
-function spread<T extends { y: number }>(items: T[], gap: number, lo: number, hi: number): T[] {
-  const out = items.map((it) => ({ ...it }));
-  for (let i = 1; i < out.length; i++) out[i].y = Math.max(out[i].y, out[i - 1].y + gap);
-  if (out.length) out[out.length - 1].y = Math.min(out[out.length - 1].y, hi);
-  for (let i = out.length - 2; i >= 0; i--) out[i].y = Math.min(out[i].y, out[i + 1].y - gap);
-  if (out.length) out[0].y = Math.max(out[0].y, lo);
-  for (let i = 1; i < out.length; i++) out[i].y = Math.max(out[i].y, out[i - 1].y + gap);
-  return out;
-}
 
 const MONO = "var(--font-mono)";
 
@@ -128,78 +98,65 @@ export function CandleAnatomy({
   const [focusIdx, setFocusIdx] = useState<number | null>(null);
 
   const n = candles.length;
+  if (!n) return null;
+
   const activeIdx = Math.min(n - 1, Math.max(0, hover?.i ?? focusIdx ?? selected ?? defaultActive));
+  const active = candles[activeIdx];
+  const a = candleAnatomy(active);
   const hlParts: CandlePart[] = hover ? (hover.part ? [hover.part] : []) : partsFromHighlight(highlight);
   const hlPrice: PriceKey | null = hover ? null : priceFromHighlight(highlight);
+  // hovering a part lights up the two prices that bound it (e.g. BODY → OPEN + CLOSE)
+  const hotPrices = new Set<PriceKey>(hover?.part && hover.i === activeIdx ? pricesOfPart(hover.part, active) : hlPrice ? [hlPrice] : []);
 
+  // layout: [pad][candles][dimension column: part brackets][price rail]
   const W = Math.max(260, width);
   const H = height;
   const narrow = W < 460;
   const railW = narrow ? 92 : 148;
-  const gutter = narrow ? 80 : 96;
-  const x0 = gutter;
-  const x1 = W - railW - 14;
-  const slot = n ? (x1 - x0) / n : 1;
+  const colW = narrow ? 66 : 104;
+  const x0 = narrow ? 6 : 14;
+  const x1 = W - railW - colW - 8;
+  const slot = (x1 - x0) / n;
   const bodyW = Math.max(8, Math.min(42, slot * 0.4));
   const showTimes = candles.some((c) => typeof c.time === "number");
   const top = 14;
   const bottom = showTimes ? 28 : 12;
-  const lows = candles.map((c) => c.low);
-  const highs = candles.map((c) => c.high);
-  const lo0 = n ? Math.min(...lows) : 0;
-  const hi0 = n ? Math.max(...highs) : 1;
+  const lo0 = Math.min(...candles.map((c) => c.low));
+  const hi0 = Math.max(...candles.map((c) => c.high));
   const pad = (hi0 - lo0 || Math.abs(hi0) * 0.01 || 1) * 0.08;
   const lo = lo0 - pad;
   const hi = hi0 + pad;
   const y = (p: number) => top + ((hi - p) / (hi - lo || 1)) * (H - top - bottom);
   const cxOf = (i: number) => x0 + slot * (i + 0.5);
-
-  if (!n) return null;
-
-  const active = candles[activeIdx];
-  const a = candleAnatomy(active);
   const acx = cxOf(activeIdx);
-
-  const partAt = (c: CandleItem, py: number): CandlePart => {
-    const bt = y(Math.max(c.open, c.close));
-    const bb = y(Math.min(c.open, c.close));
-    if (bb - bt < 7) {
-      const mid = (bt + bb) / 2;
-      if (Math.abs(py - mid) <= 4) return "body";
-      return py < mid ? "upper_wick" : "lower_wick";
-    }
-    if (py < bt) return "upper_wick";
-    if (py > bb) return "lower_wick";
-    return "body";
-  };
 
   const onMove = (e: React.PointerEvent, i: number) => {
     if (!svgEl) return;
     const py = e.clientY - svgEl.getBoundingClientRect().top;
-    const part = partAt(candles[i], py);
+    const c = candles[i];
+    const part = partAtY(py, y(Math.max(c.open, c.close)), y(Math.min(c.open, c.close)));
     setHover((h) => (h && h.i === i && h.part === part ? h : { i, part }));
   };
 
   // price rail labels for the active candle (top → bottom)
-  const railX = x1 + 14;
-  const priceKeys: PriceKey[] = a.dir === "bearish" ? ["high", "open", "close", "low"] : ["high", "close", "open", "low"];
-  const rail = spread(
-    priceKeys.map((k) => ({ k, y: y(active[k]), py: y(active[k]) })),
+  const railX = W - railW;
+  const rail = spreadLabels(
+    railOrder(active).map((k) => ({ k, y: y(active[k]), py: y(active[k]) })),
     19,
     top + 8,
     H - bottom - 8,
   );
 
-  // part brackets for the active candle
-  const bx = acx - bodyW / 2 - 9;
+  // dimension column: one bracket per part at its exact price span, label to the right of it
+  const bx = x1 + 12;
   const segs: { part: CandlePart; a: number; b: number }[] = [
     { part: "upper_wick", a: y(active.high), b: y(a.top) },
     { part: "body", a: y(a.top), b: y(a.bot) },
     { part: "lower_wick", a: y(a.bot), b: y(active.low) },
   ];
-  const partLabels = spread(
+  const partLabels = spreadLabels(
     segs.map((s) => ({ ...s, y: (s.a + s.b) / 2, my: (s.a + s.b) / 2 })),
-    14,
+    15,
     top + 6,
     H - bottom - 4,
   );
@@ -222,21 +179,21 @@ export function CandleAnatomy({
         >
           {/* recessive grid */}
           {[0.25, 0.5, 0.75].map((f) => (
-            <line key={f} x1={x0 - 30} x2={x1} y1={top + f * (H - top - bottom)} y2={top + f * (H - top - bottom)} stroke={PALETTE.line} strokeDasharray="2 5" />
+            <line key={f} x1={x0} x2={x1} y1={top + f * (H - top - bottom)} y2={top + f * (H - top - bottom)} stroke={PALETTE.line} strokeDasharray="2 5" />
           ))}
 
-          {/* leader lines (under the candles) */}
+          {/* leader lines from the active candle to the rail (under the candles) */}
           {rail.map((r) => {
             const k = r.k as PriceKey;
             const isWick = k === "high" || k === "low";
             const ax = isWick ? acx + 1.5 : acx + bodyW / 2 + 1;
-            const hot = hlPrice === k;
+            const hot = hotPrices.has(k);
             return (
               <path
                 key={`lead-${k}`}
                 d={`M${ax},${r.py} H${railX - 12} L${railX - 2},${r.y}`}
                 fill="none"
-                stroke={hot ? PALETTE.gold : withAlpha(PALETTE.muted, 0.45)}
+                stroke={hot ? PALETTE.gold : withAlpha(PALETTE.muted, 0.42)}
                 strokeWidth={hot ? 1.5 : 1}
                 strokeDasharray={hot ? undefined : "3 3"}
               />
@@ -290,7 +247,7 @@ export function CandleAnatomy({
                     strokeDasharray={focusIdx === i ? undefined : "4 3"}
                   />
                 )}
-                <g opacity={dim ? 0.38 : 1} style={{ transition: "opacity 160ms ease" }}>
+                <g opacity={dim ? 0.4 : 1} style={{ transition: "opacity 160ms ease" }}>
                   {/* wicks */}
                   <line x1={cx0} x2={cx0} y1={y(c.high)} y2={bt} stroke={color} strokeWidth={2} strokeLinecap="round" />
                   <line x1={cx0} x2={cx0} y1={bb} y2={y(c.low)} stroke={color} strokeWidth={2} strokeLinecap="round" />
@@ -325,27 +282,36 @@ export function CandleAnatomy({
             );
           })}
 
-          {/* part brackets + labels (left of the active candle) */}
+          {/* dimension column: brackets at the exact price span of each part + labels */}
           <g pointerEvents="none">
             {partLabels.map((s) => {
               const len = s.b - s.a;
               const hot = hlParts.includes(s.part);
-              const ink = hot ? PALETTE.gold : PALETTE.muted;
-              const text = PART_LABEL[s.part];
-              const tw = text.length * 6.1 + 10;
+              const text = narrow ? PART_LABEL_SHORT[s.part] : PART_LABEL[s.part];
+              const tw = text.length * (narrow ? 5.9 : 6.2) + 10;
               return (
-                <g key={s.part}>
-                  {len >= 3 && (
+                <g key={s.part} data-part-label={s.part}>
+                  {len >= 2 && (
                     <path
-                      d={`M${bx + 4},${s.a + 1} H${bx} V${s.b - 1} H${bx + 4}`}
+                      d={`M${bx - 4},${s.a + 0.5} H${bx} V${s.b - 0.5} H${bx - 4}`}
                       fill="none"
-                      stroke={hot ? PALETTE.gold : withAlpha(PALETTE.muted, 0.6)}
-                      strokeWidth={hot ? 1.6 : 1}
+                      stroke={hot ? PALETTE.gold : withAlpha(PALETTE.muted, 0.65)}
+                      strokeWidth={hot ? 1.75 : 1}
                     />
                   )}
-                  {Math.abs(s.y - s.my) > 2 && <path d={`M${bx - 5},${s.y} L${bx},${s.my}`} stroke={withAlpha(PALETTE.muted, 0.5)} fill="none" />}
-                  <rect x={bx - 6 - tw} y={s.y - 8} width={tw} height={16} rx={4} fill={withAlpha(PALETTE.surface, 0.88)} stroke={hot ? withAlpha(PALETTE.gold, 0.45) : "none"} />
-                  <text x={bx - 11} y={s.y + 3.5} textAnchor="end" fontSize={9.5} fontWeight={600} letterSpacing="0.06em" fill={ink}>
+                  {len < 2 && <circle cx={bx} cy={(s.a + s.b) / 2} r={1.6} fill={withAlpha(PALETTE.muted, 0.7)} />}
+                  {/* elbow from the bracket middle to a displaced label */}
+                  <path d={`M${bx},${s.my} L${bx + 5},${s.y}`} stroke={hot ? withAlpha(PALETTE.gold, 0.7) : withAlpha(PALETTE.muted, 0.5)} fill="none" />
+                  <rect
+                    x={bx + 5}
+                    y={s.y - 8}
+                    width={tw}
+                    height={16}
+                    rx={4}
+                    fill={hot ? withAlpha(PALETTE.gold, 0.14) : withAlpha(PALETTE.surface, 0.9)}
+                    stroke={hot ? withAlpha(PALETTE.gold, 0.5) : withAlpha(PALETTE.line, 1)}
+                  />
+                  <text x={bx + 10} y={s.y + 3.5} fontSize={9.5} fontWeight={600} letterSpacing="0.06em" fill={hot ? PALETTE.gold : PALETTE.muted}>
                     {text}
                   </text>
                 </g>
@@ -357,10 +323,10 @@ export function CandleAnatomy({
           <g pointerEvents="none">
             {rail.map((r) => {
               const k = r.k as PriceKey;
-              const hot = hlPrice === k;
+              const hot = hotPrices.has(k);
               const w = W - railX - 2;
               return (
-                <g key={`rail-${k}`}>
+                <g key={`rail-${k}`} data-price-label={k}>
                   <rect
                     x={railX}
                     y={r.y - 9}
@@ -496,22 +462,21 @@ function SyntheticNote({ onShowReal, onClose }: { onShowReal?: () => void; onClo
 
 /* ─────────────────────────────────────────────────── live candles */
 
-function LiveCandles({ symbol, timeframe }: { symbol: string; timeframe: string }) {
+function LiveCandles({ symbol, timeframe, drilldown = true, autoOpen = false }: { symbol: string; timeframe: string; drilldown?: boolean; autoOpen?: boolean }) {
   const [wrapRef, width] = useElementWidth<HTMLDivElement>(560);
   const key = `/market/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}&limit=12`;
   const { data, error, mutate, isLoading } = useSWR<CandlesResponse>(key, fetcher, { refreshInterval: 60_000, revalidateOnFocus: false });
-  const [openTime, setOpenTime] = useState<number | null>(null);
+  // undefined = the user has not chosen yet (autoOpen then shows the latest closed candle); null = closed
+  const [picked, setPicked] = useState<number | null | undefined>(undefined);
 
   const count = width < 460 ? 4 : 6;
-  const candles = useMemo(() => {
-    if (!data?.candles?.length) return [];
-    const tf = TF_SECONDS[timeframe] ?? 3600;
-    const now = data.server_time;
-    const closed = now ? data.candles.filter((c) => c.time + tf <= now) : data.candles;
-    return (closed.length ? closed : data.candles).slice(-count);
-  }, [data, timeframe, count]);
-
-  const selectedIdx = openTime === null ? null : candles.findIndex((c) => c.time === openTime);
+  const candles = useMemo(
+    () => (data?.candles?.length ? lastClosed(data.candles, TF_SECONDS[timeframe] ?? 3600, data.server_time, count) : []),
+    [data, timeframe, count],
+  );
+  const last = candles[candles.length - 1];
+  const openTime = !drilldown ? null : picked === undefined ? (autoOpen && last ? last.time : null) : picked;
+  const selectedIdx = openTime === null ? -1 : candles.findIndex((c) => c.time === openTime);
 
   let body: React.ReactNode;
   if (error) {
@@ -533,12 +498,19 @@ function LiveCandles({ symbol, timeframe }: { symbol: string; timeframe: string 
           precision={data.precision ?? 2}
           timeframe={timeframe}
           defaultActive={candles.length - 1}
-          selected={selectedIdx !== null && selectedIdx >= 0 ? selectedIdx : null}
-          onCandleClick={(i) => setOpenTime(candles[i].time ?? null)}
+          selected={selectedIdx >= 0 ? selectedIdx : null}
+          onCandleClick={drilldown ? (i) => setPicked(candles[i].time ?? null) : undefined}
           ariaLabel={`${symbol} ${TF_LABEL[timeframe] ?? timeframe} — последни свещи`}
         />
-        {openTime !== null && (
-          <CandleDrilldown symbol={symbol} timeframe={timeframe} time={openTime} onClose={() => setOpenTime(null)} className="mt-3" />
+        {drilldown && openTime === null && last && (
+          <div className="mt-2">
+            <Button size="sm" variant="outline" type="button" onClick={() => setPicked(last.time)}>
+              <Microscope size={13} strokeWidth={2} aria-hidden /> Виж какво се е случило в последната свещ
+            </Button>
+          </div>
+        )}
+        {drilldown && openTime !== null && (
+          <CandleDrilldown symbol={symbol} timeframe={timeframe} time={openTime} onClose={() => setPicked(null)} className="mt-3" />
         )}
       </>
     );
@@ -553,7 +525,7 @@ function LiveCandles({ symbol, timeframe }: { symbol: string; timeframe: string 
         <SourceBadge source={(data?.source as SourceLike | undefined) ?? null} />
         <span className="text-faint">последни затворени свещи · времена в UTC</span>
       </div>
-      {candles.length > 0 && (
+      {drilldown && candles.length > 0 && (
         <Caption icon={MousePointerClick} className="mb-1.5">
           {CLICK_CAPTION}
         </Caption>
@@ -567,31 +539,32 @@ function LiveCandles({ symbol, timeframe }: { symbol: string; timeframe: string 
 
 type OHLC = [number, number, number, number];
 
-function classify(c: CandleItem): string[] {
-  const a = candleAnatomy(c);
-  const out: string[] = [];
-  if (a.range <= 0) return out;
-  if (a.bodyPct <= 10) out.push("doji");
-  if (a.lower >= 2 * a.body && a.upperPct <= 15 && a.bodyPct > 5) out.push("hammer");
-  if (a.upper >= 2 * a.body && a.lowerPct <= 15 && a.bodyPct > 5) out.push("shooting star");
-  if (a.bodyPct >= 90) out.push("marubozu");
-  return out;
+const B_MIN = 90;
+const B_MAX = 115;
+
+const PRESETS: { key: string; label: string; v: OHLC }[] = [
+  { key: "bullish", label: "Bullish", v: [100, 108, 98, 107] },
+  { key: "bearish", label: "Bearish", v: [107, 109, 99, 100] },
+  { key: "doji", label: "Doji", v: [104, 109, 99, 104.2] },
+  { key: "hammer", label: "Hammer", v: [106, 107, 96, 106.8] },
+  { key: "shooting_star", label: "Shooting star", v: [100, 110, 99.5, 100.8] },
+];
+
+/** Builder start: the lesson's pattern preset, else its first example candle (if it fits the sliders), else a bullish candle. */
+function builderStart(pattern: string | null, example: CandleItem | undefined): OHLC {
+  const preset = pattern ? PRESETS.find((p) => p.key === pattern) : undefined;
+  if (preset) return preset.v;
+  if (example && isValidCandle(example) && example.low >= B_MIN && example.high <= B_MAX) return [example.open, example.high, example.low, example.close];
+  return [100, 108, 96, 105];
 }
 
-function CandleBuilder({ onShowReal }: { onShowReal?: () => void }) {
-  const [b, setB] = useState<OHLC>([100, 108, 96, 105]);
+function CandleBuilder({ onShowReal, start }: { onShowReal?: () => void; start: OHLC }) {
+  const [b, setB] = useState<OHLC>(start);
   const [note, setNote] = useState(false);
   const c: CandleItem = { open: b[0], high: b[1], low: b[2], close: b[3] };
-  const valid = b[2] <= Math.min(b[0], b[3]) && b[1] >= Math.max(b[0], b[3]);
-  const patterns = valid ? classify(c) : [];
+  const valid = isValidCandle(c);
+  const patterns = valid ? classifyCandle(c) : [];
   const setK = (i: number, v: number) => setB((prev) => prev.map((x, j) => (j === i ? v : x)) as OHLC);
-  const presets: { label: string; v: OHLC }[] = [
-    { label: "Bullish", v: [100, 108, 98, 107] },
-    { label: "Bearish", v: [107, 109, 99, 100] },
-    { label: "Doji", v: [104, 109, 99, 104.2] },
-    { label: "Hammer", v: [106, 107, 96, 106.8] },
-    { label: "Shooting star", v: [100, 110, 99.5, 100.8] },
-  ];
   return (
     <div className="grid gap-4 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
       <div className="min-w-0 space-y-3">
@@ -599,31 +572,34 @@ function CandleBuilder({ onShowReal }: { onShowReal?: () => void }) {
           <SlidersHorizontal size={14} strokeWidth={2} className="text-accent2" aria-hidden />
           Candle builder
         </div>
-        {(["Open", "High", "Low", "Close"] as const).map((label, i) => (
-          <label key={label} className="block">
-            <span className="mb-1.5 flex items-baseline justify-between text-xs">
-              <span className="text-muted">
-                <Term k={label.toLowerCase()}>{label}</Term>
+        {(["Open", "High", "Low", "Close"] as const).map((label, i) => {
+          const pct = ((b[i] - B_MIN) / (B_MAX - B_MIN)) * 100;
+          return (
+            <label key={label} className="block">
+              <span className="mb-1.5 flex items-baseline justify-between text-xs">
+                <span className="text-muted">
+                  <Term k={label.toLowerCase()}>{label}</Term>
+                </span>
+                <span className="num font-medium text-text">{b[i].toFixed(1)}</span>
               </span>
-              <span className="num font-medium text-text">{b[i].toFixed(1)}</span>
-            </span>
-            <input
-              type="range"
-              min={90}
-              max={115}
-              step={0.5}
-              value={b[i]}
-              aria-label={label}
-              onChange={(e) => setK(i, Number(e.target.value))}
-              className={RANGE_CLASS}
-              style={{ background: `linear-gradient(to right, var(--color-accent) ${((b[i] - 90) / 25) * 100}%, rgb(148 163 184 / 0.16) ${((b[i] - 90) / 25) * 100}%)` }}
-            />
-          </label>
-        ))}
+              <input
+                type="range"
+                min={B_MIN}
+                max={B_MAX}
+                step={0.5}
+                value={b[i]}
+                aria-label={label}
+                onChange={(e) => setK(i, Number(e.target.value))}
+                className={RANGE_CLASS}
+                style={{ background: `linear-gradient(to right, var(--color-accent) ${pct}%, rgb(148 163 184 / 0.16) ${pct}%)` }}
+              />
+            </label>
+          );
+        })}
         <div className="flex flex-wrap gap-1.5 pt-1">
-          {presets.map((p) => (
+          {PRESETS.map((p) => (
             <button
-              key={p.label}
+              key={p.key}
               type="button"
               onClick={() => setB(p.v)}
               className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-[11px] font-medium text-muted transition-colors hover:border-white/20 hover:text-text"
@@ -648,7 +624,11 @@ function CandleBuilder({ onShowReal }: { onShowReal?: () => void }) {
             <Caption icon={MousePointerClick} className="mt-1">
               {CLICK_CAPTION}
             </Caption>
-            {note && <SyntheticNote onShowReal={onShowReal} onClose={() => setNote(false)} />}
+            {note && (
+              <div className="mt-2">
+                <SyntheticNote onShowReal={onShowReal} onClose={() => setNote(false)} />
+              </div>
+            )}
           </>
         ) : (
           <Notice tone="down" title="Невалидна свещ">
@@ -664,25 +644,38 @@ function CandleBuilder({ onShowReal }: { onShowReal?: () => void }) {
 
 type Tab = "anatomy" | "live" | "builder";
 
+/**
+ * Config keys (all optional): candles [[o,h,l,c]…], highlight, pattern, builder:true,
+ * live:{symbol,timeframe}, drilldown (default true when live is set; drilldown without builder opens
+ * the latest candle's drill-down right away — the "inside the candle" lesson).
+ */
 export function CandleVisual({ visual }: { visual: Record<string, unknown> }) {
   const candles = useMemo(
     () => (Array.isArray(visual.candles) ? (visual.candles as unknown[]).map(toCandleItem).filter((c): c is CandleItem => !!c) : []),
     [visual.candles],
   );
   const highlight = typeof visual.highlight === "string" ? visual.highlight : null;
-  const pattern = typeof visual.pattern === "string" ? visual.pattern.replace(/_/g, " ") : null;
+  const patternKey = typeof visual.pattern === "string" ? visual.pattern : null;
+  const pattern = patternKey ? patternKey.replace(/_/g, " ") : null;
   const builder = !!visual.builder;
   const liveCfg = visual.live && typeof visual.live === "object" ? (visual.live as { symbol?: string; timeframe?: string }) : null;
   const live = liveCfg ? { symbol: String(liveCfg.symbol ?? "BTC/USDT"), timeframe: String(liveCfg.timeframe ?? "1h") } : null;
+  const drilldown = visual.drilldown !== false;
+  const autoOpen = visual.drilldown === true && !builder;
 
   const tabs: { value: Tab; label: React.ReactNode }[] = [];
-  if (candles.length) tabs.push({ value: "anatomy", label: <><Sparkles size={12} strokeWidth={2} aria-hidden /> Анатомия</> });
-  if (live) tabs.push({ value: "live", label: <><CandlestickChart size={12} strokeWidth={2} aria-hidden /> Реална свещ</> });
-  if (builder) tabs.push({ value: "builder", label: <><Hammer size={12} strokeWidth={2} aria-hidden /> Candle builder</> });
+  if (candles.length) tabs.push({ value: "anatomy", label: <><Sparkles size={12} strokeWidth={2} className="hidden sm:block" aria-hidden /> Анатомия</> });
+  if (live) tabs.push({ value: "live", label: <><CandlestickChart size={12} strokeWidth={2} className="hidden sm:block" aria-hidden /> Реална свещ</> });
+  if (builder) tabs.push({ value: "builder", label: <><Hammer size={12} strokeWidth={2} className="hidden sm:block" aria-hidden /> Candle builder</> });
   const initial: Tab = live && !builder ? "live" : (tabs[0]?.value ?? "anatomy");
   const [tab, setTab] = useState<Tab>(initial);
   const [note, setNote] = useState(false);
-  const showReal = live ? () => { setNote(false); setTab("live"); } : undefined;
+  const showReal = live
+    ? () => {
+        setNote(false);
+        setTab("live");
+      }
+    : undefined;
 
   return (
     <div className="min-w-0 space-y-3">
@@ -701,13 +694,17 @@ export function CandleVisual({ visual }: { visual: Record<string, unknown> }) {
           <Caption icon={MousePointerClick} className="mt-1">
             {CLICK_CAPTION}
           </Caption>
-          {note && <div className="mt-2"><SyntheticNote onShowReal={showReal} onClose={() => setNote(false)} /></div>}
+          {note && (
+            <div className="mt-2">
+              <SyntheticNote onShowReal={showReal} onClose={() => setNote(false)} />
+            </div>
+          )}
         </div>
       )}
 
-      {tab === "live" && live && <LiveCandles symbol={live.symbol} timeframe={live.timeframe} />}
+      {tab === "live" && live && <LiveCandles symbol={live.symbol} timeframe={live.timeframe} drilldown={drilldown} autoOpen={autoOpen} />}
 
-      {tab === "builder" && builder && <CandleBuilder onShowReal={showReal} />}
+      {tab === "builder" && builder && <CandleBuilder onShowReal={showReal} start={builderStart(patternKey, candles[0])} />}
     </div>
   );
 }

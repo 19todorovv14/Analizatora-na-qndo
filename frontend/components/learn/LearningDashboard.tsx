@@ -25,17 +25,15 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { fmtXp, scoreTone } from "@/components/learn/model";
 import type { LearningDashboard, Mistake, Recommendation, RiskDiscipline, Skill, SkillBrief } from "@/components/learn/types";
-import { Card, EmptyState, StatTile, Tooltip, type Tone } from "@/components/ui";
+import { Card, EmptyState, StatTile, Term, Tooltip, type Tone } from "@/components/ui";
 import { cx } from "@/lib/format";
+import { useSession } from "@/lib/session";
 
 /* ───────────────────────────────────────────────────────── helpers */
 
-/** "good / ok / weak" for a 0–100 score where higher is better. */
-export function scoreTone(v: number | null | undefined): "up" | "warn" | "down" | "neutral" {
-  if (v === null || v === undefined || !Number.isFinite(v)) return "neutral";
-  return v >= 75 ? "up" : v >= 50 ? "warn" : "down";
-}
+export { scoreTone };
 
 const INK: Record<"up" | "warn" | "down" | "neutral", string> = { up: "text-up", warn: "text-warn", down: "text-down", neutral: "text-text" };
 
@@ -74,7 +72,7 @@ export function DashboardKpis({ data, className }: { data: LearningDashboard; cl
         label="XP"
         icon={Sparkles}
         tone="gold"
-        value={data.xp.toLocaleString("en-US")}
+        value={fmtXp(data.xp)}
         sub={
           data.xp_progress ? (
             <span>
@@ -113,9 +111,13 @@ export function DashboardKpis({ data, className }: { data: LearningDashboard; cl
       <StatTile
         label="Paper сделки"
         icon={Wallet}
-        term="paper_trading"
         value={data.paper_trades}
-        sub={data.paper_trades ? "затворени (виртуални)" : "Още няма затворени"}
+        sub={
+          <span>
+            {data.paper_trades ? "затворени · " : "още няма · "}
+            <Term k="paper_trading">виртуални</Term>
+          </span>
+        }
       />
     </div>
   );
@@ -149,7 +151,16 @@ export function XpProgress({ data, className }: { data: LearningDashboard; class
 
 /* ─────────────────────────────────────────────────────── skills */
 
-function SkillRow({ s, emphasis }: { s: Skill; emphasis: "strong" | "weak" | null }) {
+/** "уроци 21% · quiz — · практика 60" — the inputs behind a skill score. */
+function skillInputs(s: Skill): string | null {
+  if (!s.inputs) return null;
+  const quiz = s.inputs.quiz_pct === null ? "—" : `${Math.round(s.inputs.quiz_pct)}%`;
+  const practice = s.inputs.practice_avg !== null ? ` · практика ${Math.round(s.inputs.practice_avg)}` : "";
+  return `уроци ${Math.round(s.inputs.lessons_pct)}% · quiz ${quiz}${practice}`;
+}
+
+function SkillRow({ s, emphasis, detailed }: { s: Skill; emphasis: "strong" | "weak" | null; detailed?: boolean }) {
+  const inputs = skillInputs(s);
   const tone = emphasis === "strong" ? "up" : emphasis === "weak" ? "warn" : "accent";
   const tip = (
     <div className="space-y-1 text-xs">
@@ -157,12 +168,7 @@ function SkillRow({ s, emphasis }: { s: Skill; emphasis: "strong" | "weak" | nul
         {s.title_bg} · {s.score}/100
       </div>
       <div className="text-muted">{s.basis}</div>
-      {s.inputs && (
-        <div className="num text-[11px] text-faint">
-          уроци {Math.round(s.inputs.lessons_pct)}% · quiz {s.inputs.quiz_pct === null ? "—" : `${Math.round(s.inputs.quiz_pct)}%`}
-          {s.inputs.practice_avg !== null && ` · практика ${Math.round(s.inputs.practice_avg)}`}
-        </div>
-      )}
+      {inputs && <div className="num text-[11px] text-faint">{inputs}</div>}
     </div>
   );
   const row = (
@@ -174,6 +180,7 @@ function SkillRow({ s, emphasis }: { s: Skill; emphasis: "strong" | "weak" | nul
       </div>
       <span className="num text-xs text-muted">{s.score}</span>
       <Bar value={s.score} tone={s.score > 0 ? tone : "neutral"} className="col-span-2" />
+      {detailed && inputs && <span className="num col-span-2 text-[11px] text-faint">{inputs}</span>}
     </div>
   );
   return (
@@ -195,17 +202,20 @@ export function SkillBars({
   skills,
   strongest,
   weakest,
+  detailed,
   className,
 }: {
   skills: Skill[];
   strongest: SkillBrief | null;
   weakest: SkillBrief | null;
+  /** show the inputs (lessons %, quiz %, practice) under every bar — Advanced mode */
+  detailed?: boolean;
   className?: string;
 }) {
   return (
     <ul className={cx("space-y-1.5", className)} aria-label="Умения (0–100)">
       {skills.map((s) => (
-        <SkillRow key={s.key} s={s} emphasis={strongest?.key === s.key ? "strong" : weakest?.key === s.key ? "weak" : null} />
+        <SkillRow key={s.key} s={s} detailed={detailed} emphasis={strongest?.key === s.key ? "strong" : weakest?.key === s.key ? "weak" : null} />
       ))}
     </ul>
   );
@@ -234,6 +244,7 @@ function SkillTile({ label, skill, tone, icon: Icon }: { label: string; skill: S
 }
 
 export function SkillsCard({ data, className }: { data: LearningDashboard; className?: string }) {
+  const { beginner } = useSession();
   return (
     <Card
       className={className}
@@ -248,7 +259,7 @@ export function SkillsCard({ data, className }: { data: LearningDashboard; class
         <SkillTile label="Най-силно" skill={data.strongest_skill} tone="up" icon={TrendingUp} />
         <SkillTile label="Най-слабо" skill={data.weakest_skill} tone="warn" icon={Target} />
       </div>
-      <SkillBars skills={data.skills} strongest={data.strongest_skill} weakest={data.weakest_skill} />
+      <SkillBars skills={data.skills} strongest={data.strongest_skill} weakest={data.weakest_skill} detailed={!beginner} />
       <p className="mt-3 text-[11px] leading-relaxed text-faint">
         Оценка = 60% уроци + 40% най-добър quiz; където има практика (labs, replay, paper сделки) тя тежи 40% от резултата.
       </p>

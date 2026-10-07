@@ -3,11 +3,10 @@
 import { ArrowRight, LogOut, Plus, Trash2, TrendingDown, TrendingUp } from "lucide-react";
 
 import { ConditionRow } from "@/components/strategy/ConditionRow";
+import { MAX_CONDITIONS, starterCondition } from "@/components/strategy/meta";
 import type { BlockKey, BlockV2, BuilderMeta, ConditionV2 } from "@/components/strategy/types";
 import { IconButton, Segmented } from "@/components/ui";
 import { cx } from "@/lib/format";
-
-const MAX_CONDITIONS = 12;
 
 const TONE: Record<BlockKey, { ring: string; stripe: string; icon: typeof TrendingUp; ink: string; then: string }> = {
   entry_long: { ring: "border-up/25", stripe: "bg-up", icon: TrendingUp, ink: "text-up", then: "bg-up/10 text-up ring-up/25" },
@@ -16,19 +15,8 @@ const TONE: Record<BlockKey, { ring: string; stripe: string; icon: typeof Trendi
   exit_short: { ring: "border-white/[0.08]", stripe: "bg-white/20", icon: LogOut, ink: "text-muted", then: "bg-white/[0.05] text-text ring-white/10" },
 };
 
-/** Default condition added by "+ Условие" (direction-aware). */
-export function starterCondition(key: BlockKey): ConditionV2 {
-  switch (key) {
-    case "entry_long":
-      return { left: { kind: "indicator", name: "rsi", params: { period: 14 }, output: "value" }, op: ">", right: { kind: "value", value: 50 } };
-    case "entry_short":
-      return { left: { kind: "indicator", name: "rsi", params: { period: 14 }, output: "value" }, op: "<", right: { kind: "value", value: 50 } };
-    case "exit_long":
-      return { left: { kind: "price", field: "close" }, op: "crosses_below", right: { kind: "indicator", name: "ema", params: { period: 20 }, output: "value" } };
-    default:
-      return { left: { kind: "price", field: "close" }, op: "crosses_above", right: { kind: "indicator", name: "ema", params: { period: 20 }, output: "value" } };
-  }
-}
+/** Default condition added by "+ Условие" (direction-aware) — re-exported from the pure DSL module. */
+export { starterCondition };
 
 export function BlockCard({
   blockKey,

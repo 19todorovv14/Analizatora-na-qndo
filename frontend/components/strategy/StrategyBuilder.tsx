@@ -4,7 +4,7 @@ import { ChevronDown, LogOut } from "lucide-react";
 import { useState } from "react";
 
 import { BlockCard } from "@/components/strategy/BlockCard";
-import { BLOCK_FALLBACK, emptyDefinition, operandText, sameCondition, useBuilderMeta } from "@/components/strategy/meta";
+import { BLOCK_FALLBACK, addPresetCondition, emptyDefinition, operandText, useBuilderMeta } from "@/components/strategy/meta";
 import { PresetBar, type PresetTarget } from "@/components/strategy/PresetBar";
 import { RiskSection } from "@/components/strategy/RiskCards";
 import type { BlockKey, BlockV2, DefinitionV2, OperandV2 } from "@/components/strategy/types";
@@ -79,9 +79,8 @@ export function StrategyBuilder({
           block={value[target]}
           onAdd={(p) => {
             const cur = value[target];
-            if (cur?.conditions.some((c) => sameCondition(c, p.condition))) return;
-            const cond = JSON.parse(JSON.stringify(p.condition));
-            setBlock(target, cur ? { ...cur, conditions: [...cur.conditions, cond].slice(0, 12) } : { logic: "all", conditions: [cond] });
+            const next = addPresetCondition(cur, p);
+            if (next !== cur) setBlock(target, next);
           }}
         />
       )}
