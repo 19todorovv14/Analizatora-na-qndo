@@ -76,8 +76,8 @@ function PageSkeleton() {
           <Skeleton className="h-3 w-80" />
         </div>
       </div>
-      <div className="grid gap-4 xl:grid-cols-[250px_minmax(0,1fr)]">
-        <div className="card space-y-3 p-4">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[240px_minmax(0,1fr)_360px]">
+        <div className="card hidden space-y-3 p-4 2xl:block">
           <SkeletonText lines={5} />
         </div>
         <div className="card space-y-4 p-4">
@@ -85,6 +85,9 @@ function PageSkeleton() {
           <Skeleton className="h-28 w-full rounded-xl" />
           <Skeleton className="h-40 w-full rounded-xl" />
           <Skeleton className="h-28 w-full rounded-xl" />
+        </div>
+        <div className="card hidden space-y-3 p-4 xl:block">
+          <SkeletonText lines={6} />
         </div>
       </div>
     </div>
@@ -269,12 +272,14 @@ function StrategiesInner() {
         }
       />
 
-      <div className="grid items-start gap-4 xl:grid-cols-[250px_minmax(0,1fr)] 2xl:grid-cols-[250px_minmax(0,1fr)_360px]">
-        <div className="min-w-0 xl:row-span-2 2xl:row-span-1">
+      {/* < xl: one column · xl: editor + right rail (list, summary, signal, tests) · 2xl: list | editor | rail */}
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px] xl:grid-rows-[auto_1fr] 2xl:grid-cols-[240px_minmax(0,1fr)_360px] 2xl:grid-rows-none">
+        <div className="min-w-0 xl:col-start-2 xl:row-start-1 2xl:col-start-1">
           <StrategyList strategies={mine} activeId={draft.id} dirty={dirty} onOpen={(s) => open(fromRow(s))} onNew={() => open(newDraft())} />
         </div>
 
         <Card
+          className="min-w-0 xl:col-start-1 xl:row-span-2 xl:row-start-1 2xl:col-start-2 2xl:row-span-1"
           title={editorTitle}
           right={
             <div className="flex items-center gap-2">
@@ -344,7 +349,7 @@ function StrategiesInner() {
           </div>
         </Card>
 
-        <div className="grid min-w-0 gap-4 xl:col-start-2 xl:grid-cols-2 2xl:col-start-3 2xl:row-start-1 2xl:grid-cols-1 2xl:sticky 2xl:top-4">
+        <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 xl:col-start-2 xl:row-start-2 xl:grid-cols-1 2xl:col-start-3 2xl:row-start-1">
           <Card title="Plain-language summary" right={<Kbd>describe()</Kbd>}>
             <StrategySummary definition={draft.definition} beginner={beginner} />
           </Card>
@@ -365,7 +370,7 @@ function StrategiesInner() {
                       ? "Промените ще бъдат запазени преди теста."
                       : "Стратегията е запазена — тестът използва текущите правила."}
                 </p>
-                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-1">
                   <Button onClick={() => void test("backtesting")} disabled={!!busy}>
                     {busy === "test" ? <Spinner className="h-4 w-4 border-white/30 border-t-white" /> : <TestTubeDiagonal size={15} strokeWidth={2} aria-hidden />}
                     Backtest →
