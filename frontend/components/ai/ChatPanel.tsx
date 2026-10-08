@@ -26,10 +26,16 @@ export type ChatPanelProps = {
   initialQuestion?: string | null;
   /** shorter history + 3 suggestions, for terminal side panels */
   compact?: boolean;
+  /**
+   * the message list grows to fill the panel's height instead of a fixed max height (give the panel —
+   * or `className` — a height / flex-1); used by AIPanel's Ask tab
+   */
+  fill?: boolean;
+  className?: string;
 };
 
 /** Free-form chat with the AI Teacher (POST /ai/chat). Optional chart context of the current symbol/timeframe. */
-export function ChatPanel({ symbol, timeframe, initialQuestion, compact }: ChatPanelProps) {
+export function ChatPanel({ symbol, timeframe, initialQuestion, compact, fill, className }: ChatPanelProps) {
   const [messages, setMessages] = useState<Msg[]>([
     {
       role: "assistant",
@@ -80,9 +86,9 @@ export function ChatPanel({ symbol, timeframe, initialQuestion, compact }: ChatP
   }, [initialQuestion]);
 
   return (
-    <div className="flex h-full min-w-0 flex-col">
+    <div className={cx("flex h-full min-w-0 flex-col", className)}>
       <label className="mb-2 flex cursor-pointer items-center gap-2 text-xs text-muted">
-        <input type="checkbox" className="accent-[#3b82f6]" checked={useChart} onChange={(e) => setUseChart(e.target.checked)} />
+        <input type="checkbox" className="accent-accent" checked={useChart} onChange={(e) => setUseChart(e.target.checked)} />
         <span className="min-w-0">
           Използвай текущата графика{symbol ? ` (${symbol} ${timeframe?.toUpperCase() ?? ""})` : ""}
         </span>
@@ -91,7 +97,7 @@ export function ChatPanel({ symbol, timeframe, initialQuestion, compact }: ChatP
         ref={scroller}
         aria-live="polite"
         className={cx("flex-1 space-y-2.5 overflow-y-auto rounded-xl border border-white/[0.07] bg-black/20 p-3", compact ? "min-h-40" : "min-h-48")}
-        style={{ maxHeight: compact ? 340 : 520 }}
+        style={fill ? undefined : { maxHeight: compact ? 340 : 520 }}
       >
         {messages.map((m, i) => (
           <div key={i} className={cx("flex gap-2", m.role === "user" && "justify-end")}>

@@ -696,6 +696,32 @@ export function lessonIndicators(slug: string | null | undefined, active: string
   return missing.length ? [...active, ...missing] : active;
 }
 
+/* ─────────────────────────────────────────── stored answers (history) */
+
+export type StoredMessage = { role: string; content: string; ts?: number; data?: unknown };
+
+/** A JSON value that can be rendered by <TeacherAnswer> (mode, title, sections with string bodies, disclaimer). */
+export function asTeacherAnswer(v: unknown): TeacherAnswerData | null {
+  if (!v || typeof v !== "object") return null;
+  const a = v as Partial<TeacherAnswerData>;
+  if (!isTeacherMode(a.mode) || typeof a.title !== "string" || typeof a.disclaimer !== "string" || !Array.isArray(a.sections)) return null;
+  const ok = a.sections.every(
+    (s) => s && typeof s.key === "string" && typeof s.title === "string" && Array.isArray(s.body) && s.body.every((l) => typeof l === "string"),
+  );
+  return ok && a.sections.length > 0 ? (a as TeacherAnswerData) : null;
+}
+
+/**
+ * The newest assistant message of a stored teacher session: the full answer when the API sends the
+ * message `data.answer` (rendered as cards), else its plain text.
+ */
+export function storedAnswer(messages: StoredMessage[] | undefined): { answer: TeacherAnswerData | null; text: string | null } {
+  const last = (messages ?? []).filter((m) => m && m.role === "assistant").at(-1);
+  if (!last) return { answer: null, text: null };
+  const data = last.data && typeof last.data === "object" ? (last.data as { answer?: unknown }) : null;
+  return { answer: asTeacherAnswer(data?.answer), text: last.content?.trim() ? last.content : null };
+}
+
 /* ───────────────────────────────────────────────────────── errors */
 
 /** True for the 503 DATA_NOT_AVAILABLE response (lib/api ApiError keeps only status + message). */

@@ -4,6 +4,8 @@ import { describe, test } from "node:test";
 
 import {
   DEFAULT_MODES,
+  asTeacherAnswer,
+  storedAnswer,
   MODE_ORDER,
   QUESTION_MODES,
   SETUP_DISCLAIMER,
@@ -555,5 +557,34 @@ describe("misc", () => {
       ],
     );
     assert.deepEqual(uniquePositions(undefined), []);
+  });
+});
+
+describe("stored answers (history modal)", () => {
+  test("asTeacherAnswer accepts real answers and rejects malformed JSON", () => {
+    for (const a of [analyzeAnswer, quizAnswer, compareAnswer, whyAnswer]) assert.equal(asTeacherAnswer(a), a);
+    assert.equal(asTeacherAnswer(null), null);
+    assert.equal(asTeacherAnswer("text"), null);
+    assert.equal(asTeacherAnswer({ ...analyzeAnswer, mode: "predict" }), null);
+    assert.equal(asTeacherAnswer({ ...analyzeAnswer, sections: [] }), null);
+    assert.equal(asTeacherAnswer({ ...analyzeAnswer, sections: [{ key: "observation", title: "OBSERVATION", body: [1] }] }), null);
+    assert.equal(asTeacherAnswer({ ...analyzeAnswer, disclaimer: undefined }), null);
+  });
+
+  test("storedAnswer: newest assistant message, cards when data.answer is present, else text", () => {
+    const msgs = [
+      { role: "user", content: "ANALYZE", ts: 1 },
+      { role: "assistant", content: "old", ts: 2, data: { answer: whyAnswer } },
+      { role: "assistant", content: "ANALYZE · BTC/USDT 1H\n• …", ts: 3, data: { answer: analyzeAnswer } },
+    ];
+    const s = storedAnswer(msgs);
+    assert.equal(s.answer, analyzeAnswer);
+    assert.match(s.text ?? "", /ANALYZE/);
+    // today's /ai/sessions/{id} has no `data` → text fallback
+    const plain = storedAnswer([{ role: "assistant", content: "WHY? text", ts: 1 }]);
+    assert.deepEqual(plain, { answer: null, text: "WHY? text" });
+    assert.deepEqual(storedAnswer([{ role: "assistant", content: "x", data: { answer: { mode: "why" } } }]), { answer: null, text: "x" });
+    assert.deepEqual(storedAnswer([{ role: "user", content: "q" }]), { answer: null, text: null });
+    assert.deepEqual(storedAnswer(undefined), { answer: null, text: null });
   });
 });

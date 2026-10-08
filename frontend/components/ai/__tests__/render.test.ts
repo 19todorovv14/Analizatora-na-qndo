@@ -254,5 +254,16 @@ describe("pickers, chips and panels", () => {
     assert.match(none, /Няма чернова/);
     const ask = html(h(AIPanel, { symbol: "BTC/USDT", timeframe: "1h", defaultTab: "ask", compact: true }));
     assert.match(ask, /placeholder="Ask the AI Teacher…"/);
+    // the Ask tab fills the panel: the chat list has no fixed max height there
+    assert.match(ask, /min-h-\[24rem\]/);
+    assert.doesNotMatch(ask, /max-height/);
+  });
+
+  test("ChatPanel: fixed max height by default, fills its container with `fill`", () => {
+    assert.match(html(h(ChatPanel, { compact: true })), /max-height:340px/);
+    assert.match(html(h(ChatPanel, {})), /max-height:520px/);
+    const fill = html(h(ChatPanel, { compact: true, fill: true, className: "min-h-0 flex-1" }));
+    assert.doesNotMatch(fill, /max-height/);
+    assert.match(fill, /class="flex h-full min-w-0 flex-col min-h-0 flex-1"/);
   });
 });

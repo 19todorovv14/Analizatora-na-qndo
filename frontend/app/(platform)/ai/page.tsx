@@ -34,7 +34,7 @@ import { StrategyView } from "@/components/ai/StrategyView";
 import { TeacherAnswer } from "@/components/ai/TeacherAnswer";
 import { TeacherChart } from "@/components/ai/TeacherChart";
 import { TeacherHistory } from "@/components/ai/TeacherHistory";
-import type { FollowUp, StrategyOption, TeacherAnswerData, TeacherMode, TeacherSessionRow } from "@/components/ai/types";
+import type { AskRequest, FollowUp, StrategyOption, TeacherMode, TeacherSessionRow } from "@/components/ai/types";
 import { IndicatorMenu, SymbolPicker, TimeframeBar } from "@/components/charts/ChartControls";
 import {
   Badge,
@@ -153,24 +153,41 @@ export default function AiTeacherPage() {
   const reviewSid =
     inputs.reviewStrategyId ?? strategyId ?? strategies?.find((s) => !s.is_template)?.id ?? strategies?.find((s) => s.is_template)?.id ?? null;
 
-  // bring a fresh answer into view when it starts below the fold (the console stays reachable above it)
-  const revealAnswer = useCallback((a?: TeacherAnswerData | null) => {
+  /*
+   * Bring the next answer (or its error) into view when it starts below the fold — measured AFTER React
+   * committed it: measuring in the ask() callback can run before the render, when the column is still
+   * short and the scroll gets clamped. The console stays reachable above the answer.
+   */
+  const revealNext = useRef(false);
+  const askAndReveal = useCallback(
+    (req: AskRequest) => {
+      revealNext.current = true;
+      return teacherAsk(req);
+    },
+    [teacherAsk],
+  );
+  useEffect(() => {
+    if (!revealNext.current || (!teacher.answer && !teacher.error)) return;
+    revealNext.current = false;
+    const a = teacher.error ? null : teacher.answer;
     // TEACH ME uses the live chart as the example → show the lesson's indicator (RSI, MACD, ATR…)
     if (a?.mode === "teach" && a.lesson?.slug) {
       const next = lessonIndicators(a.lesson.slug, indicatorsRef.current);
       if (next !== indicatorsRef.current) setIndicators(next);
     }
-    window.requestAnimationFrame(() => {
-      const el = answerRef.current;
-      const col = columnRef.current;
-      if (!el) return;
-      if (col && getComputedStyle(col).overflowY !== "visible" && col.scrollHeight > col.clientHeight) {
-        if (el.offsetTop - col.scrollTop > col.clientHeight * 0.5) col.scrollTo({ top: Math.max(0, el.offsetTop - 8), behavior: "smooth" });
-      } else if (el.getBoundingClientRect().top > window.innerHeight * 0.6) {
-        el.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    });
-  }, [setIndicators]);
+    const el = answerRef.current;
+    const col = columnRef.current;
+    if (!el) return;
+    // scroll when the answer's header is below the middle of the view, or above it (a refreshed answer
+    // replacing one the user had scrolled into)
+    if (col && getComputedStyle(col).overflowY !== "visible" && col.scrollHeight > col.clientHeight) {
+      const rel = el.offsetTop - col.scrollTop;
+      if (rel > col.clientHeight * 0.5 || rel < 0) col.scrollTo({ top: Math.max(0, el.offsetTop - 8), behavior: "smooth" });
+    } else {
+      const top = el.getBoundingClientRect().top;
+      if (top > window.innerHeight * 0.6 || top < 0) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [teacher.answer, teacher.error, setIndicators]);
 
   /* ── ?mode=&symbol=&tf=&topic=&q=&strategy_id=&position_id=… (academy / dashboard deep links) ── */
   useEffect(() => {
@@ -204,7 +221,7 @@ export default function AiTeacherPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- consume the deep link exactly once
     setPendingAuto(null);
     const m = q.mode!;
-    void teacherAsk(
+    void askAndReveal(
       buildAskBody(m, {
         symbol,
         timeframe: tf,
@@ -218,8 +235,8 @@ export default function AiTeacherPage() {
         question: q.question,
         topic: q.topic,
       }),
-    ).then((a) => a && revealAnswer(a));
-  }, [pendingAuto, symbol, tf, indicators, strategyId, reviewSid, teacherAsk, revealAnswer]);
+    );
+  }, [pendingAuto, symbol, tf, indicators, strategyId, reviewSid, askAndReveal]);
 
   /* ── classic signal engine ── */
   useEffect(() => {
@@ -244,7 +261,7 @@ export default function AiTeacherPage() {
   /* ── teacher ── */
   const runMode = (m: TeacherMode = mode) => {
     setLastSource("teacher");
-    void teacher.ask(
+    void askAndReveal(
       buildAskBody(m, {
         symbol,
         timeframe: tf,
@@ -259,7 +276,7 @@ export default function AiTeacherPage() {
         topic: inputs.topic || null,
         draft: inputs.draftOn ? parseDraftInputs(inputs.draft) : null,
       }),
-    ).then((a) => a && revealAnswer(a));
+    );
   };
 
   const onFollowUp = (f: FollowUp) => {
@@ -276,9 +293,7 @@ export default function AiTeacherPage() {
       positionId: req.position_id ?? i.positionId,
     }));
     setLastSource("teacher");
-    void teacher.ask(req).then((a) => {
-      if (a?.mode === "teach") revealAnswer(a);
-    });
+    void askAndReveal(req);
     const col = columnRef.current;
     if (col && getComputedStyle(col).overflowY !== "visible") col.scrollTo({ top: Math.max(0, (answerRef.current?.offsetTop ?? 0) - 8), behavior: "smooth" });
     else answerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -293,7 +308,7 @@ export default function AiTeacherPage() {
     if (row.mode === "review_trade") setInputs((i) => ({ ...i, positionId: c.position_id ?? "" }));
     if (row.mode === "review_strategy") setInputs((i) => ({ ...i, reviewStrategyId: c.strategy_id ?? null }));
     setLastSource("teacher");
-    void teacher.ask(
+    void askAndReveal(
       buildAskBody(row.mode, {
         symbol: (modeUsesChart(row.mode) && c.symbol) || symbol,
         timeframe: (modeUsesChart(row.mode) && c.timeframe) || tf,
@@ -301,7 +316,7 @@ export default function AiTeacherPage() {
         strategyId: c.strategy_id ?? (row.mode === "review_strategy" ? reviewSid : strategyId),
         positionId: c.position_id ?? null,
       }),
-    ).then((a) => a && revealAnswer(a));
+    );
   };
 
   const answer = teacher.answer;
@@ -340,7 +355,7 @@ export default function AiTeacherPage() {
           )
         }
         subtitle="Учител, който вижда графиката, стратегията, paper сметката, сделките и прогреса ти. Обяснява правила, invalidation и риск — никога не прогнозира цената."
-        actions={<TeacherHistory onRepeat={onRepeat} />}
+        actions={<TeacherHistory onRepeat={onRepeat} onFollowUp={onFollowUp} />}
       />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(400px,460px)] xl:grid-rows-[auto_auto_auto_1fr]">
@@ -409,19 +424,19 @@ export default function AiTeacherPage() {
           </Card>
 
           <div ref={answerRef} className="scroll-mt-20">
-            {answerStale && !teacher.busy && (
-              <Notice
-                tone="info"
-                className="mb-3"
-                title={`Отговорът е за ${answer!.symbol} ${tfLabel(answer!.timeframe)}`}
-              >
-                <span className="flex flex-wrap items-center gap-2">
-                  Графиката е сменена на {symbol} {tfLabel(tf)}.
-                  <Button size="sm" variant="outline" onClick={() => runMode(answer!.mode)}>
-                    <RefreshCw size={12} aria-hidden /> Обнови за {symbol} {tfLabel(tf)}
-                  </Button>
-                </span>
-              </Notice>
+            {answerStale && !teacher.busy && !teacher.error && (
+              // sticky + opaque: switching symbol/timeframe while reading keeps this banner in view
+              // (scroll anchoring would otherwise insert it above the visible part of the answer)
+              <div className="sticky top-[calc(var(--spacing-topbar)+0.5rem)] z-10 mb-3 rounded-lg bg-surface shadow-pop xl:top-0">
+                <Notice tone="info" title={`Отговорът е за ${answer!.symbol} ${tfLabel(answer!.timeframe)}`}>
+                  <span className="flex flex-wrap items-center gap-2">
+                    Графиката е сменена на {symbol} {tfLabel(tf)}.
+                    <Button size="sm" variant="outline" onClick={() => runMode(answer!.mode)}>
+                      <RefreshCw size={12} aria-hidden /> Обнови за {symbol} {tfLabel(tf)}
+                    </Button>
+                  </span>
+                </Notice>
+              </div>
             )}
             {teacher.error && !teacher.busy ? (
               isDataNotAvailableError(teacher.error) ? (
@@ -430,7 +445,7 @@ export default function AiTeacherPage() {
                 <ErrorState
                   title="Учителят не можа да отговори"
                   description={errorMessage(teacher.error)}
-                  onRetry={() => teacher.request && void teacher.ask(teacher.request)}
+                  onRetry={() => teacher.request && void askAndReveal(teacher.request)}
                 />
               )
             ) : answer ? (
@@ -447,6 +462,7 @@ export default function AiTeacherPage() {
             ) : (
               <div className="space-y-3">
                 <EmptyState
+                  compact
                   icon={Sparkles}
                   title="Избери режим и попитай учителя"
                   description="Отговорът идва като карти OBSERVATION · RULES · SCENARIO · INVALIDATION · RISK · ALTERNATIVE SCENARIO, с числата от графиката и следващи стъпки."
@@ -470,7 +486,7 @@ export default function AiTeacherPage() {
                 { key: "strategy", label: "Strategy View" },
                 { key: "engine", label: "Signal engine" },
               ]}
-              className="min-w-0 flex-1 !shadow-none"
+              className="min-w-[15rem] flex-1 !shadow-none"
             />
             <div className="mb-2 flex items-center gap-2">
               <Tooltip content="Класическият signal engine: индикатори → структура → режим → NO-TRADE проверки → решение.">

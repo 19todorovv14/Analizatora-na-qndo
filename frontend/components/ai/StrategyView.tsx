@@ -218,7 +218,7 @@ export function StrategyViewBody({
       {/* header */}
       <div className="space-y-1.5">
         <div className="flex items-center gap-2">
-          <div className="min-w-0 flex-1 truncate text-[10.5px] font-semibold uppercase tracking-[0.08em] text-faint">What would the strategy do?</div>
+          <div className="min-w-0 flex-1 text-[10.5px] font-semibold uppercase leading-snug tracking-[0.08em] text-faint">What would the strategy do?</div>
           {refreshing && <Spinner className="h-3.5 w-3.5" />}
           {onRefresh && <IconButton icon={RefreshCw} label="Обнови Strategy View" size="sm" onClick={onRefresh} />}
           {!compact && <SetupResultBadge result={data.result} />}

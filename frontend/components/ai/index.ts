@@ -23,7 +23,8 @@
  *     The 8 teacher modes as chips with icons + one-line descriptions (modes from useTeacherModes()).
  *
  *   <ContextChips items loading? compact? /> — "What the teacher knows" (context_used).
- *   <ChatPanel symbol? timeframe? initialQuestion? compact? /> — free-form chat (POST /api/ai/chat).
+ *   <ChatPanel symbol? timeframe? initialQuestion? compact? fill? className? /> — free-form chat (POST /api/ai/chat);
+ *     fill → the message list grows to the container height (no fixed max height).
  *   <QuizCard quiz onNewQuiz? compact? />, <CompareTable comparison />, <ExamplesBlock examples compact? />
  *
  * Hooks: useTeacherModes(), useTeacherAsk(), useTeacherContext(symbol, tf, strategyId?), useStrategyView(…).

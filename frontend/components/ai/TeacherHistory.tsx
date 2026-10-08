@@ -5,25 +5,33 @@ import { useState } from "react";
 import useSWR from "swr";
 
 import { modeIcon } from "@/components/ai/icons";
-import { isTeacherMode, tfLabel } from "@/components/ai/model";
-import type { TeacherSessionRow } from "@/components/ai/types";
+import { isTeacherMode, storedAnswer, tfLabel, type StoredMessage } from "@/components/ai/model";
+import { TeacherAnswer } from "@/components/ai/TeacherAnswer";
+import type { FollowUp, TeacherSessionRow } from "@/components/ai/types";
 import { AiText, Badge, Button, EmptyState, ErrorText, Modal, Popover, SkeletonText } from "@/components/ui";
 import { errorMessage, fetcher } from "@/lib/api";
 import { cx, fmtTime } from "@/lib/format";
 
-type SessionDetail = { id: number; title: string; messages: { role: string; content: string; ts: number }[] };
+type SessionDetail = { id: number; title: string; messages: StoredMessage[] };
 
 /**
- * Recent teacher answers (GET /teacher/sessions). Opening one shows the stored answer text
- * (GET /ai/sessions/{id}); "Повтори" re-runs that mode on fresh data via `onRepeat`.
+ * Recent teacher answers (GET /teacher/sessions). Opening one shows the stored answer
+ * (GET /ai/sessions/{id}): as section cards when the message carries `data.answer`, else as text.
+ * "Повтори" re-runs that mode on fresh data via `onRepeat`; follow-ups of a stored answer go to `onFollowUp`.
  */
-export function TeacherHistory({ onRepeat }: { onRepeat: (row: TeacherSessionRow) => void }) {
+export function TeacherHistory({
+  onRepeat,
+  onFollowUp,
+}: {
+  onRepeat: (row: TeacherSessionRow) => void;
+  onFollowUp?: (f: FollowUp) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [picked, setPicked] = useState<TeacherSessionRow | null>(null);
   const { data, error, isLoading } = useSWR<{ sessions: TeacherSessionRow[] }>(open ? "/teacher/sessions" : null, fetcher, { revalidateOnFocus: false });
   const detail = useSWR<SessionDetail>(picked ? `/ai/sessions/${picked.id}` : null, fetcher, { revalidateOnFocus: false });
   const rows = data?.sessions ?? [];
-  const text = detail.data?.messages.filter((m) => m.role === "assistant").at(-1)?.content;
+  const stored = storedAnswer(detail.data?.messages);
 
   return (
     <>
@@ -88,8 +96,24 @@ export function TeacherHistory({ onRepeat }: { onRepeat: (row: TeacherSessionRow
           <SkeletonText lines={8} />
         ) : (
           <div className="space-y-4">
-            <div className={cx("rounded-xl border border-white/[0.07] bg-black/20 p-4")}>
-              {text ? <AiText text={text} /> : <p className="text-sm text-muted">Няма записан текст.</p>}
+            <div className={cx("rounded-xl border border-white/[0.07] bg-black/20", stored.answer ? "p-3 sm:p-4" : "p-4")}>
+              {stored.answer ? (
+                <TeacherAnswer
+                  answer={stored.answer}
+                  onFollowUp={
+                    onFollowUp
+                      ? (f) => {
+                          setPicked(null);
+                          onFollowUp(f);
+                        }
+                      : undefined
+                  }
+                />
+              ) : stored.text ? (
+                <AiText text={stored.text} />
+              ) : (
+                <p className="text-sm text-muted">Няма записан текст.</p>
+              )}
             </div>
             {picked && isTeacherMode(picked.mode) && (
               <div className="flex flex-wrap items-center justify-between gap-2">

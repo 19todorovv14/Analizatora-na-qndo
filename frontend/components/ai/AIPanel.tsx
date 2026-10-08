@@ -206,11 +206,12 @@ export function AIPanel({ symbol, timeframe, strategyId, draft, compact, default
         )}
 
         {tab === "ask" && (
-          <div className="space-y-2">
-            <p className="flex items-center gap-1.5 text-[11.5px] text-muted">
-              <MessageSquareText size={13} className="text-accent2" aria-hidden /> Свободен въпрос — учителят обяснява, не дава сигнали.
+          // fills the panel when the parent gives it a height; ≥ 24rem otherwise (the message list grows into it)
+          <div className="flex h-full min-h-[24rem] flex-col gap-2">
+            <p className="flex shrink-0 items-center gap-1.5 text-[11.5px] text-muted">
+              <MessageSquareText size={13} className="shrink-0 text-accent2" aria-hidden /> Свободен въпрос — учителят обяснява, не дава сигнали.
             </p>
-            <ChatPanel symbol={symbol} timeframe={timeframe} compact />
+            <ChatPanel symbol={symbol} timeframe={timeframe} compact fill className="min-h-0 flex-1" />
           </div>
         )}
       </div>
