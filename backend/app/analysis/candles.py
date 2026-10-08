@@ -219,15 +219,15 @@ PATTERN_DEFS: dict[str, dict] = {
         "bars": 2,
         "bias": "bullish",
         "trend": "down",
-        "rule": "След спад: дълга мечя свещ, после бича, която отваря под Close₁ и затваря над средата на тялото ѝ, "
-        "но под Open₁.",
+        "rule": "След спад: дълга мечя свещ (B₁ ≥ 50% от R₁), после бича, която отваря на или под Close₁ и затваря "
+        "над средата на тялото ѝ, но под Open₁ (класически с gap надолу; на пазари 24/7 Open₂ = Close₁).",
     },
     "dark_cloud_cover": {
         "bars": 2,
         "bias": "bearish",
         "trend": "up",
-        "rule": "След покачване: дълга бича свещ, после мечя, която отваря над Close₁ и затваря под средата на "
-        "тялото ѝ, но над Open₁.",
+        "rule": "След покачване: дълга бича свещ (B₁ ≥ 50% от R₁), после мечя, която отваря на или над Close₁ и "
+        "затваря под средата на тялото ѝ, но над Open₁ (класически с gap нагоре; на пазари 24/7 Open₂ = Close₁).",
     },
     "tweezer_bottom": {
         "bars": 2,
@@ -430,9 +430,9 @@ def _double(a: _Shape, b: _Shape) -> set[str]:
         out.add("bullish_harami")
     if a.bull and a.body >= 0.5 * a.rng and b.top <= a.c and b.bottom >= a.o and b.body <= 0.5 * a.body:
         out.add("bearish_harami")
-    if a.bear and a.body >= 0.5 * a.rng and b.bull and b.o < a.c and a.mid < b.c < a.o:
+    if a.bear and a.body >= 0.5 * a.rng and b.bull and b.o <= a.c and a.mid < b.c < a.o:
         out.add("piercing_line")
-    if a.bull and a.body >= 0.5 * a.rng and b.bear and b.o > a.c and a.o < b.c < a.mid:
+    if a.bull and a.body >= 0.5 * a.rng and b.bear and b.o >= a.c and a.o < b.c < a.mid:
         out.add("dark_cloud_cover")
     tol = TWEEZER_TOL * max(a.rng, b.rng)
     if a.bear and b.bull and tol > 0 and abs(a.low - b.low) <= tol:

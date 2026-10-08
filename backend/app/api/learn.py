@@ -85,14 +85,23 @@ class LeverageIn(BaseModel):
     equity: float = Field(default=leverage_lab.DEFAULT_EQUITY, gt=0, le=1e9, allow_inf_nan=False)
     position_notional: float | None = Field(default=None, gt=0, le=1e11, allow_inf_nan=False)
     margin: float | None = Field(default=None, gt=0, le=1e11, allow_inf_nan=False)
+    risk_pct: float | None = Field(default=None, gt=0, le=100, allow_inf_nan=False)
     entry_price: float = Field(default=leverage_lab.DEFAULT_ENTRY_PRICE, gt=0, le=1e9, allow_inf_nan=False)
     side: Literal["long", "short", "buy", "sell"] = "long"
     price_move_pct: float = Field(default=0.0, gt=-100, le=1000, allow_inf_nan=False)
     maintenance_ratio: float = Field(default=leverage_lab.MAINTENANCE_RATIO, ge=0, lt=1, allow_inf_nan=False)
     fee_rate: float | None = Field(default=None, ge=0, le=0.05, allow_inf_nan=False)
+    spread_bps: float | None = Field(default=None, ge=0, le=leverage_lab.MAX_SPREAD_BPS, allow_inf_nan=False)
     daily_vol_pct: float | None = Field(default=None, gt=0, le=100, allow_inf_nan=False)
+    stop_price: float | None = Field(default=None, gt=0, le=1e9, allow_inf_nan=False)
+    target_price: float | None = Field(default=None, gt=0, le=1e9, allow_inf_nan=False)
+    scenario_moves: list[float] | None = Field(default=None, max_length=leverage_lab.MAX_SCENARIO_MOVES)
     symbol: str | None = Field(default=None, max_length=64)
     include_curves: bool = True
+
+
+# quote currencies the leverage simulator treats as dollars (no FX conversion needed)
+_USD_LIKE = frozenset({"USD", "USDT", "USDC", "BUSD", "FDUSD", "TUSD", "USDP", "DAI"})
 
 
 def _pattern_or_404(key: str) -> dict:
@@ -193,8 +202,9 @@ def structure_history(
 # ------------------------------------------------------------------------------------- S3b: Leverage Lab
 @router.post("/learn/leverage/simulate")
 def leverage_simulate(body: LeverageIn):
-    """Pure leverage maths on a virtual account (same margin/stop-out model as the paper broker) + curves of
-    equity vs price move for 1x…100x. Never recommends a leverage value."""
+    """Pure leverage maths on a virtual account (same margin/stop-out model as the paper broker's order estimate)
+    + scenario table + optional stop/target plan + curves of equity vs price move for 1x…100x. With `symbol` the
+    instrument's taker fee, spread and typical daily volatility are the defaults. Never recommends a leverage value."""
     data = body.model_dump()
     symbol = data.pop("symbol")
     asset = None
@@ -205,17 +215,23 @@ def leverage_simulate(body: LeverageIn):
             data["daily_vol_pct"] = vol_pct
         if data["fee_rate"] is None:
             data["fee_rate"] = spec.taker_fee
+        if data["spread_bps"] is None:
+            data["spread_bps"] = spec.spread_bps
         asset = {
             "symbol": spec.symbol,
             "name": spec.name,
             "asset_class": spec.asset_class,
+            "currency": spec.currency,
             "max_leverage": spec.max_leverage,
             "leverage_allowed": data["leverage"] <= spec.max_leverage,
             "daily_vol_pct": vol_pct,
             "taker_fee": spec.taker_fee,
+            "spread_bps": spec.spread_bps,
         }
     if data["fee_rate"] is None:
         data["fee_rate"] = 0.0
+    if data["spread_bps"] is None:
+        data["spread_bps"] = 0.0
     try:
         result = leverage_lab.simulate_with_curves(**data)
     except leverage_lab.LeverageInputError as exc:
@@ -226,6 +242,11 @@ def leverage_simulate(body: LeverageIn):
             result["notes"].append(
                 f"Paper брокерът позволява до {asset['max_leverage']:g}x за {asset['symbol']} — по-висок leverage "
                 "ще бъде отказан при реална paper поръчка."
+            )
+        if asset["currency"].upper() not in _USD_LIKE:
+            result["notes"].append(
+                f"Цените на {asset['symbol']} са в {asset['currency']}, а сумите тук са в долари без превалутиране — "
+                "за точните числа в USD виж paper preview на поръчката."
             )
     result["asset"] = asset
     return result

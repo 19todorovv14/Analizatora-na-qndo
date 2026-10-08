@@ -1,30 +1,38 @@
-"""Leverage maths for the Leverage Academy simulator — pure functions, no I/O, consistent with the paper broker.
+"""Leverage maths for the Leverage Academy simulator and the Trade Simulator — pure functions, no I/O, consistent
+with the paper broker.
 
-Model (exactly the one `app.paper_engine.broker.PaperBroker` uses for a single position on a flat account,
-cross margin, prices in the account currency, no spread):
+Model — exactly `app.paper_engine.broker.PaperBroker.order_estimate` for ONE new position on a flat account (cross
+margin, prices in the account currency; for instruments quoted in another currency use POST /api/paper/orders/preview,
+which converts with real FX rates):
 
-    notional        N = margin × L            (or margin M = N / L when the position size is given)
-    units             = N / entry_price
-    entry fee         = N × fee_rate          (paid from the account at the fill, like the broker's cash)
-    equity₀           = equity − entry fee
-    required margin M = N / L                  free margin = equity₀ − M      margin level = equity₀ / M
-    maintenance       = maintenance_ratio × M  (maintenance_ratio = ExecutionConfig.stop_out_level = 0.5)
-    CROSS liquidation (the broker's stop-out): equity₀ + uPnL(P) = maintenance
-        →  P_liq = entry − sign × (equity₀ − maintenance) / units
-        None when that price would be ≤ 0 (a long whose whole notional is smaller than the buffer cannot be
-        liquidated — the loss is still real); P_liq = entry when equity₀ ≤ maintenance (cannot even open).
-    ISOLATED comparison (only M stands behind the position): M + uPnL = maintenance → distance = (1 − ratio) / L
-    P/L at a straight move of m %: gross = sign × N × m / 100, exit fee = units × P_m × fee_rate. When the move
-        passes P_liq the position is closed AT P_liq (stop-out) and the loss stops there.
+    entry_price     = the fill price (the ask for a long, the bid for a short); half spread hs(p) = p × spread_bps / 20 000
+    mid₀            = entry − sign × hs(entry)                    (= entry when there is no spread)
+    notional N      = units × entry  (or margin × L when the margin is given; units = N / entry)
+    margin M        = N / L            entry fee = N × fee_rate         spread cost = 2 × hs(entry) × units
+    equity₀         = equity − entry fee − spread cost                 free margin = equity₀ − M
+    margin level    = equity₀ / M      maintenance = maintenance_ratio × M
+                      (maintenance_ratio = ExecutionConfig.stop_out_level = 0.5, the broker's stop-out margin level)
+    CROSS liquidation (the broker's stop-out, all else equal) — the MID price where equity₀ + ΔP/L = maintenance:
+        P_liq = mid₀ − sign × (equity₀ − maintenance) / units
+        None when that price would be ≤ 0 (a long smaller than the account's buffer cannot be liquidated — the loss
+        is still real); mid₀ when equity₀ ≤ maintenance (such an order could not even be opened).
+    ISOLATED comparison (only M stands behind the position): M + uPnL = maintenance → distance ≈ (1 − ratio) / L.
+    A price move of m % moves the MID: P_m = mid₀ × (1 + m / 100). The position closes at P_m − sign × hs(P_m)
+        (the bid for a long): gross = sign × units × (exit − entry), exit fee = units × exit × fee_rate,
+        P/L = gross − entry fee − exit fee. A move past P_liq is stopped out AT P_liq (the loss stops there).
+    Stop / target (optional): P/L when the position exits exactly at that price, fees included (as the broker's
+        risk_per_unit). A stop at or beyond the liquidation price is never reached — the stop-out comes first.
+    Size by risk (optional, needs a stop): units = equity × risk_pct / 100 / (|entry − stop| + fee_rate × (entry + stop)).
 
 Risk level = cross liquidation distance measured in typical daily moves of the asset (daily_vol_pct; when unknown
-the broker's DEFAULT_DAILY_VOL, 2 %): < 1 day → extreme, < 3 → high, < 8 → elevated, otherwise low (also low when
-the position cannot be liquidated). The simulator never recommends a leverage value.
+the broker's DEFAULT_DAILY_VOL, 2 %): < 1 → extreme, < 3 → high, < 8 → elevated, otherwise low (also low when the
+position cannot be liquidated). The simulator never recommends a leverage value.
 """
 
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 from app.paper_engine.broker import DEFAULT_DAILY_VOL
 from app.paper_engine.models import ExecutionConfig
@@ -34,9 +42,12 @@ DEFAULT_EQUITY = 10_000.0
 DEFAULT_ENTRY_PRICE = 100.0
 DEFAULT_NOTIONAL = 2_000.0
 MAX_LEVERAGE = 100.0  # same upper bound as the paper order API (422 above 100)
+MAX_SPREAD_BPS = 1_000.0
 LEVERAGE_SET: tuple[int, ...] = (1, 2, 5, 10, 20, 50, 100)
 CURVE_RANGE_PCT = 20
 CURVE_STEP_PCT = 1
+DEFAULT_SCENARIO_MOVES: tuple[float, ...] = (-10.0, -5.0, -2.0, -1.0, 1.0, 2.0, 5.0, 10.0)
+MAX_SCENARIO_MOVES = 25
 MARGIN_MODE = "cross"
 LEVERAGE_WARNING = "Higher leverage magnifies exposure and liquidation risk."
 VIRTUAL_NOTICE = "Симулация с виртуална сметка — няма реални пари и няма реална поръчка."
@@ -75,6 +86,10 @@ def _lev(v: float) -> str:
     return f"{v:g}x"
 
 
+def _price(v: float) -> str:
+    return f"{v:,.6g}"
+
+
 def tidy(obj):
     """Round every float to 10 significant digits (removes binary noise such as -22.499999999999996)."""
     if isinstance(obj, float):
@@ -88,10 +103,11 @@ def tidy(obj):
 
 def cross_liquidation_price(
     *, side: str, entry_price: float, units: float, equity_after_fees: float, maintenance: float
-):
-    """Price where equity + uPnL reaches the maintenance margin (the broker's stop-out), all else equal.
+) -> float | None:
+    """MID price where equity + uPnL reaches the maintenance margin (the broker's stop-out), all else equal.
 
-    Returns None when no positive price reaches it (long positions smaller than the buffer)."""
+    `entry_price` is the mid price at entry. Returns None when no positive price reaches it (long positions smaller
+    than the account's buffer); `entry_price` when the account is already at/below maintenance."""
     sign = _sign(side)
     if units <= 0:
         return None
@@ -120,41 +136,114 @@ def risk_level(distance_pct: float | None, daily_vol_pct: float) -> str:
     return "low"
 
 
-def _outcome(
+# ------------------------------------------------------------------------------------------- position model
+@dataclass(frozen=True, slots=True)
+class _Pos:
+    sign: int
+    leverage: float
+    entry: float  # fill price
+    mid: float  # mid price at entry
+    hs_rate: float  # half spread as a fraction of the price (spread_bps / 20 000)
+    units: float
+    notional: float
+    margin: float
+    fee_rate: float
+    entry_fee: float
+    spread_cost: float
+    equity: float
+    equity0: float  # equity right after the fill (fees and spread paid)
+    maintenance: float
+    liquidation: float | None  # cross-margin stop-out MID price
+
+    @property
+    def side(self) -> str:
+        return "long" if self.sign > 0 else "short"
+
+    def exit_price(self, mid: float) -> float:
+        """The price the position closes at when the mid is `mid` (bid for a long, ask for a short)."""
+        return mid - self.sign * mid * self.hs_rate
+
+    def can_open(self) -> bool:
+        """The broker's free-margin check for a market order: margin + taker fee ≤ free margin (= equity, flat)."""
+        return self.margin + self.entry_fee <= self.equity * (1 + _EPS)
+
+
+def _position(
     *,
     sign: int,
-    entry: float,
-    units: float,
+    leverage: float,
+    notional: float,
     equity: float,
-    equity0: float,
-    entry_fee: float,
+    entry_price: float,
+    maintenance_ratio: float,
     fee_rate: float,
-    margin: float,
-    liquidation: float | None,
-    move_pct: float,
-) -> dict:
-    """P/L when the price moves straight by `move_pct` (stop-out at the liquidation price is applied)."""
-    moved = entry * (1 + move_pct / 100)
-    liquidated = liquidation is not None and sign * (moved - liquidation) <= _EPS * max(1.0, entry)
-    exit_px = liquidation if liquidated else moved
-    gross = sign * units * (exit_px - entry)
-    exit_fee = units * exit_px * fee_rate
-    pnl = gross - entry_fee - exit_fee
+    spread_bps: float,
+) -> _Pos:
+    hs_rate = spread_bps / 20_000
+    hs = entry_price * hs_rate
+    mid = entry_price - sign * hs
+    units = notional / entry_price
+    margin = notional / leverage
+    entry_fee = notional * fee_rate
+    spread_cost = 2 * hs * units
+    equity0 = equity - entry_fee - spread_cost
+    maintenance = maintenance_ratio * margin
+    liq = cross_liquidation_price(
+        side="long" if sign > 0 else "short",
+        entry_price=mid,
+        units=units,
+        equity_after_fees=equity0,
+        maintenance=maintenance,
+    )
+    return _Pos(
+        sign=sign,
+        leverage=float(leverage),
+        entry=entry_price,
+        mid=mid,
+        hs_rate=hs_rate,
+        units=units,
+        notional=notional,
+        margin=margin,
+        fee_rate=fee_rate,
+        entry_fee=entry_fee,
+        spread_cost=spread_cost,
+        equity=equity,
+        equity0=equity0,
+        maintenance=maintenance,
+        liquidation=liq,
+    )
+
+
+def _close_at(pos: _Pos, exit_px: float) -> tuple[float, float, float]:
+    """(gross, exit fee, net P/L) when the position closes at `exit_px`."""
+    gross = pos.sign * pos.units * (exit_px - pos.entry)
+    exit_fee = pos.units * exit_px * pos.fee_rate
+    return gross, exit_fee, gross - pos.entry_fee - exit_fee
+
+
+def _outcome(pos: _Pos, move_pct: float) -> dict:
+    """P/L when the MID moves straight by `move_pct` from mid₀ (the stop-out at the liquidation price is applied)."""
+    moved = pos.mid * (1 + move_pct / 100)
+    liq = pos.liquidation
+    liquidated = liq is not None and pos.sign * (moved - liq) <= _EPS * max(1.0, pos.mid)
+    exit_px = pos.exit_price(liq if liquidated else moved)
+    gross, exit_fee, pnl = _close_at(pos, exit_px)
+    equity_open = pos.equity - pos.entry_fee + gross  # account equity while the position is still open
     return {
         "price": moved,
         "exit_price": exit_px,
         "gross_pnl": gross,
         "exit_fee": exit_fee,
         "pnl": pnl,
-        "equity_after": equity + pnl,
-        "pnl_pct_of_equity": pnl / equity * 100,
-        "pnl_pct_of_margin": pnl / margin * 100 if margin > 0 else None,
+        "equity_after": pos.equity + pnl,
+        "pnl_pct_of_equity": pnl / pos.equity * 100,
+        "pnl_pct_of_margin": pnl / pos.margin * 100,
         "liquidated": liquidated,
-        "margin_level_pct": None if liquidated else (equity0 + gross) / margin * 100 if margin > 0 else None,
+        "margin_level_pct": None if liquidated else equity_open / pos.margin * 100,
     }
 
 
-def _validate(equity, leverage, entry_price, maintenance_ratio, fee_rate, price_move_pct) -> None:
+def _validate(equity, leverage, entry_price, maintenance_ratio, fee_rate, price_move_pct, spread_bps) -> None:
     if not (math.isfinite(equity) and equity > 0):
         raise LeverageInputError("Сметката (equity) трябва да е положително число.")
     if not (math.isfinite(leverage) and 1 - _EPS <= leverage <= MAX_LEVERAGE + _EPS):
@@ -165,8 +254,82 @@ def _validate(equity, leverage, entry_price, maintenance_ratio, fee_rate, price_
         raise LeverageInputError("Maintenance ratio трябва да е между 0 и 1.")
     if not (math.isfinite(fee_rate) and 0 <= fee_rate < 1):
         raise LeverageInputError("Таксата трябва да е между 0 и 1 (дял от notional).")
+    if not (math.isfinite(spread_bps) and 0 <= spread_bps <= MAX_SPREAD_BPS):
+        raise LeverageInputError(f"Spread-ът трябва да е между 0 и {MAX_SPREAD_BPS:g} bps.")
     if not (math.isfinite(price_move_pct) and price_move_pct > -100):
         raise LeverageInputError("Движението на цената трябва да е над −100%.")
+
+
+def _check_levels(sign: int, entry: float, stop: float | None, target: float | None) -> None:
+    side = "LONG" if sign > 0 else "SHORT"
+    if stop is not None:
+        if not (math.isfinite(stop) and stop > 0):
+            raise LeverageInputError("Stop цената трябва да е положителна.")
+        if sign * (entry - stop) <= 0:
+            where = "ПОД" if sign > 0 else "НАД"
+            raise LeverageInputError(f"При {side} stop loss трябва да е {where} цената на влизане.")
+    if target is not None:
+        if not (math.isfinite(target) and target > 0):
+            raise LeverageInputError("Target цената трябва да е положителна.")
+        if sign * (target - entry) <= 0:
+            where = "НАД" if sign > 0 else "ПОД"
+            raise LeverageInputError(f"При {side} take profit трябва да е {where} цената на влизане.")
+
+
+def _scenario_rows(pos: _Pos, moves) -> list[dict]:
+    rows = []
+    for mv in moves:
+        o = _outcome(pos, float(mv))
+        rows.append(
+            {
+                "move_pct": float(mv),
+                "price": o["price"],
+                "pnl": o["pnl"],
+                "pnl_pct_of_equity": o["pnl_pct_of_equity"],
+                "pnl_pct_of_margin": o["pnl_pct_of_margin"],
+                "equity_after": o["equity_after"],
+                "liquidated": o["liquidated"],
+            }
+        )
+    return rows
+
+
+def _plan(pos: _Pos, stop: float | None, target: float | None) -> dict | None:
+    """P/L at the stop and the target (exit exactly at the price, fees included) + R:R."""
+    if stop is None and target is None:
+        return None
+    liq = pos.liquidation
+    out: dict = {
+        "stop_price": stop,
+        "target_price": target,
+        "stop_distance_pct": abs(pos.entry - stop) / pos.entry * 100 if stop is not None else None,
+        "target_distance_pct": abs(target - pos.entry) / pos.entry * 100 if target is not None else None,
+        "reward_risk": (abs(target - pos.entry) / abs(pos.entry - stop))
+        if stop is not None and target is not None
+        else None,
+        "liquidation_before_stop": bool(stop is not None and liq is not None and pos.sign * (stop - liq) <= 0),
+        "pnl_at_stop": None,
+        "risk_amount": None,
+        "risk_pct_of_equity": None,
+        "pnl_at_target": None,
+        "pnl_at_target_pct_of_equity": None,
+        "reward_risk_net": None,
+    }
+    if stop is not None:
+        if out["liquidation_before_stop"]:
+            pnl = _close_at(pos, pos.exit_price(liq))[2]  # the stop-out happens first
+        else:
+            pnl = _close_at(pos, stop)[2]
+        out["pnl_at_stop"] = pnl
+        out["risk_amount"] = max(0.0, -pnl)
+        out["risk_pct_of_equity"] = max(0.0, -pnl) / pos.equity * 100
+    if target is not None:
+        pnl_t = _close_at(pos, target)[2]
+        out["pnl_at_target"] = pnl_t
+        out["pnl_at_target_pct_of_equity"] = pnl_t / pos.equity * 100
+        if out["risk_amount"]:
+            out["reward_risk_net"] = pnl_t / out["risk_amount"]
+    return out
 
 
 def simulate(
@@ -180,81 +343,97 @@ def simulate(
     price_move_pct: float = 0.0,
     maintenance_ratio: float = MAINTENANCE_RATIO,
     fee_rate: float = 0.0,
+    spread_bps: float = 0.0,
     daily_vol_pct: float | None = None,
+    stop_price: float | None = None,
+    target_price: float | None = None,
+    risk_pct: float | None = None,
+    scenario_moves: list[float] | tuple[float, ...] | None = DEFAULT_SCENARIO_MOVES,
 ) -> dict:
     """One leveraged position on a flat virtual account (see the module docstring for every formula).
 
-    Give the position size (`position_notional`) OR the margin you put up (`margin`, notional = margin × L);
-    with neither the default $2,000 notional is used."""
-    _validate(equity, leverage, entry_price, maintenance_ratio, fee_rate, price_move_pct)
+    Size it with ONE of: `position_notional` (position size), `margin` (notional = margin × L) or `risk_pct` of the
+    equity lost at `stop_price` (fees included); with none the default $2,000 notional is used."""
+    _validate(equity, leverage, entry_price, maintenance_ratio, fee_rate, price_move_pct, spread_bps)
     sign = _sign(side)
-    if position_notional is not None and margin is not None:
-        raise LeverageInputError("Задай или размер на позицията, или margin — не и двете.")
+    _check_levels(sign, entry_price, stop_price, target_price)
+    given = [
+        name for name, v in (("notional", position_notional), ("margin", margin), ("risk", risk_pct)) if v is not None
+    ]
+    if len(given) > 1:
+        raise LeverageInputError("Задай само едно от: размер на позицията, margin или risk %.")
     if margin is not None:
         if not (math.isfinite(margin) and margin > 0):
             raise LeverageInputError("Margin трябва да е положително число.")
         basis, notional = "margin", margin * leverage
+    elif risk_pct is not None:
+        if not (math.isfinite(risk_pct) and 0 < risk_pct <= 100):
+            raise LeverageInputError("Risk % трябва да е между 0 и 100.")
+        if stop_price is None:
+            raise LeverageInputError("За размер по риск е нужен stop loss.")
+        per_unit = sign * (entry_price - stop_price) + fee_rate * (entry_price + stop_price)
+        basis, notional = "risk", equity * risk_pct / 100 / per_unit * entry_price
     else:
         notional = DEFAULT_NOTIONAL if position_notional is None else position_notional
         if not (math.isfinite(notional) and notional > 0):
             raise LeverageInputError("Размерът на позицията трябва да е положително число.")
         basis = "notional"
+    moves = list(DEFAULT_SCENARIO_MOVES if scenario_moves is None else scenario_moves)
+    if len(moves) > MAX_SCENARIO_MOVES or any(not (math.isfinite(float(m)) and float(m) > -100) for m in moves):
+        raise LeverageInputError(f"Сценариите са до {MAX_SCENARIO_MOVES} движения, всяко над −100%.")
     vol_source = "given"
     if daily_vol_pct is None or not (math.isfinite(daily_vol_pct) and daily_vol_pct > 0):
         daily_vol_pct, vol_source = DEFAULT_DAILY_VOL * 100, "default"
 
-    req_margin = notional / leverage
-    units = notional / entry_price
-    entry_fee = notional * fee_rate
-    equity0 = equity - entry_fee
-    maintenance = maintenance_ratio * req_margin
-    can_open = req_margin + entry_fee <= equity * (1 + _EPS)
-    liq = cross_liquidation_price(
-        side=side, entry_price=entry_price, units=units, equity_after_fees=equity0, maintenance=maintenance
-    )
-    liq_dist = abs(entry_price - liq) / entry_price * 100 if liq is not None else None
-    iso_dist = isolated_liquidation_distance_pct(leverage, maintenance_ratio)
-    iso_price = entry_price * (1 - sign * iso_dist / 100)
-    out = _outcome(
+    pos = _position(
         sign=sign,
-        entry=entry_price,
-        units=units,
+        leverage=leverage,
+        notional=notional,
         equity=equity,
-        equity0=equity0,
-        entry_fee=entry_fee,
+        entry_price=entry_price,
+        maintenance_ratio=maintenance_ratio,
         fee_rate=fee_rate,
-        margin=req_margin,
-        liquidation=liq,
-        move_pct=price_move_pct,
+        spread_bps=spread_bps,
     )
-    level = risk_level(liq_dist, daily_vol_pct)
+    liq = pos.liquidation
+    liq_dist = abs(pos.mid - liq) / pos.mid * 100 if liq is not None else None
+    iso_dist = isolated_liquidation_distance_pct(leverage, maintenance_ratio)
+    iso_price = pos.mid * (1 - sign * iso_dist / 100)
+    out = _outcome(pos, price_move_pct)
+    can_open = pos.can_open()
+    round_trip = pos.entry_fee + pos.units * pos.entry * fee_rate + pos.spread_cost
     result = {
         "equity": equity,
         "leverage": float(leverage),
-        "side": "long" if sign > 0 else "short",
+        "side": pos.side,
         "basis": basis,
+        "risk_pct": risk_pct,
         "margin_mode": MARGIN_MODE,
         "entry_price": entry_price,
+        "mid_price": pos.mid,
         "position_notional": notional,
-        "units": units,
-        "required_margin": req_margin,
-        "entry_fee": entry_fee,
+        "units": pos.units,
+        "required_margin": pos.margin,
+        "entry_fee": pos.entry_fee,
         "fee_rate": fee_rate,
-        "free_margin": equity0 - req_margin,
-        "margin_level_pct": equity0 / req_margin * 100,
+        "spread_bps": spread_bps,
+        "spread_cost": pos.spread_cost,
+        "round_trip_cost": round_trip,
+        "free_margin": pos.equity0 - pos.margin,
+        "margin_level_pct": pos.equity0 / pos.margin * 100,
         "maintenance_ratio": maintenance_ratio,
-        "maintenance_margin": maintenance,
+        "maintenance_margin": pos.maintenance,
         "effective_leverage": notional / equity,
         "can_open": can_open,
         "cannot_open_reason": None
         if can_open
         else (
-            f"Недостатъчен свободен margin: нужни са {_usd(req_margin + entry_fee)}, сметката е {_usd(equity)}. "
+            f"Недостатъчен свободен margin: нужни са {_usd(pos.margin + pos.entry_fee)}, сметката е {_usd(equity)}. "
             "Paper брокерът би отхвърлил тази поръчка."
         ),
         "price_move_pct": price_move_pct,
         "price_after_move": out["price"],
-        "price_change": out["price"] - entry_price,
+        "price_change": out["price"] - pos.mid,
         "exit_price": out["exit_price"],
         "gross_pnl_at_move": out["gross_pnl"],
         "exit_fee": out["exit_fee"],
@@ -267,15 +446,17 @@ def simulate(
         "liquidation_price": liq,
         "liquidation_reachable": liq is not None,
         "liquidation_distance_pct": liq_dist,
-        "liquidation_move_pct": (liq / entry_price - 1) * 100 if liq is not None else None,
+        "liquidation_move_pct": (liq / pos.mid - 1) * 100 if liq is not None else None,
         "isolated_liquidation_price": iso_price if iso_price > 0 else None,
         "isolated_liquidation_distance_pct": iso_dist,
         "daily_vol_pct": daily_vol_pct,
         "daily_vol_source": vol_source,
         "liquidation_distance_daily_moves": liq_dist / daily_vol_pct if liq_dist is not None else None,
-        "risk_level": level,
+        "risk_level": risk_level(liq_dist, daily_vol_pct),
         "isolated_risk_level": risk_level(iso_dist, daily_vol_pct),
         "risk_levels": list(RISK_LEVELS),
+        "scenarios": _scenario_rows(pos, moves),
+        "plan": _plan(pos, stop_price, target_price),
     }
     result["notes"] = _notes(result)
     result["warning"] = _warning(result)
@@ -300,32 +481,39 @@ def _warning(r: dict) -> str:
         tail = f"Ликвидацията е на {_pct(d)} — голямо, но напълно възможно движение срещу теб."
     else:
         tail = f"Ликвидацията е далеч ({_pct(d)}), но загубата при движение срещу теб остава реална."
+    plan = r["plan"]
+    if plan and plan["liquidation_before_stop"]:
+        tail += " Stop loss-ът е отвъд цената на ликвидация — ликвидацията ще дойде преди него."
     return f"{LEVERAGE_WARNING} {tail}"
 
 
 def _notes(r: dict) -> list[str]:
-    side = "long" if r["side"] == "long" else "short"
     notes = [
-        f"Позиция {_usd(r['position_notional'])} ({side}) при {_lev(r['leverage'])}: блокира margin "
+        f"Позиция {_usd(r['position_notional'])} ({r['side']}) при {_lev(r['leverage'])}: блокира margin "
         f"{_usd(r['required_margin'])} = {_usd(r['position_notional'])} / {_lev(r['leverage'])}.",
         f"Експозицията е {r['effective_leverage']:.2f}x от сметката (effective leverage) — това определя колко силно "
         "движението на цената влияе на equity.",
     ]
+    if r["basis"] == "risk":
+        notes.insert(
+            0,
+            f"Размерът е изчислен по риска: {_pct(r['risk_pct'])} от сметката при stop {_price(r['plan']['stop_price'])} "
+            "(с таксите). Leverage-ът не променя този размер — променя само блокирания margin.",
+        )
     move = r["price_move_pct"]
     if move:
         notes.append(
-            f"Движение {move:+.2f}% → P/L {_usd(r['pnl_at_move'])} ({r['pnl_pct_of_equity']:+.2f}% от сметката"
-            + (f", {r['pnl_pct_of_margin']:+.1f}% от margin-а" if r["pnl_pct_of_margin"] is not None else "")
-            + ")."
+            f"Движение {move:+.2f}% → P/L {_usd(r['pnl_at_move'])} ({r['pnl_pct_of_equity']:+.2f}% от сметката, "
+            f"{r['pnl_pct_of_margin']:+.1f}% от margin-а)."
         )
     if r["liquidated_at_move"]:
         notes.append(
-            f"При това движение позицията е ликвидирана (stop-out) на {r['liquidation_price']:,.4g} — загубата спира "
-            f"там, но от сметката остават {_usd(r['equity_after'])}."
+            f"При това движение позицията е ликвидирана (stop-out) на {_price(r['liquidation_price'])} — загубата "
+            f"спира там, но от сметката остават {_usd(r['equity_after'])}."
         )
     if r["liquidation_price"] is not None and r["liquidation_distance_pct"]:
         notes.append(
-            f"Cross margin: ликвидация при {r['liquidation_price']:,.6g} ({r['liquidation_move_pct']:+.2f}%), когато "
+            f"Cross margin: ликвидация при {_price(r['liquidation_price'])} ({r['liquidation_move_pct']:+.2f}%), когато "
             f"equity падне до maintenance margin {_usd(r['maintenance_margin'])} "
             f"({r['maintenance_ratio'] * 100:.0f}% от използвания margin)."
         )
@@ -333,11 +521,28 @@ def _notes(r: dict) -> list[str]:
         f"Isolated margin (за сравнение): само margin-ът стои зад позицията → ликвидация след "
         f"~{_pct(r['isolated_liquidation_distance_pct'])} движение срещу теб."
     )
-    if r["fee_rate"]:
-        notes.append(f"Такси: {_usd(r['entry_fee'])} при влизане + {_usd(r['exit_fee'])} при излизане.")
+    if r["fee_rate"] or r["spread_cost"]:
+        exit_fee_estimate = r["position_notional"] * r["fee_rate"]
+        notes.append(
+            f"Разходи: такса {_usd(r['entry_fee'])} при влизане и ~{_usd(exit_fee_estimate)} при излизане, spread "
+            f"~{_usd(r['spread_cost'])} — общо ~{_usd(r['round_trip_cost'])} за отваряне и затваряне."
+        )
+    plan = r["plan"]
+    if plan and plan["pnl_at_stop"] is not None:
+        notes.append(
+            f"При stop {_price(plan['stop_price'])}: P/L {_usd(plan['pnl_at_stop'])} "
+            f"({-plan['risk_pct_of_equity']:+.2f}% от сметката)."
+        )
+    if plan and plan["pnl_at_target"] is not None:
+        notes.append(
+            f"При target {_price(plan['target_price'])}: P/L {_usd(plan['pnl_at_target'])} "
+            f"({plan['pnl_at_target_pct_of_equity']:+.2f}% от сметката)."
+            + (f" R:R {plan['reward_risk']:.2f}." if plan["reward_risk"] is not None else "")
+        )
     return notes
 
 
+# ------------------------------------------------------------------------------------------------ curves
 def _curve_series(
     *,
     leverage: float,
@@ -347,22 +552,22 @@ def _curve_series(
     sign: int,
     maintenance_ratio: float,
     fee_rate: float,
+    spread_bps: float,
     daily_vol_pct: float,
     moves: list[float],
 ) -> dict:
-    side = "long" if sign > 0 else "short"
-    m = notional / leverage
-    units = notional / entry_price
-    entry_fee = notional * fee_rate
-    equity0 = equity - entry_fee
-    liq = cross_liquidation_price(
-        side=side,
+    pos = _position(
+        sign=sign,
+        leverage=leverage,
+        notional=notional,
+        equity=equity,
         entry_price=entry_price,
-        units=units,
-        equity_after_fees=equity0,
-        maintenance=maintenance_ratio * m,
+        maintenance_ratio=maintenance_ratio,
+        fee_rate=fee_rate,
+        spread_bps=spread_bps,
     )
-    liq_move = (liq / entry_price - 1) * 100 if liq is not None else None
+    liq = pos.liquidation
+    liq_move = (liq / pos.mid - 1) * 100 if liq is not None else None
     grid = list(moves)
     lo, hi = min(moves), max(moves)
     if liq_move is not None and lo < liq_move < hi and all(abs(liq_move - x) > 1e-9 for x in grid):
@@ -370,18 +575,7 @@ def _curve_series(
         grid.sort()
     points = []
     for mv in grid:
-        o = _outcome(
-            sign=sign,
-            entry=entry_price,
-            units=units,
-            equity=equity,
-            equity0=equity0,
-            entry_fee=entry_fee,
-            fee_rate=fee_rate,
-            margin=m,
-            liquidation=liq,
-            move_pct=mv,
-        )
+        o = _outcome(pos, mv)
         points.append(
             {
                 "move_pct": round(mv, 6),
@@ -392,16 +586,15 @@ def _curve_series(
                 "at_liquidation": liq_move is not None and abs(mv - liq_move) <= 1e-9,
             }
         )
-    liq_dist = abs(liq_move) if liq_move is not None else None
     return {
         "leverage": float(leverage),
         "position_notional": notional,
-        "required_margin": m,
-        "can_open": m + entry_fee <= equity * (1 + _EPS),
+        "required_margin": pos.margin,
+        "can_open": pos.can_open(),
         "liquidation_price": liq,
         "liquidation_move_pct": liq_move,
         "isolated_liquidation_move_pct": -sign * isolated_liquidation_distance_pct(leverage, maintenance_ratio),
-        "risk_level": risk_level(liq_dist, daily_vol_pct),
+        "risk_level": risk_level(abs(liq_move) if liq_move is not None else None, daily_vol_pct),
         "points": points,
     }
 
@@ -415,6 +608,7 @@ def curves(
     side: str = "long",
     maintenance_ratio: float = MAINTENANCE_RATIO,
     fee_rate: float = 0.0,
+    spread_bps: float = 0.0,
     daily_vol_pct: float | None = None,
     leverages: tuple[int, ...] | list[float] = LEVERAGE_SET,
     range_pct: float = CURVE_RANGE_PCT,
@@ -442,6 +636,7 @@ def curves(
             sign=sign,
             maintenance_ratio=maintenance_ratio,
             fee_rate=fee_rate,
+            spread_bps=spread_bps,
             daily_vol_pct=vol,
             moves=moves,
         )
@@ -461,7 +656,8 @@ def curves(
 
 
 def simulate_with_curves(*, include_curves: bool = True, **kwargs) -> dict:
-    """simulate() + both curve families for the chart (same margin as this position / same position size).
+    """simulate() + both curve families for the chart: `curves` = the SAME MARGIN as this position at every
+    leverage (notional grows with L), `curves_same_notional` = the SAME POSITION SIZE (only margin/liquidation change).
 
     The curves do not depend on `price_move_pct`, so a UI can skip them (include_curves=False) while a slider moves."""
     r = simulate(**kwargs)
@@ -474,6 +670,7 @@ def simulate_with_curves(*, include_curves: bool = True, **kwargs) -> dict:
         side=r["side"],
         maintenance_ratio=r["maintenance_ratio"],
         fee_rate=r["fee_rate"],
+        spread_bps=r["spread_bps"],
         daily_vol_pct=r["daily_vol_pct"],
     )
     r["curves"] = curves(basis="margin", amount=r["required_margin"], **common)
@@ -481,6 +678,7 @@ def simulate_with_curves(*, include_curves: bool = True, **kwargs) -> dict:
     return r
 
 
+# ------------------------------------------------------------------------------------------ guided scenario
 def scenario(
     *,
     stake: float = DEFAULT_NOTIONAL,
@@ -521,6 +719,7 @@ def scenario(
                 "liquidation_move_pct": r["liquidation_move_pct"],
                 "isolated_liquidation_move_pct": -_sign(side) * r["isolated_liquidation_distance_pct"],
                 "risk_level": r["risk_level"],
+                "can_open": r["can_open"],
                 "text": text,
             }
         )

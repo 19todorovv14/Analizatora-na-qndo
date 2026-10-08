@@ -628,6 +628,16 @@ def grade(
                     f" сред {PIVOT} свещи преди и {PIVOT} след нея (толеранс ±{MATCH_BARS} свещи и "
                     f"{fmt(tol)} по цена)."
                 )
+                if idx >= len(candles) - PIVOT:
+                    text += (
+                        f" Свещта е сред последните {PIVOT} свещи на прозореца — след нея още няма {PIVOT} свещи, "
+                        "затова swing-ът не е потвърден (дори да изглежда като връх/дъно)."
+                    )
+                elif idx < PIVOT:
+                    text += (
+                        f" Свещта е сред първите {PIVOT} свещи на прозореца — преди нея няма {PIVOT} свещи за "
+                        "сравнение, затова не се оценява."
+                    )
                 if near is not None:
                     d = near.index - idx
                     where = f"{abs(d)} свещи {'по-късно' if d > 0 else 'по-рано'}" if d else "на същата свещ"
@@ -687,12 +697,34 @@ def grade(
                     "RETEST": f"Retest е връщане до пробитото ниво до {RETEST_BARS} свещи след breakout, при което "
                     "свещта затваря от страната на пробива.",
                 }[label]
-                text = (
-                    "Това събитие вече е маркирано."
+                taken = (
+                    ref.events[
+                        min(cands, key=lambda k: (not _accepts(ref.events[k], label), abs(ref.events[k].index - idx)))
+                    ]
                     if cands
-                    else f"Тук няма {label} по правилата на проверката. {rule}"
+                    else None
                 )
-                row.update(verdict="INCORRECT", explanation=text)
+                if taken is None:
+                    row.update(verdict="INCORRECT", explanation=f"Тук няма {label} по правилата на проверката. {rule}")
+                elif _accepts(taken, label):
+                    row.update(
+                        verdict="INCORRECT",
+                        expected_label=taken.type,
+                        explanation="Това събитие вече е маркирано — всяко събитие се отбелязва веднъж.",
+                    )
+                else:
+                    row.update(
+                        verdict="INCORRECT",
+                        expected_label=taken.type,
+                        explanation=f"Не е {label}. {event_text(taken, fmt)}",
+                    )
+                if taken is not None:
+                    row["matched_swing"] = {
+                        "time": taken.time,
+                        "price": taken.price,
+                        "kind": taken.type.lower(),
+                        "label": taken.type,
+                    }
             else:
                 best = min(free, key=lambda k: (not _accepts(ref.events[k], label), abs(ref.events[k].index - idx)))
                 e = ref.events[best]
