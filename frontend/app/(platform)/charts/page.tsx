@@ -1,144 +1,152 @@
 "use client";
 
-import Link from "next/link";
+import { Sparkles, Star, Wallet } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import useSWR from "swr";
 
-import { ChartWorkspace } from "@/components/charts/ChartWorkspace";
-import TradingChart from "@/components/charts/TradingChart";
+import { AIPanel } from "@/components/ai/AIPanel";
+import { ChartCanvas } from "@/components/charts/ChartCanvas";
+import { DrawToolbar } from "@/components/charts/ChartControls";
+import { WatchlistPanel } from "@/components/market/WatchlistPanel";
+import { CompareGrid } from "@/components/terminal/CompareGrid";
+import { readTerminalQuery, termKey } from "@/components/terminal/model";
+import { usePaperBottomPanel } from "@/components/terminal/PaperBottomPanel";
+import { PriceLevelChooser } from "@/components/terminal/PriceLevelChooser";
+import { TerminalLayout, useTerminalLayout } from "@/components/terminal/TerminalLayout";
+import { TerminalTopBar } from "@/components/terminal/TerminalTopBar";
+import { usePaperTerminal } from "@/components/terminal/usePaperTerminal";
+import { useTerminalHotkeys } from "@/components/terminal/useTerminalHotkeys";
+import { AccountBlock } from "@/components/trading/AccountBlock";
 import { OrderPanel } from "@/components/trading/OrderPanel";
-import { Button, Card, InfoTip, RegimeBadge } from "@/components/ui";
-import { fetcher } from "@/lib/api";
-import { TF_LABEL } from "@/lib/format";
-import { useAccount, useCandles, useLocalState } from "@/lib/hooks";
+import { useStoredState } from "@/components/ui";
+import { useLocalState } from "@/lib/hooks";
 import { useSession } from "@/lib/session";
-import type { CandlesResponse, Trade } from "@/lib/types";
 
-const COMPARE_HELP: Record<string, string> = {
-  "5m": "Lower timeframe = more noise. Подходящ за прецизен вход, не за посока.",
-  "1h": "Средна картина — swing структура за дни.",
-  "4h": "Higher timeframe = broader context.",
-  "1d": "Higher timeframe = broader context. Основният тренд и ключови нива.",
-};
+type RightTab = "ai" | "watchlist" | "trade";
+const RIGHT_TABS = [
+  { key: "ai", label: "AI", icon: Sparkles },
+  { key: "watchlist", label: "Watchlist", icon: Star },
+  { key: "trade", label: "Trade", icon: Wallet },
+];
+const asRightTab = (v: unknown) => (v === "ai" || v === "watchlist" || v === "trade" ? (v as RightTab) : undefined);
 
-function MiniChart({ symbol, tf }: { symbol: string; tf: string }) {
-  const { data } = useCandles(symbol, tf, [], 200);
-  const { data: regime } = useSWR<{ regime: string; trend: string }>(
-    `/market/regime?symbol=${encodeURIComponent(symbol)}&timeframe=${tf}`,
-    fetcher,
-    { revalidateOnFocus: false },
-  );
-  return (
-    <div className="rounded-md border border-line bg-panel p-2">
-      <div className="mb-1 flex items-center justify-between text-xs">
-        <span className="flex items-center gap-1 font-semibold">
-          {TF_LABEL[tf]} <InfoTip text={COMPARE_HELP[tf]} />
-        </span>
-        <RegimeBadge regime={regime?.regime} />
-      </div>
-      <TradingChart candles={data?.candles ?? []} precision={data?.precision ?? 2} height={230} volume={false} fitKey={`${symbol}${tf}`} visibleBars={120} />
-    </div>
-  );
-}
-
+/**
+ * PRO chart terminal: top bar (instrument search + quote, timeframes, indicators, chart type, compare,
+ * replay, screenshot, layout), left drawing tools, chart with volume / indicator panes, bottom panel
+ * (positions, orders, history, activity, replay + session clock), right panel (AI | Watchlist | Trade).
+ * Hotkeys: Alt+1…8 timeframes, H T R M tools, Esc cursor, B / S order side, "]" / "\" panels.
+ */
 export default function ChartsPage() {
   const { beginner } = useSession();
   const [symbol, setSymbol] = useLocalState("ta-chart-symbol", "BTC/USDT");
   const [timeframe, setTimeframe] = useLocalState("ta-chart-tf", "1h");
   const [compare, setCompare] = useState(false);
-  const [trade, setTrade] = useState(false);
-  const [price, setPrice] = useState<number | null>(null);
-  const [precision, setPrecision] = useState(2);
-  const { data: account, mutate } = useAccount(10000);
-  const { data: trades } = useSWR<{ trades: Trade[] }>("/paper/trades?limit=100", fetcher, { refreshInterval: 15000 });
+  const [rightTab, setRightTab] = useStoredState<RightTab>(termKey("charts", "right-tab"), "ai", { validate: asRightTab });
 
   useEffect(() => {
-    const s = new URLSearchParams(window.location.search).get("symbol");
-    if (s) setSymbol(s);
-  }, [setSymbol]);
+    const q = readTerminalQuery(window.location.search);
+    if (q.symbol) setSymbol(q.symbol);
+    if (q.timeframe) setTimeframe(q.timeframe);
+  }, [setSymbol, setTimeframe]);
 
-  const onData = useCallback((d: CandlesResponse) => {
-    if (d.candles.length) setPrice(d.candles[d.candles.length - 1].close);
-    setPrecision(d.precision);
-  }, []);
+  const layout = useTerminalLayout("charts", { right: { def: 340 }, bottom: { def: 200 }, bottomOpen: false });
+  const term = usePaperTerminal({ storageKey: "charts", symbol, timeframe, beginner });
+  const { ws, ticket, view, instrument } = term;
+
+  const { dispatch } = ticket;
+  const { openRight } = layout;
+  const onSide = useCallback(
+    (side: "buy" | "sell") => {
+      dispatch({ type: "side", side });
+      setRightTab("trade");
+      openRight();
+    },
+    [dispatch, setRightTab, openRight],
+  );
+  useTerminalHotkeys({ onTimeframe: setTimeframe, onTool: ws.setTool, onSide, toggleRight: layout.toggleRight, toggleBottom: layout.toggleBottom });
+
+  const bottom = usePaperBottomPanel({
+    route: "charts",
+    view,
+    viewError: term.account.error,
+    trades: term.trades.data?.trades,
+    beginner,
+    symbol,
+    timeframe,
+    marketStatus: instrument?.market_status,
+    onChanged: term.refresh,
+    onSelectSymbol: setSymbol,
+    capture: term.captureTrade,
+  });
+
+  // click-to-set levels only while the order ticket is on screen
+  const tradeVisible = rightTab === "trade" && (layout.desktop ? layout.rightOpen : layout.sheetOpen);
 
   return (
-    <div className="space-y-3">
-      <div className="flex gap-3">
-        <div className="min-w-0 flex-1">
-          {compare ? (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" onClick={() => setCompare(false)}>
-                  ← Single chart
-                </Button>
-                <span className="text-sm font-semibold">{symbol} — multi-timeframe</span>
-                <span className="text-xs text-muted">Lower timeframe = more noise · Higher timeframe = broader context</span>
-              </div>
-              <div className="grid gap-2 md:grid-cols-2">
-                {["5m", "1h", "4h", "1d"].map((tf) => (
-                  <MiniChart key={tf} symbol={symbol} tf={tf} />
-                ))}
-              </div>
-            </div>
-          ) : (
-            <ChartWorkspace
-              symbol={symbol}
-              onSymbol={setSymbol}
-              timeframe={timeframe}
-              onTimeframe={setTimeframe}
-              positions={account?.positions}
-              trades={trades?.trades}
-              beginner={beginner}
-              onData={onData}
-              height={600}
-              headerRight={
-                <>
-                  <Button size="sm" variant="outline" onClick={() => setCompare(true)}>
-                    Compare TFs
-                  </Button>
-                  <Link href={`/replay?symbol=${encodeURIComponent(symbol)}&tf=${timeframe}`}>
-                    <Button size="sm" variant="outline">
-                      ⏯ Replay
-                    </Button>
-                  </Link>
-                  <Link href={`/ai?symbol=${encodeURIComponent(symbol)}&tf=${timeframe}`}>
-                    <Button size="sm" variant="outline">
-                      🤖 Analyze
-                    </Button>
-                  </Link>
-                  <Button size="sm" variant={trade ? "primary" : "up"} onClick={() => setTrade((t) => !t)}>
-                    Paper Trade
-                  </Button>
-                </>
-              }
-            />
-          )}
-        </div>
-        {trade && !compare && (
-          <div className="w-80 shrink-0">
-            <Card title="Order panel" right={<button className="text-muted" onClick={() => setTrade(false)}>✕</button>}>
+    <TerminalLayout
+      layout={layout}
+      top={
+        <TerminalTopBar
+          layout={layout}
+          ws={ws}
+          symbol={symbol}
+          onSymbol={setSymbol}
+          timeframe={timeframe}
+          onTimeframe={setTimeframe}
+          instrument={instrument}
+          precision={term.precision}
+          beginner={beginner}
+          onScreenshot={term.screenshot}
+          compare={{ on: compare, toggle: () => setCompare((c) => !c) }}
+        />
+      }
+      left={
+        compare
+          ? undefined
+          : (orientation) => (
+              <DrawToolbar tool={ws.tool} onTool={ws.setTool} color={ws.color} onColor={ws.setColor} onClear={ws.clearDrawings} orientation={orientation} />
+            )
+      }
+      chart={
+        compare ? (
+          <CompareGrid symbol={symbol} onExit={() => setCompare(false)} />
+        ) : (
+          <ChartCanvas ws={ws} beginner={beginner} onPriceClick={tradeVisible ? term.onPriceClick : undefined}>
+            {tradeVisible && term.pick && <PriceLevelChooser pick={term.pick} precision={term.precision} onChoose={term.chooseLevel} onClose={term.closePick} />}
+          </ChartCanvas>
+        )
+      }
+      right={{
+        tabs: RIGHT_TABS,
+        active: rightTab,
+        onActive: (k) => setRightTab(asRightTab(k) ?? "ai"),
+        render: (tab) =>
+          tab === "watchlist" ? (
+            <WatchlistPanel activeSymbol={symbol} onSelect={setSymbol} compact className="h-full" />
+          ) : tab === "trade" ? (
+            <div className="space-y-4 p-3">
+              <AccountBlock view={view} advanced={!beginner} />
+              <div className="h-px bg-white/[0.06]" aria-hidden />
               <OrderPanel
-                key={symbol}
                 symbol={symbol}
-                price={price}
-                precision={precision}
-                equity={account?.equity ?? 10000}
+                price={ws.lastPrice}
+                precision={term.precision}
+                equity={view?.equity ?? 0}
                 timeframe={timeframe}
                 beginner={beginner}
-                onPlaced={() => mutate()}
+                ticket={ticket}
+                account={view}
+                instrument={instrument}
+                onPlaced={term.onPlaced}
+                chartPick
               />
-            </Card>
-          </div>
-        )}
-      </div>
-      {beginner && !compare && (
-        <Card title="Как да четеш графиката" bodyClass="text-sm text-muted space-y-1">
-          <p>• Всяка свещ е един период ({TF_LABEL[timeframe]}). Зелена = затворила по-високо, червена = по-ниско. Задръж мишката за Open/High/Low/Close.</p>
-          <p>• Стълбчетата долу са обемът. Линиите са индикатори (меню ƒx) — те описват миналото, не предсказват.</p>
-          <p>• Инструментите вляво чертаят нива и зони. Пробвай Horizontal line върху очевиден support.</p>
-        </Card>
-      )}
-    </div>
+            </div>
+          ) : (
+            <div className="h-full p-3">
+              <AIPanel symbol={symbol} timeframe={timeframe} draft={term.draft} compact className="h-full" />
+            </div>
+          ),
+      }}
+      bottom={bottom}
+    />
   );
 }
