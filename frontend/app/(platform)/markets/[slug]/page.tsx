@@ -1,6 +1,6 @@
-import { ChartCandlestick } from "lucide-react";
+import type { Metadata } from "next";
 
-import { ComingSoon } from "@/components/shell/ComingSoon";
+import { AssetView } from "@/components/market/asset/AssetView";
 
 function decode(slug: string): string {
   try {
@@ -10,20 +10,13 @@ function decode(slug: string): string {
   }
 }
 
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await params;
+  return { title: `${decode(slug)} — Markets · Trading Academy` };
+}
+
+/** /markets/[slug] — asset page. `params` is a Promise in Next 16; the page itself is a client view. */
 export default async function AssetPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const name = decode(slug);
-  return (
-    <ComingSoon
-      title={name}
-      subtitle="Страница на актива"
-      icon={ChartCandlestick}
-      description={`Тук ще има графика, ключови показатели, източник на данните, новини и AI обяснение за ${name}. Липсващите данни ще се показват като DATA NOT AVAILABLE — никога измислени числа.`}
-      planned={["Графика с timeframes и индикатори", "Обзор: цена, промяна, обем, източник (LIVE / DEMO)", "AI обяснение и бърз paper trade"]}
-      links={[
-        { href: "/charts", label: "Отвори Charts", primary: true },
-        { href: "/markets", label: "Всички пазари" },
-      ]}
-    />
-  );
+  return <AssetView slug={decode(slug)} />;
 }

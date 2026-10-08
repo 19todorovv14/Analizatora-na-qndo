@@ -1,9 +1,30 @@
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** machine-readable error code of the response body, e.g. "DATA_NOT_AVAILABLE" (null when absent) */
+  code: string | null;
+  /** the parsed JSON error body (null when the body was not JSON) */
+  data: unknown;
+  constructor(status: number, message: string, data: unknown = null) {
     super(message);
     this.status = status;
+    this.data = data ?? null;
+    const code = data && typeof data === "object" ? (data as { code?: unknown }).code : undefined;
+    this.code = typeof code === "string" && code ? code : null;
   }
+}
+
+/** True for the backend's "no provider can serve this instrument" error (503 {code: "DATA_NOT_AVAILABLE"}). */
+export function isDataNotAvailable(e: unknown): boolean {
+  return e instanceof ApiError && e.code === "DATA_NOT_AVAILABLE";
+}
+
+/** The `reason` of a structured error body (DATA_NOT_AVAILABLE / MARKET_DATA_ERROR), else the message. */
+export function errorReason(e: unknown): string {
+  if (e instanceof ApiError && e.data && typeof e.data === "object") {
+    const reason = (e.data as { reason?: unknown }).reason;
+    if (typeof reason === "string" && reason) return reason;
+  }
+  return errorMessage(e);
 }
 
 type Options = { method?: string; body?: unknown; signal?: AbortSignal; redirectOn401?: boolean };
@@ -34,9 +55,10 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
   });
   if (!res.ok) {
     let message = res.statusText || `HTTP ${res.status}`;
+    let data: unknown = null;
     try {
-      const j = await res.json();
-      message = detailToMessage(j.detail, message);
+      data = await res.json();
+      message = detailToMessage((data as { detail?: unknown } | null)?.detail, message);
     } catch {
       /* not JSON */
     }
@@ -45,7 +67,7 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
       // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       window.location.href = "/login";
     }
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, message, data);
   }
   return (await res.json()) as T;
 }

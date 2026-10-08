@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 
 import { DRAW_COLORS, TOOL_INFO, type Tool } from "@/components/charts/drawings";
+import { AssetSearchCombobox } from "@/components/market/AssetSearchCombobox";
+import { hasWidthClass, splitPickerClass } from "@/components/market/model";
 import { InfoTip, Term } from "@/components/ui";
 import { fetcher } from "@/lib/api";
 import { TF_LABEL, TIMEFRAMES, cx, fmtPrice } from "@/lib/format";
@@ -14,23 +16,23 @@ export function useAssets() {
   return useSWR<{ assets: Asset[] }>("/market/assets", fetcher, { revalidateOnFocus: false });
 }
 
+/**
+ * Instrument picker (owned by S1): a search combobox over the whole catalog (curated + synced
+ * instruments) built on components/market/AssetSearchCombobox. Keeps the old {value, onChange,
+ * className} contract: layout classes (width, flex) go to the wrapper, typography/padding classes
+ * (e.g. "!py-1 text-xs") to the text field.
+ */
 export function SymbolPicker({ value, onChange, className }: { value: string; onChange: (s: string) => void; className?: string }) {
-  const { data } = useAssets();
-  const groups: Record<string, Asset[]> = {};
-  (data?.assets ?? []).forEach((a) => (groups[a.asset_class] ??= []).push(a));
+  const { wrapper, input } = splitPickerClass(className);
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} className={cx("input w-auto min-w-36 font-semibold", className)}>
-      {Object.entries(groups).map(([cls, list]) => (
-        <optgroup key={cls} label={cls.toUpperCase()}>
-          {list.map((a) => (
-            <option key={a.symbol} value={a.symbol}>
-              {a.symbol} — {a.name}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-      {!data && <option value={value}>{value}</option>}
-    </select>
+    <AssetSearchCombobox
+      value={value}
+      onChange={onChange}
+      className={hasWidthClass(wrapper) ? wrapper : cx("w-60 max-w-full", wrapper)}
+      inputClassName={input}
+      size={/(^|\s)!?text-xs\b/.test(input) ? "sm" : "md"}
+      placeholder="Търси инструмент…"
+    />
   );
 }
 

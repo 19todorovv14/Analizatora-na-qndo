@@ -1,16 +1,12 @@
-import { Star } from "lucide-react";
+import type { Metadata } from "next";
 
-import { ComingSoon } from "@/components/shell/ComingSoon";
+import { WatchlistPage } from "@/components/market/watchlist/WatchlistPage";
 
-export default function WatchlistPage() {
-  return (
-    <ComingSoon
-      title="Watchlist"
-      subtitle="Активите, които следиш."
-      icon={Star}
-      description="Тук ще бъде пълният ти списък за наблюдение — цени, промяна, тренд и AI статус, с подреждане и бързо отваряне на графиката. Засега списъкът е в Dashboard."
-      planned={["Неограничен списък с подреждане", "Цена, промяна, обем и тренд", "AI статус: setup / wait / no trade"]}
-      links={[{ href: "/dashboard", label: "Watchlist в Dashboard", primary: true }]}
-    />
-  );
+export const metadata: Metadata = {
+  title: "Watchlist — Trading Academy",
+  description: "Твоят watchlist: цена, промяна, обем, волатилност, тренд, режим и AI статус.",
+};
+
+export default function WatchlistRoute() {
+  return <WatchlistPage />;
 }
