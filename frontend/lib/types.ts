@@ -1,7 +1,14 @@
 export type Candle = { time: number; open: number; high: number; low: number; close: number; volume: number };
 export type Point = { time: number; value: number };
 
-export type DataSource = { id: string; name: string; is_live: boolean; disclaimer: string };
+export type DataSource = {
+  id: string;
+  name: string;
+  is_live: boolean;
+  disclaimer: string;
+  /** F1: effective status of the provider ("demo" = synthetic data, always labelled DEMO) */
+  status?: "live" | "delayed" | "demo" | "unavailable";
+};
 
 export type IndicatorPayload = {
   name: string;
@@ -99,6 +106,24 @@ export type Position = {
   setup: string | null;
   timeframe: string | null;
   risk_pct: number | null;
+  /* ── S2 v2 (additive) ── */
+  /** false → no market price could be read: mark_price falls back to entry_price, show DATA NOT AVAILABLE instead of P/L */
+  mark_available?: boolean;
+  mark_ts?: number | null;
+  max_leverage?: number;
+  maintenance_margin?: number;
+  margin_mode?: string;
+  /** USD notional */
+  notional?: number;
+  /** unrealized P/L in the instrument's quote currency */
+  unrealized_pnl_quote?: number;
+  liquidation_distance_pct?: number | null;
+  /** account currency (USD) */
+  currency?: string;
+  quote_currency?: string;
+  /** quote → USD rate used for the mark */
+  fx_rate?: number | null;
+  sl_history?: { ts: number; sl: number | null; source: string }[];
 };
 
 export type Order = {
@@ -117,6 +142,15 @@ export type Order = {
   slippage_cost: number;
   reject_reason: string | null;
   created_ts: number;
+  /* ── S2 v2 (additive) ── */
+  reduce_only?: boolean;
+  position_id?: string | null;
+  updated_ts?: number;
+  reason?: string | null;
+  /** leverage requested with the order (null = account default) */
+  leverage?: number | null;
+  /** leverage the fill uses (absent on closing orders) */
+  effective_leverage?: number | null;
 };
 
 export type Trade = {
@@ -148,7 +182,22 @@ export type AccountView = {
     initial_balance: number;
     leverage: number;
     execution: Record<string, unknown>;
+    currency?: string;
+    created_ts?: number;
+    last_synced_ts?: number | null;
   };
+  /* ── S2 v2 (additive) — money in the account currency (USD) ── */
+  currency?: string;
+  /** alias of free_margin */
+  available_margin?: number;
+  maintenance_margin?: number;
+  /** equity / used margin as a percentage (null when flat) */
+  margin_level_pct?: number | null;
+  stop_out_level?: number;
+  margin_mode?: string;
+  default_leverage?: number;
+  effective_leverage?: number;
+  exposure_pct?: number;
   balance: number;
   equity: number;
   unrealized_pnl: number;
@@ -180,13 +229,117 @@ export type OrderPreview = {
     potential_loss: number | null;
     potential_profit: number | null;
     reward_risk: number | null;
+    /** S2 v2: money above is in `currency` (USD); `quote` repeats it in the quote currency */
+    currency?: string;
+    quote_currency?: string;
+    quote?: { notional: number; potential_loss: number | null; potential_profit: number | null };
   };
   findings: RiskFinding[];
   leverage: number;
   margin_required: number;
   free_margin: number;
   fee_estimate: number;
+  /* ── S2 v2 (additive): money in USD, prices in the quote currency ── */
+  leverage_source?: "order" | "account";
+  max_leverage?: number;
+  default_leverage?: number;
+  margin_mode?: string;
+  available_margin?: number;
+  used_margin_after?: number;
+  free_margin_after?: number;
+  equity_after?: number;
+  maintenance_margin?: number;
+  stop_out_level?: number;
+  margin_level_after?: number | null;
+  margin_level_after_pct?: number | null;
+  liquidation_estimate?: number | null;
+  liquidation_distance_pct?: number | null;
+  effective_leverage_after?: number;
+  spread_cost?: number;
+  notional?: number;
+  notional_quote?: number;
+  currency?: string;
+  quote_currency?: string;
+  fx_rate?: number | null;
+  conversion?: Conversion | null;
+  sizing?: OrderSizing | null;
+  leverage_warning?: string;
 };
+
+/** POST /paper/orders/preview — `sizing` (risk-based quantity in USD for any quote currency). */
+export type OrderSizing = {
+  per_unit_risk: number | null;
+  max_qty: number | null;
+  min_qty: number;
+  qty_step: number;
+  risk_pct: number | null;
+  risk_amount: number | null;
+  qty_for_risk: number | null;
+  qty_for_risk_capped: number | null;
+  capped_by_margin: boolean;
+  below_min_qty: boolean;
+};
+
+/** Quote-currency → account-currency (USD) conversion used by the paper engine. */
+export type Conversion = {
+  quote_currency: string;
+  account_currency: string;
+  method: "identity" | "inverse" | "cross" | "fixed" | string;
+  route: { currency: string; symbol: string; invert: boolean } | null;
+  rate: number | null;
+  available: boolean;
+  reason: string | null;
+};
+
+/** F1 sessions.market_status */
+export type MarketSession = {
+  status: "open" | "closed" | "break" | string;
+  label?: string | null;
+  session?: string | null;
+  session_name?: string | null;
+  timezone?: string | null;
+  next_change_ts?: number | null;
+  note?: string | null;
+};
+
+/** GET /paper/instrument?symbol= — order-panel parameters for one instrument. */
+export type PaperInstrument = {
+  symbol: string;
+  name: string;
+  asset_class: string;
+  price_precision: number;
+  qty_step: number;
+  min_qty: number;
+  maker_fee: number;
+  taker_fee: number;
+  spread_bps: number;
+  max_leverage: number;
+  /** leverage used when the order sends none = min(account leverage, max_leverage) */
+  default_leverage: number;
+  account_leverage: number;
+  margin_mode: string;
+  stop_out_level: number;
+  /** account currency (USD) */
+  currency: string;
+  quote_currency: string;
+  daily_vol: number;
+  daily_vol_source: string;
+  leverage_warning: string;
+  execution: Record<string, unknown>;
+  available: boolean;
+  unavailable_reason: string | null;
+  code: string | null;
+  bid: number | null;
+  ask: number | null;
+  mid: number | null;
+  spread: number | null;
+  source: DataSource | null;
+  conversion: Conversion | null;
+  market_status?: MarketSession | null;
+};
+
+/** GET /paper/events */
+export type PaperEvent = { id: number; ts: number; type: string; message: string; data?: Record<string, unknown> };
 
 export type Review = {
   title: string;
