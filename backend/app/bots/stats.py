@@ -23,6 +23,7 @@ FILTER_KEYS = (
     "stop_unavailable",
     "position_size",
     "margin",
+    "fx_unavailable",
 )
 FILTER_LABELS = {
     "regime": "Regime filter",
@@ -36,6 +37,7 @@ FILTER_LABELS = {
     "stop_unavailable": "Няма stop distance (ATR)",
     "position_size": "Количество под минималното",
     "margin": "Отхвърлена поръчка (недостатъчен margin)",
+    "fx_unavailable": "Няма курс за превалутиране",
 }
 MAX_CONDITION_LABELS = 48  # bounded dict even for the largest allowed strategy (4 blocks × 12 conditions)
 SIDES = (("long", "entry_long"), ("short", "entry_short"))

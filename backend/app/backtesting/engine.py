@@ -18,6 +18,7 @@ from app.backtesting.metrics import SECONDS_PER_MONTH, drawdown_curve, sharpe_li
 from app.market.base import AssetSpec, Candle
 from app.market.timeframes import tf_seconds
 from app.paper_engine.broker import PaperBroker
+from app.paper_engine.fx import ConversionUnavailableError
 from app.paper_engine.models import BUY, MARKET, SELL, AccountState, Bar, ExecutionConfig
 from app.strategies.rules import IndicatorCache, StrategyDefinition, evaluate, stop_distance, target_distance
 
@@ -161,12 +162,23 @@ def run_backtest(
             continue
         td = target_distance(defn, cache, i, sd)
         signals += 1
-        fee_rate = spec.taker_fee if settings.fees_enabled else 0.0
-        per_unit = sd + c.close * 2 * fee_rate
-        qty = snap_equity * risk_pct / 100 / per_unit
-        # cap by FREE margin — identical to equity when flat (always the case with max_open_positions = 1)
-        qty = min(qty, max(snap["free_margin"], 0.0) * leverage / c.close * 0.95)
-        qty = spec.round_qty(qty)
+        # size in the account currency (USD): the risk is the same whatever the instrument is quoted in
+        stop = c.close - sd if side == BUY else c.close + sd
+        try:
+            qty = broker.qty_for_risk(
+                sym,
+                side=side,
+                entry=c.close,
+                stop=stop,
+                risk_amount=snap_equity * risk_pct / 100,
+                leverage=leverage,
+                ts=c.ts + sec,
+                cap_by_margin=False,
+            )
+            # cap by FREE margin — identical to equity when flat (always the case with max_open_positions = 1)
+            qty = spec.round_qty(min(qty, broker.max_qty(sym, entry=c.close, leverage=leverage, ts=c.ts + sec) * 0.95))
+        except ConversionUnavailableError:
+            continue
         if qty < spec.min_qty:
             continue
         broker.place_order(

@@ -18,6 +18,7 @@ from app.market.base import MarketDataError
 from app.market.catalog import SPECS, get_asset
 from app.market.timeframes import align, last_closed_open, tf_seconds
 from app.models import Bot, BotLog, BotRun, PaperAccount, PaperPosition, Strategy, User
+from app.paper_engine.fx import ConversionUnavailableError
 from app.paper_engine.models import BUY, MARKET, SELL, Bar
 from app.services import market_service, paper_service
 from app.strategies.rules import IndicatorCache, StrategyDefinition, evaluate, stop_distance, target_distance
@@ -301,11 +302,28 @@ def run_bot(db: Session, bot: Bot, now: int | None = None) -> int:
                 continue
             td = target_distance(defn, cache, i, sd)
             risk_pct = float(cfg.get("risk_per_trade_pct", defn.risk_per_trade_pct))
-            per_unit = sd + c.close * 2 * spec.taker_fee
-            qty = snap["equity"] * risk_pct / 100 / per_unit
-            # cap by FREE margin (equals equity when flat) so a 2nd/3rd position is not rejected by the broker
-            free = max(snap["free_margin"], 0.0)
-            qty = spec.round_qty(min(qty, free * broker.leverage_for(bot.symbol) / c.close * 0.95))
+            # size in the account currency (USD) so the risk is the same whatever the quote currency
+            stop = c.close - sd if side == BUY else c.close + sd
+            lev = broker.leverage_for(bot.symbol)
+            try:
+                qty = broker.qty_for_risk(
+                    bot.symbol,
+                    side=side,
+                    entry=c.close,
+                    stop=stop,
+                    risk_amount=snap["equity"] * risk_pct / 100,
+                    leverage=lev,
+                    ts=close_ts,
+                    cap_by_margin=False,
+                )
+                # cap by FREE margin (equals equity when flat) so a 2nd/3rd position is not rejected by the broker
+                qty = spec.round_qty(
+                    min(qty, broker.max_qty(bot.symbol, entry=c.close, leverage=lev, ts=close_ts) * 0.95)
+                )
+            except ConversionUnavailableError as exc:
+                bot_stats.record_filter(stats, "fx_unavailable")
+                log(db, bot, "warn", f"{exc} — сделката е пропусната.", close_ts)
+                continue
             if qty < spec.min_qty:
                 bot_stats.record_filter(stats, "position_size")
                 log(db, bot, "warn", "Изчисленото количество е под минималното — сделката е пропусната.", close_ts)
