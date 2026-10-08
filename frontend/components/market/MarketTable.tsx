@@ -3,9 +3,10 @@
 import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useLayoutEffect, useState } from "react";
 
 import { ClassBadge, ClassIcon } from "@/components/market/ClassBadge";
-import { assetHref, pricePrecision, quoteOk, type SortKey, type SortState } from "@/components/market/model";
+import { assetHref, fitColumns, gridMinWidth, pricePrecision, quoteOk, type SortKey, type SortState } from "@/components/market/model";
 import { ChangeCell, PriceCell, QuoteSparkline, RangeCell, TrendBadge, VolumeCell } from "@/components/market/QuoteCells";
 import type { MarketItem } from "@/components/market/types";
 import { RegimeBadge, Skeleton, SourceBadge, Term, VirtualList } from "@/components/ui";
@@ -35,6 +36,8 @@ export type MarketColumn<T> = {
   align?: "left" | "right" | "center";
   /** makes the header clickable when MarketTable gets onSort */
   sortKey?: SortKey;
+  /** optional column: when the table is too narrow for every column, the highest hidePriority goes first */
+  hidePriority?: number;
   render: (row: T) => React.ReactNode;
 };
 
@@ -54,7 +57,8 @@ export type MarketTableProps<T extends MarketItem> = {
   loading?: boolean;
   /** shown instead of rows when there are none */
   empty?: React.ReactNode;
-  /** below this width the table scrolls horizontally (default 760 px) */
+  /** minimum table width in px (default 760); the table never gets narrower than its visible columns need
+   *  — below that it scrolls sideways as a whole (header + rows) */
   minWidth?: number;
   activeSymbol?: string | null;
   className?: string;
@@ -70,7 +74,7 @@ export function builtinColumn<T extends MarketItem>(key: MarketColumnKey): Marke
       return {
         key,
         header: "Инструмент",
-        width: "minmax(190px,2.2fr)",
+        width: "minmax(150px,2fr)",
         sortKey: "symbol",
         render: (r) => (
           <span className="flex min-w-0 items-center gap-2.5">
@@ -87,25 +91,25 @@ export function builtinColumn<T extends MarketItem>(key: MarketColumnKey): Marke
     case "name":
       return { key, header: "Име", width: "minmax(140px,1.5fr)", sortKey: "name", render: (r) => <span className="truncate text-muted">{r.name}</span> };
     case "class":
-      return { key, header: "Клас", width: "104px", render: (r) => <ClassBadge cls={r.asset_class} /> };
+      return { key, header: "Клас", width: "96px", render: (r) => <ClassBadge cls={r.asset_class} /> };
     case "price":
       return {
         key,
         header: "Цена",
-        width: "104px",
+        width: "96px",
         align: "right",
         sortKey: "price",
         render: (r) => <PriceCell quote={r.quote} precision={pricePrecision(r)} className="text-[12.5px]" />,
       };
     case "change":
-      return { key, header: "24h", width: "80px", align: "right", sortKey: "change", render: (r) => <ChangeCell quote={r.quote} /> };
+      return { key, header: "24h", width: "76px", align: "right", sortKey: "change", render: (r) => <ChangeCell quote={r.quote} /> };
     case "change7d":
-      return { key, header: "7d", width: "80px", align: "right", sortKey: "change7d", render: (r) => <ChangeCell quote={r.quote} field="change_7d_pct" /> };
+      return { key, header: "7d", width: "76px", align: "right", sortKey: "change7d", render: (r) => <ChangeCell quote={r.quote} field="change_7d_pct" /> };
     case "volume":
       return {
         key,
         header: <Term k="volume">Volume 24h</Term>,
-        width: "96px",
+        width: "84px",
         align: "right",
         sortKey: "volume",
         render: (r) => <VolumeCell quote={r.quote} className="text-[12px]" />,
@@ -114,28 +118,28 @@ export function builtinColumn<T extends MarketItem>(key: MarketColumnKey): Marke
       return {
         key,
         header: <Term k="volatility">Range 24h</Term>,
-        width: "84px",
+        width: "76px",
         align: "right",
         sortKey: "range",
         render: (r) => <RangeCell quote={r.quote} className="text-[12px]" />,
       };
     case "trend":
-      return { key, header: <Term k="trend">Trend</Term>, width: "104px", sortKey: "trend", render: (r) => <TrendBadge trend={quoteOk(r.quote) ? r.quote.trend : null} /> };
+      return { key, header: <Term k="trend">Trend</Term>, width: "96px", sortKey: "trend", render: (r) => <TrendBadge trend={quoteOk(r.quote) ? r.quote.trend : null} /> };
     case "regime":
       return {
         key,
         header: <Term k="regime">Regime</Term>,
-        width: "150px",
+        width: "132px",
         sortKey: "regime",
         render: (r) => (quoteOk(r.quote) && r.quote.regime ? <RegimeBadge regime={r.quote.regime} /> : <span className="text-xs text-faint">—</span>),
       };
     case "sparkline":
-      return { key, header: "Графика", width: "76px", align: "center", render: (r) => <QuoteSparkline quote={r.quote} width={68} height={22} /> };
+      return { key, header: "Графика", width: "72px", align: "center", render: (r) => <QuoteSparkline quote={r.quote} width={64} height={22} /> };
     case "source":
       return {
         key,
         header: "Данни",
-        width: "84px",
+        width: "72px",
         align: "right",
         render: (r) => {
           const src = r.quote?.source ?? r.source;
@@ -149,17 +153,22 @@ export function builtinColumn<T extends MarketItem>(key: MarketColumnKey): Marke
         },
       };
     case "exchange":
-      return { key, header: "Борса", width: "104px", render: (r) => <span className="truncate text-xs text-muted">{r.exchange || "—"}</span> };
+      return { key, header: "Борса", width: "96px", render: (r) => <span className="truncate text-xs text-muted">{r.exchange || "—"}</span> };
     case "sector":
-      return { key, header: "Сектор", width: "minmax(110px,1fr)", render: (r) => <span className="truncate text-xs text-muted">{r.sector || r.category || "—"}</span> };
+      return { key, header: "Сектор", width: "minmax(100px,1fr)", render: (r) => <span className="truncate text-xs text-muted">{r.sector || r.category || "—"}</span> };
   }
 }
 
 const ALIGN = { left: "justify-start text-left", right: "justify-end text-right", center: "justify-center text-center" } as const;
+/** gap-2 between cells and px-3 on every row (kept in sync with the classes below) */
+const GAP_PX = 8;
+const PAD_PX = 24;
 
 /**
  * Dense, sortable instrument table (div grid with table roles). Rows open /markets/{slug} unless
- * onRowClick is given. `virtualized` windows the rows (VirtualList); narrow screens scroll sideways.
+ * onRowClick is given. `virtualized` windows the rows (VirtualList). When the table is too narrow,
+ * optional columns (hidePriority) are dropped first; if the rest still does not fit, header and rows
+ * scroll sideways together.
  */
 export function MarketTable<T extends MarketItem>({
   rows,
@@ -178,8 +187,24 @@ export function MarketTable<T extends MarketItem>({
   ariaLabel = "Инструменти",
 }: MarketTableProps<T>) {
   const router = useRouter();
-  const cols = columns.map((c) => (typeof c === "string" ? builtinColumn<T>(c) : c));
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(0);
+  // measured before paint, so optional columns that do not fit never flash in at mount
+  useLayoutEffect(() => {
+    if (!scroller || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => setWidth(Math.round(entries[0]?.contentRect.width ?? scroller.clientWidth)));
+    ro.observe(scroller);
+    return () => ro.disconnect();
+  }, [scroller]);
+
+  const cols = fitColumns(
+    columns.map((c) => (typeof c === "string" ? builtinColumn<T>(c) : c)),
+    width,
+    GAP_PX,
+    PAD_PX,
+  );
   const template = cols.map((c) => c.width).join(" ");
+  const tableMin = Math.max(minWidth, gridMinWidth(cols.map((c) => c.width), GAP_PX, PAD_PX));
 
   const open = (row: T) => (onRowClick ? onRowClick(row) : router.push(assetHref(row)));
 
@@ -193,7 +218,7 @@ export function MarketTable<T extends MarketItem>({
           open(row);
         }}
         className={cx(
-          "grid h-full cursor-pointer items-center gap-2.5 border-b border-white/[0.045] px-3 transition-colors duration-100",
+          "grid h-full cursor-pointer items-center gap-2 border-b border-white/[0.045] px-3 transition-colors duration-100",
           active ? "bg-accent/[0.08]" : "hover:bg-white/[0.035]",
         )}
         style={{ gridTemplateColumns: template }}
@@ -210,7 +235,7 @@ export function MarketTable<T extends MarketItem>({
   const header = (
     <div
       role="row"
-      className="grid h-9 items-center gap-2.5 border-b border-white/[0.07] bg-surface/80 px-3 text-[10.5px] font-semibold uppercase tracking-[0.07em] text-faint"
+      className="grid h-9 items-center gap-2 border-b border-white/[0.07] bg-surface/80 px-3 text-[10.5px] font-semibold uppercase tracking-[0.07em] text-faint"
       style={{ gridTemplateColumns: template }}
     >
       {cols.map((c) => {
@@ -250,7 +275,7 @@ export function MarketTable<T extends MarketItem>({
     body = (
       <div role="rowgroup" aria-busy="true">
         {Array.from({ length: 8 }, (_, i) => (
-          <div key={i} className="grid items-center gap-2.5 border-b border-white/[0.04] px-3" style={{ gridTemplateColumns: template, height: rowHeight }} aria-hidden>
+          <div key={i} className="grid items-center gap-2 border-b border-white/[0.04] px-3" style={{ gridTemplateColumns: template, height: rowHeight }} aria-hidden>
             {cols.map((c, j) => (
               <Skeleton key={c.key} className={cx("h-3", c.align === "right" && "ml-auto")} style={{ width: j === 0 ? "70%" : `${40 + ((i * 7 + j * 13) % 40)}%` }} />
             ))}
@@ -287,8 +312,8 @@ export function MarketTable<T extends MarketItem>({
   return (
     // `relative`: absolutely positioned descendants (sr-only labels) must be clipped by this scroller,
     // otherwise they widen the whole page on phones
-    <div className={cx("relative min-w-0 overflow-x-auto", className)}>
-      <div role="table" aria-label={ariaLabel} aria-rowcount={rows.length + 1} style={{ minWidth }}>
+    <div ref={setScroller} className={cx("relative min-w-0 overflow-x-auto", className)}>
+      <div role="table" aria-label={ariaLabel} aria-rowcount={rows.length + 1} style={{ minWidth: tableMin }}>
         {header}
         {body}
       </div>

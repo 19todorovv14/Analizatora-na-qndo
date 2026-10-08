@@ -1,6 +1,6 @@
 "use client";
 
-import { History, Star } from "lucide-react";
+import { History, Star, type LucideIcon } from "lucide-react";
 import useSWR from "swr";
 
 import { useQuotes } from "@/components/market/hooks";
@@ -14,6 +14,23 @@ const ROWS = 5;
 
 function pickVisible(items: PersonalPayload["items"] | undefined, tab: CategoryTab) {
   return (items ?? []).filter((a) => inTab(a, tab)).slice(0, ROWS);
+}
+
+/** Empty card body: the full EmptyState from md up, one slim line on phones (the movers stay near the top). */
+function EmptyBody({ icon: Icon, title, description }: { icon: LucideIcon; title: string; description: string }) {
+  return (
+    <>
+      <p className="flex items-start gap-2 px-4 py-3 text-xs leading-relaxed text-muted md:hidden">
+        <Icon size={13} strokeWidth={2} className="mt-0.5 shrink-0 text-faint" aria-hidden />
+        <span>
+          <span className="font-medium text-text">{title}.</span> {description}
+        </span>
+      </p>
+      <div className="hidden p-3 md:block">
+        <EmptyState compact icon={Icon} title={title} description={description} />
+      </div>
+    </>
+  );
 }
 
 /** Favorites + Recently viewed cards of the explorer (filtered by the active category tab). */
@@ -43,14 +60,11 @@ export function PersonalCards({ tab }: { tab: CategoryTab }) {
             <ErrorState title="Любимите не се заредиха" onRetry={() => fav.mutate()} className="py-6" />
           </div>
         ) : fav.data && !favItems.length ? (
-          <div className="p-3">
-            <EmptyState
-              compact
-              icon={Star}
-              title={`Няма любими${scopeNote}`}
-              description="Отвори актив и натисни звездата — любимите са бърз достъп до инструментите, които търгуваш най-често."
-            />
-          </div>
+          <EmptyBody
+            icon={Star}
+            title={`Няма любими${scopeNote}`}
+            description="Отвори актив и натисни звездата — любимите са бърз достъп до инструментите, които търгуваш най-често."
+          />
         ) : (
           <QuoteList items={withQuote(favItems)} loading={!fav.data} rows={ROWS} />
         )}
@@ -69,9 +83,7 @@ export function PersonalCards({ tab }: { tab: CategoryTab }) {
             <ErrorState title="Историята не се зареди" onRetry={() => rec.mutate()} className="py-6" />
           </div>
         ) : rec.data && !recItems.length ? (
-          <div className="p-3">
-            <EmptyState compact icon={History} title={`Още няма разгледани активи${scopeNote}`} description="Активите, които отваряш, ще се появяват тук." />
-          </div>
+          <EmptyBody icon={History} title={`Още няма разгледани активи${scopeNote}`} description="Активите, които отваряш, ще се появяват тук." />
         ) : (
           <QuoteList items={withQuote(recItems)} loading={!rec.data} rows={ROWS} />
         )}

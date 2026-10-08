@@ -13,13 +13,16 @@ import {
   chartHref,
   chunk,
   cleanReason,
+  comboKeyAction,
   decisionTone,
+  fitColumns,
   fmtCompact,
   fmtCountdown,
   fmtPctPlain,
   fmtPctSigned,
   fmtQuotePrice,
   fmtUsdCompact,
+  gridMinWidth,
   hasWidthClass,
   inTab,
   isListKind,
@@ -344,5 +347,92 @@ describe("SymbolPicker class contract", () => {
     assert.ok(hasWidthClass("sm:max-w-[15rem]"));
     assert.ok(!hasWidthClass(""));
     assert.ok(!hasWidthClass("mt-2 ml-auto"));
+  });
+});
+
+describe("search combobox keyboard (comboKeyAction)", () => {
+  const base = { open: true, count: 4, active: 0, stale: false };
+
+  test("arrows open a closed list, then move the highlight with wrap-around", () => {
+    assert.deepEqual(comboKeyAction("ArrowDown", { ...base, open: false }), { type: "open" });
+    assert.deepEqual(comboKeyAction("ArrowUp", { ...base, open: false }), { type: "open" });
+    assert.deepEqual(comboKeyAction("ArrowDown", base), { type: "move", active: 1 });
+    assert.deepEqual(comboKeyAction("ArrowDown", { ...base, active: 3 }), { type: "move", active: 0 });
+    assert.deepEqual(comboKeyAction("ArrowUp", base), { type: "move", active: 3 });
+    assert.deepEqual(comboKeyAction("ArrowUp", { ...base, active: 2 }), { type: "move", active: 1 });
+    // an index left over from a longer list is clamped first
+    assert.deepEqual(comboKeyAction("ArrowDown", { ...base, active: 9 }), { type: "move", active: 0 });
+    assert.deepEqual(comboKeyAction("ArrowDown", { ...base, count: 0 }), { type: "move", active: 0 });
+  });
+
+  test("Enter picks the highlighted fresh row; opens a closed list; nothing to pick → none", () => {
+    assert.deepEqual(comboKeyAction("Enter", { ...base, active: 2 }), { type: "select", index: 2 });
+    assert.deepEqual(comboKeyAction("Enter", { ...base, active: 7 }), { type: "select", index: 3 });
+    assert.deepEqual(comboKeyAction("Enter", { ...base, open: false }), { type: "open" });
+    assert.deepEqual(comboKeyAction("Enter", { ...base, count: 0 }), { type: "none" });
+  });
+
+  test("Enter while the rows are stale (typed faster than the debounce) waits for the fresh results", () => {
+    assert.deepEqual(comboKeyAction("Enter", { ...base, stale: true }), { type: "defer" });
+    assert.deepEqual(comboKeyAction("Enter", { ...base, stale: true, count: 0 }), { type: "defer" });
+    assert.deepEqual(comboKeyAction("Enter", { ...base, stale: true, navigated: false }), { type: "defer" });
+    // …unless the user moved the highlight with the arrows: the row they see is their choice
+    assert.deepEqual(comboKeyAction("Enter", { ...base, stale: true, navigated: true, active: 1 }), { type: "select", index: 1 });
+    assert.deepEqual(comboKeyAction("Enter", { ...base, stale: true, navigated: true, count: 0 }), { type: "defer" });
+  });
+
+  test("Esc closes an open list (consumed), blurs a closed field; Tab closes without stealing focus", () => {
+    assert.deepEqual(comboKeyAction("Escape", base), { type: "close", prevent: true });
+    assert.deepEqual(comboKeyAction("Escape", { ...base, open: false }), { type: "blur" });
+    assert.deepEqual(comboKeyAction("Tab", base), { type: "close", prevent: false });
+    assert.deepEqual(comboKeyAction("Tab", { ...base, open: false }), { type: "none" });
+  });
+
+  test("other keys are left to the text field", () => {
+    for (const k of ["a", "Home", "End", "ArrowLeft", "ArrowRight", "Backspace", " "]) assert.deepEqual(comboKeyAction(k, base), { type: "none" });
+  });
+});
+
+describe("tables: column fitting", () => {
+  test("gridMinWidth sums px tracks and minmax minimums, plus gaps and padding", () => {
+    assert.equal(gridMinWidth(["96px", "minmax(150px,2fr)", "1fr", "auto"], 8, 24), 96 + 150 + 3 * 8 + 24);
+    assert.equal(gridMinWidth(["minmax( 120px , 1.4fr )", "40px"]), 160);
+    assert.equal(gridMinWidth([], 8, 24), 24);
+    assert.equal(gridMinWidth(["12.5px", "10px"], 0, 0), 23);
+  });
+
+  const cols = [
+    { key: "symbol", width: "minmax(150px,2fr)" },
+    { key: "price", width: "96px" },
+    { key: "volume", width: "84px", hidePriority: 3 },
+    { key: "range", width: "76px", hidePriority: 1 },
+    { key: "trend", width: "96px", hidePriority: 2 },
+    { key: "ai", width: "minmax(120px,1.4fr)" },
+  ];
+  const keys = (w: number) => fitColumns(cols, w, 8, 24).map((c) => c.key);
+  const full = gridMinWidth(cols.map((c) => c.width), 8, 24);
+
+  test("everything while the width is unknown or wide enough", () => {
+    assert.deepEqual(keys(0), ["symbol", "price", "volume", "range", "trend", "ai"]);
+    assert.deepEqual(keys(full), ["symbol", "price", "volume", "range", "trend", "ai"]);
+  });
+
+  test("optional columns go highest priority first, only until the rest fits; order is kept", () => {
+    assert.deepEqual(keys(full - 1), ["symbol", "price", "range", "trend", "ai"]);
+    assert.deepEqual(keys(full - 92), ["symbol", "price", "range", "trend", "ai"]);
+    assert.deepEqual(keys(full - 93), ["symbol", "price", "range", "ai"]);
+    assert.deepEqual(keys(full - 92 - 104 - 1), ["symbol", "price", "ai"]);
+  });
+
+  test("required columns always stay (the table scrolls sideways instead)", () => {
+    assert.deepEqual(keys(200), ["symbol", "price", "ai"]);
+    assert.deepEqual(fitColumns([{ width: "500px" }], 100), [{ width: "500px" }]);
+  });
+
+  test("the real watchlist / catalog widths fit a 1280 px screen (≈ 998 px card) without hiding", () => {
+    const watch = ["minmax(150px,2fr)", "96px", "76px", "84px", "76px", "96px", "132px", "minmax(120px,1.4fr)", "40px"];
+    const catalog = ["minmax(150px,2fr)", "96px", "76px", "76px", "84px", "76px", "96px", "72px", "minmax(100px,1fr)", "72px"];
+    assert.ok(gridMinWidth(watch, 8, 24) <= 983, `watchlist ${gridMinWidth(watch, 8, 24)} (fits even next to a 15 px scrollbar)`);
+    assert.ok(gridMinWidth(catalog, 8, 24) <= 998, `catalog ${gridMinWidth(catalog, 8, 24)}`);
   });
 });

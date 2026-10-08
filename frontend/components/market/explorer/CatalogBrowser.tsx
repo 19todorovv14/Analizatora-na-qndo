@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import useSWR from "swr";
 
 import { useQuotes } from "@/components/market/hooks";
-import { MarketTable } from "@/components/market/MarketTable";
+import { MarketTable, builtinColumn, type MarketColumn } from "@/components/market/MarketTable";
 import type { CategoryTab } from "@/components/market/model";
 import type { CatalogPayload, MarketItem } from "@/components/market/types";
 import { Button, Card, EmptyState, ErrorState } from "@/components/ui";
@@ -14,6 +14,20 @@ import { cx } from "@/lib/format";
 import { useDebounced } from "@/lib/hooks";
 
 export const CATALOG_PAGE_SIZE = 50;
+
+/** Catalog columns; on narrower screens 7d, then the sparkline, then the sector make room (hidePriority). */
+const CATALOG_COLUMNS: MarketColumn<MarketItem>[] = [
+  builtinColumn("symbol"),
+  builtinColumn("price"),
+  builtinColumn("change"),
+  { ...builtinColumn<MarketItem>("change7d"), hidePriority: 3 },
+  builtinColumn("volume"),
+  builtinColumn("range"),
+  builtinColumn("trend"),
+  { ...builtinColumn<MarketItem>("sparkline"), hidePriority: 2 },
+  { ...builtinColumn<MarketItem>("sector"), hidePriority: 1 },
+  builtinColumn("source"),
+];
 
 /** "" = server default: relevance while filtering by text, popularity otherwise */
 type Sort = "" | "popularity" | "relevance" | "symbol" | "name";
@@ -151,8 +165,8 @@ export function CatalogBrowser({ tab }: { tab: CategoryTab }) {
             loading={!data}
             virtualized
             height={Math.min(Math.max(rows.length, 1), 12) * 46}
-            columns={["symbol", "price", "change", "change7d", "volume", "range", "trend", "sparkline", "sector", "source"]}
-            minWidth={980}
+            columns={CATALOG_COLUMNS}
+            minWidth={640}
             ariaLabel="Каталог с инструменти"
             empty={
               <EmptyState

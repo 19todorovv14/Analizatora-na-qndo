@@ -14,6 +14,7 @@ import { AiAnalysisBody, AiAnalysisCard } from "../asset/AiAnalysisCard";
 import { AboutCard, EducationCard, KeyStatsCard, RelatedAssets } from "../asset/AssetSections";
 import { AssetView } from "../asset/AssetView";
 import { AssetSearchCombobox } from "../AssetSearchCombobox";
+import { SymbolPicker } from "@/components/charts/ChartControls";
 import { ClassBadge, ClassIcon } from "../ClassBadge";
 import { CatalogBrowser, catalogKey } from "../explorer/CatalogBrowser";
 import { MarketsExplorer } from "../explorer/MarketsExplorer";
@@ -123,6 +124,16 @@ describe("QuoteList / MarketMovers", () => {
     assert.equal((text(out).match(/\+\d+\.\d\d%/g) ?? []).length, gainersList.items.length);
   });
 
+  test("the list is a size container: two sparkline tiers, arrow-less pill in narrow cards", () => {
+    const out = render(h(QuoteList, { items: gainersList.items.slice(0, 2), kind: "gainers" }));
+    assert.match(out, /<ul class="@container /);
+    assert.equal((out.match(/@min-\[20rem\]:@max-\[24rem\]:block/g) ?? []).length, 2, "small sparkline per row");
+    assert.equal((out.match(/hidden shrink-0 @min-\[24rem\]:block/g) ?? []).length, 2, "full sparkline per row");
+    assert.match(out, /@max-\[24rem\]:\[&amp;&gt;svg\]:hidden/);
+    const plain = render(h(QuoteList, { items: gainersList.items.slice(0, 2), sparkline: false }));
+    assert.doesNotMatch(plain, /<svg[^>]*width="52"/);
+  });
+
   test("onSelect turns rows into buttons (terminal usage)", () => {
     const out = render(h(QuoteList, { items: gainersList.items, onSelect: () => {}, activeSymbol: gainersList.items[0].symbol }));
     assert.doesNotMatch(out, /href="\/markets\//);
@@ -198,6 +209,14 @@ describe("MarketTable", () => {
     for (const r of rows) assert.ok(out.includes(`href="/markets/${r.slug}"`));
     const t = text(out);
     ["Инструмент", "Цена", "24h", "7d", "Volume 24h", "Range 24h", "Trend", "Данни"].forEach((hd) => assert.ok(t.includes(hd), hd));
+  });
+
+  test("min width follows the visible column tracks, so header and rows scroll sideways together", () => {
+    const out = render(h(MarketTable, { rows, columns: ["symbol", "price", "change"] }));
+    assert.match(out, /role="table"[^>]*style="min-width:760px"/, "the 760 px floor wins for three columns");
+    const wide = render(h(MarketTable, { rows, minWidth: 300 }));
+    // default columns: 150 + 96 + 76 + 76 + 84 + 76 + 96 + 72 + 72 + 8 gaps × 8 + 24 padding
+    assert.match(wide, /role="table"[^>]*style="min-width:886px"/);
   });
 
   test("sortable headers expose aria-sort", () => {
@@ -282,6 +301,43 @@ describe("AssetSearchCombobox", () => {
     assert.match(out, /placeholder="Добави…"/);
     assert.match(out, /value=""/);
     assert.doesNotMatch(out, /w-56/);
+  });
+
+  test("the list is closed until focus; no options are rendered on the server", () => {
+    const out = render(h(AssetSearchCombobox, { value: "", onChange: () => {}, clearOnSelect: true }));
+    assert.doesNotMatch(out, /role="listbox"|role="option"/);
+    assert.doesNotMatch(out, /aria-activedescendant=/);
+    assert.match(out, /aria-autocomplete="list"/);
+  });
+});
+
+describe("SymbolPicker (ChartControls) keeps its {value, onChange, className} contract", () => {
+  const fb = { "/market/search?q=BTC%2FUSDT&limit=8": { query: "btc/usdt", total: 1, results: [btcAsset.instrument] } };
+  const wrapperOf = (out: string) => out.match(/^<div class="([^"]*)"/)?.[1] ?? "";
+  const inputOf = (out: string) => out.match(/<input[^>]*class="([^"]*)"/)?.[1] ?? "";
+
+  test("a search combobox (not a native <select>) showing the current symbol", () => {
+    const out = render(h(SymbolPicker, { value: "BTC/USDT", onChange: () => {} }), fb);
+    assert.doesNotMatch(out, /<select/);
+    assert.match(out, /role="combobox"/);
+    assert.match(out, /value="BTC\/USDT"/);
+    assert.match(text(out), /Bitcoin/);
+    assert.match(wrapperOf(out), /\bw-60\b/, "default picker width");
+  });
+
+  test("layout classes land on the wrapper, typography on the field; text-xs → small size", () => {
+    const full = render(h(SymbolPicker, { value: "BTC/USDT", onChange: () => {}, className: "w-full" }), fb);
+    assert.match(wrapperOf(full), /\bw-full\b/);
+    assert.doesNotMatch(wrapperOf(full), /\bw-60\b/);
+
+    const dense = render(h(SymbolPicker, { value: "BTC/USDT", onChange: () => {}, className: "!py-1 text-xs" }), fb);
+    assert.match(inputOf(dense), /!py-1/);
+    assert.match(inputOf(dense), /\bh-8\b/, "sm size");
+    assert.doesNotMatch(wrapperOf(dense), /text-xs/);
+
+    const flex = render(h(SymbolPicker, { value: "", onChange: () => {}, className: "min-w-0 flex-1" }));
+    assert.match(wrapperOf(flex), /min-w-0 flex-1/);
+    assert.match(flex, /placeholder="Търси инструмент…"/);
   });
 });
 
@@ -381,6 +437,12 @@ describe("asset page sections", () => {
     assert.doesNotMatch(beginner, /Min qty/);
     assert.match(advanced, /Min qty \/ step/);
     assert.match(advanced, /ATR 1h/);
+    // full rows of the 4-column grid: 12 cells for beginners, 16 in advanced mode
+    const cells = (html: string) => (html.match(/class="min-w-0 px-3 py-2/g) ?? []).length;
+    assert.equal(cells(render(h(KeyStatsCard, { data: btcAsset, advanced: false }))), 12);
+    assert.equal(cells(render(h(KeyStatsCard, { data: btcAsset, advanced: true }))), 16);
+    assert.doesNotMatch(beginner, /Regime 1H/);
+    assert.match(advanced, /Regime 1H/);
   });
 
   test("key stats without a quote say DATA NOT AVAILABLE and show no market numbers", () => {

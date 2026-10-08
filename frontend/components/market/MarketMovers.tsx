@@ -42,6 +42,8 @@ export type MarketMoversProps = {
  * Market movers card for one list of GET /api/markets/list (Top gainers, Top losers, Most volume,
  * High / Low volatility, Trending, Popular) with sparkline + change pill per row. Shows DATA NOT
  * AVAILABLE when the configured provider cannot compute the list; polls every 30 s.
+ * The card is a CSS size container (`@container`): it takes its width from the parent (grid cell,
+ * block, flex column) — in a flex row give it `flex-1` or a width.
  */
 export function MarketMovers({ kind, assetClass, category, limit = 6, title, compact, pager, className }: MarketMoversProps) {
   const scope = `${assetClass ?? ""}|${category ?? ""}|${kind}`;
@@ -77,14 +79,15 @@ export function MarketMovers({ kind, assetClass, category, limit = 6, title, com
         <span className="flex items-center gap-0.5 text-[11px] text-faint">
           <button
             type="button"
-            aria-label="Предишна страница"
+            aria-label={`Предишна страница (${page} от ${fresh.pages})`}
             disabled={page <= 1}
             onClick={() => setPage(Math.max(1, page - 1))}
             className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted transition-colors hover:bg-white/[0.06] hover:text-text disabled:opacity-30"
           >
             <ChevronLeft size={14} strokeWidth={2} aria-hidden />
           </button>
-          <span className="num min-w-[38px] text-center">
+          {/* narrow cards (three per row at 1280 px) keep only the arrows so the title stays readable */}
+          <span className="num hidden min-w-[38px] text-center @min-[24rem]:inline">
             {page}/{fresh.pages}
           </span>
           <button
@@ -134,7 +137,7 @@ export function MarketMovers({ kind, assetClass, category, limit = 6, title, com
   }
 
   return (
-    <Card title={heading} right={right} className={cx("flex flex-col", className)} bodyClass="p-0 flex-1">
+    <Card title={heading} right={right} className={cx("@container flex flex-col", className)} bodyClass="p-0 flex-1">
       {body}
       {fresh?.note && !compact && <p className="border-t border-white/[0.04] px-3 py-1.5 text-[10.5px] leading-4 text-faint">{fresh.note}</p>}
     </Card>

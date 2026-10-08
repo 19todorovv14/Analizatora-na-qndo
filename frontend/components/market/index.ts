@@ -6,6 +6,7 @@
  *   <AssetSearchCombobox value onChange placeholder? className? assetClass? />
  *     Instrument search (GET /market/search, 200 ms debounce) as an ARIA combobox: ↑ ↓ Enter Esc Tab,
  *     class badge + data availability (DEMO / LIVE / N/A) per row, empty query → popular instruments.
+ *     Enter typed faster than the debounce waits for the typed query's results (never picks a stale row).
  *     value: string (symbol, "" = none) · onChange(symbol) · assetClass?: crypto|stock|etf|forex|index|commodity
  *     className → wrapper (layout; default width w-56). Optional extras: inputClassName, onSelectAsset(asset),
  *     clearOnSelect (e.g. "add to watchlist"), size "sm"|"md"|"lg", autoFocus, ariaLabel, disabled, limit,
@@ -22,7 +23,9 @@
  *     A Card with one list of GET /markets/list: kind = gainers | losers | most_volume | high_volatility |
  *     low_volatility | trending | popular; assetClass also accepts metal | energy | agriculture.
  *     Sparkline + change pill per row, ‹ 1/N › pager, DATA NOT AVAILABLE when the provider plan cannot
- *     compute the list. compact → dense rows without sparklines / pager.
+ *     compute the list. compact → dense rows without sparklines / pager. The card is a CSS size container
+ *     (narrow cards get a smaller sparkline, arrows-only pager): it takes its width from the parent —
+ *     in a flex row give it flex-1 or a width.
  *
  *   <Heatmap assetClass height? compact? onSelect?(tile) className? />
  *     Squarified treemap grouped by sector (GET /markets/heatmap?asset_class=crypto|stock|etf).
@@ -33,14 +36,17 @@
  *                activeSymbol? ariaLabel? className? />
  *     Dense sortable instrument table for asset_summary + quote rows. columns: built-in keys ("symbol",
  *     "price", "change", "change7d", "volume", "range", "trend", "regime", "sparkline", "source", "class",
- *     "exchange", "sector", "name") and/or custom {key, header, width, align?, sortKey?, render}.
+ *     "exchange", "sector", "name") and/or custom {key, header, width, align?, sortKey?, hidePriority?, render}.
+ *     Too narrow for every column → optional columns (hidePriority, highest first) are dropped until the
+ *     rest fits; then header + rows scroll sideways together (min width = sum of the column tracks).
  *     builtinColumn(key) returns a built-in definition to tweak; sort helpers: sortRows / nextSort (model.ts).
  *
  *   <FavoriteButton symbol variant?="icon"|"button" size? initial? />  ☆ / ★ (POST/DELETE /market/favorites)
  *   <WatchlistButton symbol variant?="button"|"icon" size? initial? />  (POST/DELETE /market/watchlist)
  *     Both read GET /markets/membership, update optimistically and refresh every watchlist view.
  *   <MarketStatusDot status showLabel? />  status = "open"|"closed"|"break" or the API market_status object.
- *   <QuoteList items kind? onSelect? activeSymbol? sparkline? loading? dense? />  compact instrument rows.
+ *   <QuoteList items kind? onSelect? activeSymbol? sparkline? loading? dense? />  compact instrument rows
+ *     (size container: < 24rem smaller sparkline + arrow-less pill, < 20rem no sparkline).
  *   Cells: PriceCell, ChangeCell, VolumeCell, RangeCell, QuoteSparkline, QuoteStatusChip, TrendBadge, AiStatusBadge.
  *   <ClassIcon cls size? />, <ClassBadge cls />, <EventExplainButton headline summary? symbol? />,
  *   <NewsPanel news asset />, <LinkButton href variant? size? />.
@@ -78,6 +84,8 @@ export {
   slugFor,
   sortRows,
   nextSort,
+  fitColumns,
+  gridMinWidth,
   tradeHref,
   quoteOk,
   CATEGORY_TABS,

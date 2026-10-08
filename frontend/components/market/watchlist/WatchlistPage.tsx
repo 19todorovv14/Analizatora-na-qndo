@@ -23,7 +23,7 @@ function aiColumn(): MarketColumn<WatchlistRow> {
   return {
     key: "ai",
     header: "AI status",
-    width: "minmax(150px,1.3fr)",
+    width: "minmax(120px,1.4fr)",
     sortKey: "ai",
     render: (r) => {
       const hint = r.ai_status ? AI_STATUS_META[r.ai_status as AiStatus]?.hint : null;
@@ -71,15 +71,16 @@ export function WatchlistPage() {
       builtinColumn<WatchlistRow>("symbol"),
       builtinColumn<WatchlistRow>("price"),
       { ...builtinColumn<WatchlistRow>("change"), header: "Change" },
-      builtinColumn<WatchlistRow>("volume"),
-      { ...builtinColumn<WatchlistRow>("range"), header: <Term k="volatility">Volatility</Term> },
-      builtinColumn<WatchlistRow>("trend"),
+      // narrow screens: volume, then trend, then volatility make room — AI status and remove always stay
+      { ...builtinColumn<WatchlistRow>("volume"), hidePriority: 3 },
+      { ...builtinColumn<WatchlistRow>("range"), header: <Term k="volatility">Volatility</Term>, hidePriority: 1 },
+      { ...builtinColumn<WatchlistRow>("trend"), hidePriority: 2 },
       builtinColumn<WatchlistRow>("regime"),
       aiColumn(),
       {
         key: "remove",
         header: <span className="sr-only">Действия</span>,
-        width: "44px",
+        width: "40px",
         align: "right",
         render: (r) => (
           <IconButton icon={Trash2} size="sm" label={`Премахни ${r.symbol}`} disabled={removing} onClick={() => void toggle(r.symbol, false)} tooltipSide="left" />
@@ -190,7 +191,7 @@ export function WatchlistPage() {
             height={Math.min(Math.max(rows.length, 1), 14) * ROW_H}
             sort={sort}
             onSort={(k) => setSort(nextSort(sort, k))}
-            minWidth={1080}
+            minWidth={640}
             ariaLabel="Watchlist"
           />
         )}

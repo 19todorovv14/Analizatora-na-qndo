@@ -3,10 +3,10 @@
 import { Check, ChevronDown, Search } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 
 import { ClassIcon } from "@/components/market/ClassBadge";
-import { classLabel, hasWidthClass } from "@/components/market/model";
+import { classLabel, comboKeyAction, hasWidthClass } from "@/components/market/model";
 import type { AssetSummary, SearchPayload } from "@/components/market/types";
 import { Kbd, Skeleton, SourceBadge, Spinner } from "@/components/ui";
 import { useAnchoredPosition, useIsClient } from "@/components/ui/floating";
@@ -102,6 +102,27 @@ export function AssetSearchCombobox({
   const [active, setActive] = useState(0);
   const [picked, setPicked] = useState<AssetSummary | null>(null);
   const keyNav = useRef(false);
+  // search key of an Enter pressed while the rows were stale — resolved by onSuccess when its results arrive
+  const pendingKey = useRef<string | null>(null);
+  const { cache } = useSWRConfig();
+
+  const close = useCallback(() => {
+    pendingKey.current = null;
+    setOpen(false);
+    setQuery("");
+    setActive(0);
+  }, []);
+
+  const select = useCallback(
+    (a: AssetSummary) => {
+      setPicked(a);
+      onChange(a.symbol);
+      onSelectAsset?.(a);
+      close();
+      if (!clearOnSelect) inputRef.current?.blur();
+    },
+    [onChange, onSelectAsset, close, clearOnSelect],
+  );
 
   const dq = useDebounced(query.trim(), 200);
   const results = useSWR<SearchPayload>(open ? searchKey(dq, limit, assetClass) : null, fetcher, {
@@ -109,6 +130,14 @@ export function AssetSearchCombobox({
     revalidateOnFocus: false,
     dedupingInterval: 30_000,
     shouldRetryOnError: false,
+    onSuccess: (d, key) => {
+      if (pendingKey.current !== key) return;
+      pendingKey.current = null;
+      if (d.results.length) select(d.results[0]);
+    },
+    onError: (_e, key) => {
+      if (pendingKey.current === key) pendingKey.current = null;
+    },
   });
   // name / class of the current value (skipped when we already know it from the last pick)
   const known = picked && picked.symbol.toUpperCase() === value.toUpperCase() ? picked : null;
@@ -125,6 +154,8 @@ export function AssetSearchCombobox({
   const rows = results.data?.results ?? [];
   const loading = open && !results.data && !results.error;
   const typingAhead = query.trim() !== dq;
+  // rows of an older query: keepPreviousData keeps them on screen while the debounce / request for the new one runs
+  const stale = typingAhead || results.isLoading;
   const marked = new Set((markedSymbols ?? []).map((s) => s.toUpperCase()));
 
   useAnchoredPosition(open && isClient, wrapEl, listEl, "bottom", "start", 6, true);
@@ -135,48 +166,46 @@ export function AssetSearchCombobox({
     listEl.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" });
   }, [active, open, listEl]);
 
-  const close = useCallback(() => {
-    setOpen(false);
-    setQuery("");
-    setActive(0);
-  }, []);
-
-  const select = (a: AssetSummary) => {
-    setPicked(a);
-    onChange(a.symbol);
-    onSelectAsset?.(a);
-    close();
-    if (!clearOnSelect) inputRef.current?.blur();
-  };
-
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    const n = rows.length;
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      keyNav.current = true;
-      if (!open) {
+    const act = comboKeyAction(e.key, { open, count: rows.length, active, stale, navigated: keyNav.current });
+    switch (act.type) {
+      case "open":
+        e.preventDefault();
+        keyNav.current = e.key !== "Enter";
         setOpen(true);
-        return;
+        break;
+      case "move":
+        e.preventDefault();
+        keyNav.current = true;
+        pendingKey.current = null;
+        setActive(act.active);
+        break;
+      case "select":
+        e.preventDefault();
+        select(rows[act.index]);
+        break;
+      case "defer": {
+        e.preventDefault();
+        // the typed query may already be cached (searched a moment ago) → pick now, else when it arrives
+        const key = searchKey(query.trim(), limit, assetClass);
+        const hit = cache.get(key)?.data as SearchPayload | undefined;
+        if (hit) {
+          if (hit.results.length) select(hit.results[0]);
+        } else {
+          pendingKey.current = key;
+        }
+        break;
       }
-      if (n) setActive((i) => (e.key === "ArrowDown" ? (i + 1) % n : (i - 1 + n) % n));
-    } else if (e.key === "Enter") {
-      if (open && n && rows[Math.min(active, n - 1)]) {
-        e.preventDefault();
-        select(rows[Math.min(active, n - 1)]);
-      } else if (!open) {
-        e.preventDefault();
-        setOpen(true);
-      }
-    } else if (e.key === "Escape") {
-      if (open) {
-        e.preventDefault();
-        e.stopPropagation();
+      case "close":
+        if (act.prevent) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
         close();
-      } else {
+        break;
+      case "blur":
         inputRef.current?.blur();
-      }
-    } else if (e.key === "Tab") {
-      if (open) close();
+        break;
     }
   };
 
@@ -214,6 +243,7 @@ export function AssetSearchCombobox({
           setQuery(e.target.value);
           setActive(0);
           keyNav.current = false;
+          pendingKey.current = null;
           if (!open) setOpen(true);
         }}
         onFocus={() => {

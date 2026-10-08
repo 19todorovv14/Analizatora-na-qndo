@@ -54,7 +54,7 @@ export function MiniStat({
     <div className={cx("min-w-0 px-3 py-2", className)}>
       <div className="flex items-center gap-1 truncate text-[10.5px] font-medium uppercase leading-4 tracking-[0.06em] text-faint">{label}</div>
       <div className={cx("num mt-0.5 truncate text-[13.5px] font-semibold leading-5", tone ?? "text-text")}>{value}</div>
-      {sub && <div className="truncate text-[11px] leading-4 text-muted">{sub}</div>}
+      {sub && <div className="line-clamp-2 text-[11px] leading-4 text-muted">{sub}</div>}
     </div>
   );
 }
@@ -88,8 +88,8 @@ export function RegimeValue({ block }: { block: RegimeBlock | undefined }) {
 
 /* ──────────────────────────────────────────────────────── key stats */
 
-/** Detailed statistics grid of the asset page (advanced mode shows the trading-cost details too). */
-export function KeyStatsCard({ data, advanced }: { data: AssetPagePayload; advanced: boolean }) {
+/** Detailed statistics grid of the asset page (advanced mode adds 1H regime / ATR, sizes and the data time). */
+export function KeyStatsCard({ data, advanced, className }: { data: AssetPagePayload; advanced: boolean; className?: string }) {
   const q = quoteOk(data.quote) ? data.quote : null;
   const inst = data.instrument;
   const p = pricePrecision({ quote: data.quote, price_precision: inst.price_precision });
@@ -106,7 +106,7 @@ export function KeyStatsCard({ data, advanced }: { data: AssetPagePayload; advan
     { k: "vol", label: <Term k="volume">Volume 24h</Term>, value: q?.volume_24h !== null && q?.volume_24h !== undefined ? `${fmtCompact(q.volume_24h)} ${base}` : "—" },
     { k: "volusd", label: "Volume 24h (USD)", value: fmtUsdCompact(q?.volume_24h_usd) },
     { k: "trend", label: <Term k="trend">Trend (1D)</Term>, value: trend?.label ?? "—", tone: trend ? toneOf(trend.tone === "up" ? 1 : trend.tone === "down" ? -1 : 0) : undefined },
-    { k: "r1h", label: <Term k="regime">Regime 1H</Term>, value: <RegimeValue block={data.regime?.["1h"]} /> },
+    { k: "r1h", label: <Term k="regime">Regime 1H</Term>, value: <RegimeValue block={data.regime?.["1h"]} />, adv: true },
     { k: "r1d", label: <Term k="regime">Regime 1D</Term>, value: <RegimeValue block={data.regime?.["1d"]} /> },
     { k: "spread", label: <Term k="spread">Spread</Term>, value: inst.spread_bps !== null && inst.spread_bps !== undefined ? `${inst.spread_bps} bps` : "—", sub: "симулиран (paper)" },
     {
@@ -129,6 +129,7 @@ export function KeyStatsCard({ data, advanced }: { data: AssetPagePayload; advan
       }
       right={!advanced ? <span className="text-[10.5px] text-faint">Advanced показва още детайли</span> : null}
       bodyClass="p-0"
+      className={className}
     >
       {!q && (
         <p className="border-b border-white/[0.05] px-3 py-2 text-[11px] text-faint">
@@ -151,7 +152,7 @@ function toneOf(v: number | null | undefined): string | undefined {
 
 /* ──────────────────────────────────────────────────────────── about */
 
-export function AboutCard({ data, advanced }: { data: AssetPagePayload; advanced: boolean }) {
+export function AboutCard({ data, advanced, className }: { data: AssetPagePayload; advanced: boolean; className?: string }) {
   const inst = data.instrument;
   const ms = data.market_status ?? inst.market_status ?? null;
   const now = useNow();
@@ -174,6 +175,7 @@ export function AboutCard({ data, advanced }: { data: AssetPagePayload; advanced
           About
         </span>
       }
+      className={className}
     >
       {inst.description && <p className="text-sm leading-relaxed text-text/90">{inst.description}</p>}
       <dl className={cx("grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs", inst.description && "mt-3")}>
@@ -233,7 +235,7 @@ export function AboutCard({ data, advanced }: { data: AssetPagePayload; advanced
 
 /* ───────────────────────────────────────────────────────── education */
 
-export function EducationCard({ lessons }: { lessons: AssetPagePayload["lessons"] }) {
+export function EducationCard({ lessons, className }: { lessons: AssetPagePayload["lessons"]; className?: string }) {
   return (
     <Card
       title={
@@ -243,6 +245,7 @@ export function EducationCard({ lessons }: { lessons: AssetPagePayload["lessons"
         </span>
       }
       bodyClass="p-0"
+      className={className}
     >
       {lessons.length ? (
         <ul className="divide-y divide-white/[0.05]">

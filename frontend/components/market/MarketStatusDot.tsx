@@ -7,8 +7,8 @@ import type { MarketStatus } from "@/components/market/types";
 import { cx } from "@/lib/format";
 
 const META: Record<string, { label: string; dot: string; ink: string }> = {
-  open: { label: "Отворен", dot: "bg-up shadow-[0_0_0_3px_rgb(34_199_158/0.16)] animate-pulse-soft", ink: "text-up" },
-  break: { label: "Пауза", dot: "bg-warn shadow-[0_0_0_3px_rgb(245_184_74/0.16)]", ink: "text-warn" },
+  open: { label: "Отворен", dot: "bg-up ring-[3px] ring-up/15 animate-pulse-soft", ink: "text-up" },
+  break: { label: "Пауза", dot: "bg-warn ring-[3px] ring-warn/15", ink: "text-warn" },
   closed: { label: "Затворен", dot: "bg-faint", ink: "text-muted" },
 };
 

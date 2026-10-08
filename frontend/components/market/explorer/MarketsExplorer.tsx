@@ -91,15 +91,17 @@ export function MarketsExplorer() {
           onSelectAsset={(a) => router.push(assetHref(a))}
         />
         <div className="mt-3">
+          {/* tighter than the default tab padding: all ten categories fit at 1280 px (narrower screens scroll) */}
           <Tabs
             value={tab.key}
             onChange={selectTab}
+            className="!gap-0.5 [&>button]:px-2.5"
             tabs={CATEGORY_TABS.map((t) => {
               const n = tabCount(t, counts.data?.facets, counts.data?.total);
               return {
                 key: t.key,
                 label: (
-                  <span title={t.bg} className="flex items-center gap-1.5">
+                  <span title={t.bg} className="flex items-center gap-1">
                     {t.label}
                     {n !== null && <span className="num rounded bg-white/[0.06] px-1 text-[10px] font-medium text-faint">{n}</span>}
                   </span>

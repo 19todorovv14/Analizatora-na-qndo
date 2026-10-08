@@ -210,17 +210,29 @@ export function AssetView({ slug }: { slug: string }) {
 
         <div className="border-t border-white/[0.06] bg-black/10">
           <StatGrid className="grid-cols-2 sm:grid-cols-4 xl:grid-cols-8">
-          <MiniStat label="24h High" value={q ? <PriceText value={q.high_24h} precision={p} /> : "—"} />
-          <MiniStat label="24h Low" value={q ? <PriceText value={q.low_24h} precision={p} /> : "—"} />
-          <MiniStat
-            label={<Term k="volume">Volume 24h</Term>}
-            value={q?.volume_24h_usd !== null && q?.volume_24h_usd !== undefined ? fmtUsdCompact(q.volume_24h_usd) : q ? fmtCompact(q.volume_24h) : "—"}
-          />
-          <MiniStat label={<Term k="volatility">Range 24h</Term>} value={fmtPctPlain(q?.range_24h_pct)} />
-          <MiniStat label={<Term k="atr">Volatility (ATR 1d)</Term>} value={fmtPctPlain(data.volatility?.atr_pct_1d)} />
-          <MiniStat label="7d" value={<ChangePill value={q?.change_7d_pct} />} />
-          <MiniStat label={<Term k="trend">Trend</Term>} value={trend ? <TrendBadge trend={q?.trend} /> : "—"} />
-          <MiniStat label={<Term k="regime">Regime 1D</Term>} value={<RegimeValue block={data.regime?.["1d"]} />} />
+            <MiniStat label="24h High" value={q ? <PriceText value={q.high_24h} precision={p} /> : "—"} />
+            <MiniStat label="24h Low" value={q ? <PriceText value={q.low_24h} precision={p} /> : "—"} />
+            <MiniStat
+              label={<Term k="volume">Volume 24h</Term>}
+              value={q?.volume_24h_usd !== null && q?.volume_24h_usd !== undefined ? fmtUsdCompact(q.volume_24h_usd) : q ? fmtCompact(q.volume_24h) : "—"}
+            />
+            <MiniStat label={<Term k="volatility">Range 24h</Term>} value={fmtPctPlain(q?.range_24h_pct)} />
+            <MiniStat
+              label={<Term k="volatility">Volatility</Term>}
+              value={
+                <>
+                  {fmtPctPlain(data.volatility?.atr_pct_1d)}
+                  {data.volatility?.atr_pct_1d != null && (
+                    <span className="ml-1 text-[10.5px] font-medium text-faint">
+                      <Term k="atr">ATR 1d</Term>
+                    </span>
+                  )}
+                </>
+              }
+            />
+            <MiniStat label="7d" value={<ChangePill value={q?.change_7d_pct} />} />
+            <MiniStat label={<Term k="trend">Trend</Term>} value={trend ? <TrendBadge trend={q?.trend} /> : "—"} />
+            <MiniStat label={<Term k="regime">Regime 1D</Term>} value={<RegimeValue block={data.regime?.["1d"]} />} />
           </StatGrid>
         </div>
       </section>
@@ -230,10 +242,12 @@ export function AssetView({ slug }: { slug: string }) {
         не е прогноза. Преди paper trade определи <Term k="stoploss">stop loss</Term> и риск на сделка.
       </LearnHint>
 
-      {/* ── main grid ─────────────────────────────────────────────────── */}
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="min-w-0 space-y-4">
+      {/* ── main grid: two columns at xl; below xl the column wrappers dissolve (display: contents) so the
+             cards form one column ordered chart → AI analysis → key stats → news → about → education ── */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="contents xl:block xl:min-w-0 xl:space-y-4">
           <Card
+            className="order-1"
             title={
               <span className="flex items-center gap-2">
                 <LineChart size={15} strokeWidth={2} className="text-accent2" aria-hidden />
@@ -260,9 +274,10 @@ export function AssetView({ slug }: { slug: string }) {
             )}
           </Card>
 
-          <KeyStatsCard data={data} advanced={!beginner} />
+          <KeyStatsCard data={data} advanced={!beginner} className="order-3" />
 
           <Card
+            className="order-4"
             title={
               <span className="flex items-center gap-2">
                 <Newspaper size={15} strokeWidth={2} className="text-info" aria-hidden />
@@ -275,10 +290,10 @@ export function AssetView({ slug }: { slug: string }) {
           </Card>
         </div>
 
-        <div className="min-w-0 space-y-4">
-          <AiAnalysisCard symbol={data.symbol} precision={p} enabled={data.available} />
-          <AboutCard data={data} advanced={!beginner} />
-          <EducationCard lessons={data.lessons ?? []} />
+        <div className="contents xl:block xl:min-w-0 xl:space-y-4">
+          <AiAnalysisCard symbol={data.symbol} precision={p} enabled={data.available} className="order-2" />
+          <AboutCard data={data} advanced={!beginner} className="order-5" />
+          <EducationCard lessons={data.lessons ?? []} className="order-6" />
         </div>
       </div>
 

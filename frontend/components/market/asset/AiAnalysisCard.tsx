@@ -117,7 +117,17 @@ export function AiAnalysisBody({ analysis, precision = 2 }: { analysis: Analysis
  * rule-based — no LLM call), decision, regime, structure, S/R and observations + a link to the
  * AI Teacher. DATA NOT AVAILABLE when no provider serves the instrument.
  */
-export function AiAnalysisCard({ symbol, precision = 2, enabled = true }: { symbol: string; precision?: number; enabled?: boolean }) {
+export function AiAnalysisCard({
+  symbol,
+  precision = 2,
+  enabled = true,
+  className,
+}: {
+  symbol: string;
+  precision?: number;
+  enabled?: boolean;
+  className?: string;
+}) {
   const tf = "1h";
   const { data, error, isValidating, mutate } = useSWR<AnalyzeResponse>(
     enabled ? ["ai-analyze", symbol, tf] : null,
@@ -153,6 +163,7 @@ export function AiAnalysisCard({ symbol, precision = 2, enabled = true }: { symb
           AI analysis · 1H
         </span>
       }
+      className={className}
       right={
         enabled ? (
           <IconButton

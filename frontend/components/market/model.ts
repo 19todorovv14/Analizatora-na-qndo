@@ -433,6 +433,93 @@ export function relevantCountries(a: { symbol: string; asset_class?: string | nu
   return Array.from(out);
 }
 
+/* ──────────────────────────────────────────────────────── tables */
+
+/**
+ * Smallest width (px) a CSS grid row needs: fixed tracks ("96px") plus the minimum of minmax(<px>, …)
+ * tracks, the gaps between them and the horizontal padding. Other tracks (fr, auto) count as 0.
+ */
+export function gridMinWidth(tracks: string[], gap = 0, padding = 0): number {
+  let sum = 0;
+  for (const raw of tracks) {
+    const t = raw.replace(/\s+/g, "");
+    const m = /^minmax\(([\d.]+)px,/.exec(t) ?? /^([\d.]+)px$/.exec(t);
+    if (m) sum += Number(m[1]);
+  }
+  return Math.ceil(sum + gap * Math.max(0, tracks.length - 1) + padding);
+}
+
+/**
+ * The columns that fit a table `width` px wide: optional columns (hidePriority > 0) are dropped, highest
+ * priority first, only until the rest fit; required columns always stay (the table scrolls sideways
+ * when even they do not fit). All columns while the width is unknown (0, e.g. server render).
+ */
+export function fitColumns<C extends { width: string; hidePriority?: number }>(cols: C[], width: number, gap = 0, padding = 0): C[] {
+  if (!(width > 0)) return cols;
+  const optional = cols.filter((c) => (c.hidePriority ?? 0) > 0).sort((a, b) => (b.hidePriority ?? 0) - (a.hidePriority ?? 0));
+  let shown = cols;
+  for (const c of optional) {
+    if (gridMinWidth(shown.map((x) => x.width), gap, padding) <= width) break;
+    shown = shown.filter((x) => x !== c);
+  }
+  return shown;
+}
+
+/* ──────────────────────────────────────────────────────── search combobox */
+
+export type ComboKeyState = {
+  open: boolean;
+  /** rows currently in the list */
+  count: number;
+  /** highlighted row */
+  active: number;
+  /** the rows belong to an older query (debounce pending or request in flight) */
+  stale: boolean;
+  /** the highlight was last moved with ↑ ↓ (the user picked a row they can see, even a stale one) */
+  navigated?: boolean;
+};
+
+export type ComboKeyAction =
+  | { type: "none" }
+  | { type: "open" }
+  | { type: "move"; active: number }
+  | { type: "select"; index: number }
+  /** Enter while the rows are stale: pick the highlighted fresh row once the results arrive */
+  | { type: "defer" }
+  /** prevent: Esc is consumed (it must not also close a surrounding modal); Tab still moves the focus */
+  | { type: "close"; prevent: boolean }
+  | { type: "blur" };
+
+/**
+ * Keyboard handling of AssetSearchCombobox (pure, unit-tested): ↑ ↓ open the list or move the highlight
+ * (wrapping), Enter picks the highlighted row, Esc closes the list (a second Esc leaves the field), Tab
+ * closes it. While the rows still belong to an older query, Enter is deferred instead of picking a stale
+ * row — typing "eth" + Enter faster than the 200 ms debounce must select ETH, not the previous top result —
+ * unless the user moved the highlight with the arrows (then the row they see highlighted is their choice).
+ */
+export function comboKeyAction(key: string, s: ComboKeyState): ComboKeyAction {
+  const at = (i: number) => Math.min(Math.max(i, 0), Math.max(s.count - 1, 0));
+  switch (key) {
+    case "ArrowDown":
+    case "ArrowUp": {
+      if (!s.open) return { type: "open" };
+      if (!s.count) return { type: "move", active: 0 };
+      const cur = at(s.active);
+      return { type: "move", active: key === "ArrowDown" ? (cur + 1) % s.count : (cur - 1 + s.count) % s.count };
+    }
+    case "Enter":
+      if (!s.open) return { type: "open" };
+      if (s.stale && !(s.navigated && s.count)) return { type: "defer" };
+      return s.count ? { type: "select", index: at(s.active) } : { type: "none" };
+    case "Escape":
+      return s.open ? { type: "close", prevent: true } : { type: "blur" };
+    case "Tab":
+      return s.open ? { type: "close", prevent: false } : { type: "none" };
+    default:
+      return { type: "none" };
+  }
+}
+
 /* ──────────────────────────────────────────────────────── pickers */
 
 /**
