@@ -378,6 +378,10 @@ export function splitPipeline(lines: string[]): { steps: { stage: string; detail
     if (!st || seen.has(st.stage)) break;
     seen.add(st.stage);
     steps.push({ stage: st.stage, detail: st.detail && st.detail !== "—" && st.detail !== "-" ? st.detail : "няма setup за оценка" });
+    if (st.stage === "Signal") {
+      i += 1; // the engine's verdict closes the pipeline
+      break;
+    }
   }
   return { steps, rest: lines.slice(i) };
 }
@@ -654,14 +658,15 @@ export function conditionCounts(list: ConditionCheck[] | undefined): { passed: n
   return { passed: l.filter((c) => c.passed).length, total: l.length };
 }
 
-/** Number for a rule value / level: grouped, 2 decimals ≥ 1, more for small prices (forex, alts). */
+/** Number for a rule value / level: grouped, 2 decimals ≥ 10, more for small prices (forex, alts). */
 export function fmtValue(v: number | null | undefined, precision?: number): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return "—";
   let digits: number;
   if (precision !== undefined) digits = precision;
   else {
     const a = Math.abs(v);
-    digits = a >= 1 || a === 0 ? 2 : a >= 0.01 ? 4 : 6;
+    // ≥ 10: prices / RSI (2) · 1–10: forex & small prices (up to 5) · < 1: alts (up to 6, then 8)
+    digits = a >= 10 || a === 0 ? 2 : a >= 1 ? 5 : a >= 0.01 ? 6 : 8;
   }
   return v.toLocaleString("en-US", { minimumFractionDigits: Math.min(digits, 2), maximumFractionDigits: digits });
 }
