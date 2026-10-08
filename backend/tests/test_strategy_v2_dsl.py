@@ -40,40 +40,42 @@ def _is(name, true=True, **params):
 
 # ------------------------------------------------------------------ v1 definitions are unchanged
 # Fingerprints captured with the code BEFORE the v2 changes (commit db31bf4) — see the S6 report.
+# trades/net_pnl/trades_fp/metrics_fp/validation_fp re-recorded after 690a5c8, which sizes backtest positions in USD
+# via PaperBroker.qty_for_risk (exit fee at the stop price, entry fee in the margin cap): same trades, P/L within 0.06 %.
 GOLDEN_V1 = {
     "BTC/USDT|1h|bb_mean_reversion": {
         "trades": 14,
-        "net_pnl": -167.288861,
-        "trades_fp": "b4a0aef120875022",
-        "metrics_fp": "b426e76f39154ffb",
+        "net_pnl": -167.451757,
+        "trades_fp": "ec832933d4668b42",
+        "metrics_fp": "f3b29bfa908cc40c",
         "eval_fp": "955d2f66cd9596ca",
         "dump_fp": "7d4eec314732aaec",
     },  # noqa: E501
     "BTC/USDT|1h|breakout_volume": {
         "trades": 16,
-        "net_pnl": -525.241121,
-        "trades_fp": "1f62bed3dce2686b",
-        "metrics_fp": "7b8d8158179f0d5a",
+        "net_pnl": -524.919855,
+        "trades_fp": "0a949b74e086677c",
+        "metrics_fp": "5c1ab7c90b0b3795",
         "eval_fp": "cea3732b33b7fa62",
         "dump_fp": "d50ddb73bdf927de",
     },  # noqa: E501
     "BTC/USDT|1h|ema_cross_trend": {
         "trades": 24,
-        "net_pnl": -1298.44973,
-        "trades_fp": "0a4fd2b93214514f",
-        "metrics_fp": "d977f3a4dd8fc102",
+        "net_pnl": -1298.465647,
+        "trades_fp": "ed16f5b258ee48a3",
+        "metrics_fp": "d0352e9766c259d6",
         "eval_fp": "d984298d6663bcdb",
         "dump_fp": "dfde249d13d6ac63",
-        "validation_fp": "905fe0792581d55d",
+        "validation_fp": "0e724f6b5f60f208",
     },  # noqa: E501
     "BTC/USDT|1h|macd_momentum": {
         "trades": 26,
-        "net_pnl": -1179.229791,
-        "trades_fp": "b8e4d2a005ea2d0b",
-        "metrics_fp": "ac1fe35238e2c22c",
+        "net_pnl": -1179.955324,
+        "trades_fp": "9ee6c7131f7d01ba",
+        "metrics_fp": "7e4ac0ecc98d86dd",
         "eval_fp": "6da816b89f31d4e0",
         "dump_fp": "cd6c3e4037644e06",
-        "validation_fp": "8ff4769d5bd521fc",
+        "validation_fp": "29927aba60aea6c2",
     },  # noqa: E501
     "BTC/USDT|1h|rsi_ema200_volume": {
         "trades": 0,
@@ -85,33 +87,33 @@ GOLDEN_V1 = {
     },  # noqa: E501
     "ETH/USDT|4h|bb_mean_reversion": {
         "trades": 7,
-        "net_pnl": 1.00327,
-        "trades_fp": "7f14588b4fef3bfc",
-        "metrics_fp": "1c18d66321938153",
+        "net_pnl": 1.014525,
+        "trades_fp": "f763333791aedd02",
+        "metrics_fp": "428f156279ae6ea6",
         "eval_fp": "db9fe7146cc699d2",
         "dump_fp": "7d4eec314732aaec",
     },  # noqa: E501
     "ETH/USDT|4h|breakout_volume": {
         "trades": 23,
-        "net_pnl": 1781.870489,
-        "trades_fp": "d093f3255a920a3b",
-        "metrics_fp": "54f4679c80767d2a",
+        "net_pnl": 1782.281456,
+        "trades_fp": "18243fc8bd47e525",
+        "metrics_fp": "273824e559847ae9",
         "eval_fp": "5722d63d0fb1524f",
         "dump_fp": "d50ddb73bdf927de",
     },  # noqa: E501
     "ETH/USDT|4h|ema_cross_trend": {
         "trades": 4,
-        "net_pnl": -334.809232,
-        "trades_fp": "41a564c207e111b1",
-        "metrics_fp": "60f39cad828ed8b0",
+        "net_pnl": -335.009707,
+        "trades_fp": "4303d6a1eb1274d9",
+        "metrics_fp": "ed052971a6dde987",
         "eval_fp": "3dee8d2295b951dd",
         "dump_fp": "dfde249d13d6ac63",
     },  # noqa: E501
     "ETH/USDT|4h|macd_momentum": {
         "trades": 15,
-        "net_pnl": -48.012309,
-        "trades_fp": "4f10cd2b4a8e0292",
-        "metrics_fp": "498846248b16c9bf",
+        "net_pnl": -48.266621,
+        "trades_fp": "fe44f17b58177bc6",
+        "metrics_fp": "2822aba4098134d3",
         "eval_fp": "770002b912b8d125",
         "dump_fp": "cd6c3e4037644e06",
     },  # noqa: E501
