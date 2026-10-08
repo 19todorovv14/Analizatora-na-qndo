@@ -10,6 +10,7 @@ import type { Candle } from "@/lib/types";
 import type {
   CheckedMark,
   CurveFamily,
+  CurvePoint,
   LeverageRequest,
   LeverageResult,
   MissedEvent,
@@ -37,7 +38,7 @@ export const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.ma
 /** Decimals that keep a price readable without inventing precision (2 for ≥ 10, more for small prices). */
 export function decimalsFor(price: number | null | undefined): number {
   const p = Math.abs(price ?? 0);
-  if (!Number.isFinite(p) || p >= 10) return 2;
+  if (!Number.isFinite(p) || p === 0 || p >= 10) return 2;
   if (p >= 1) return 3;
   if (p >= 0.1) return 4;
   return 5;
@@ -382,6 +383,12 @@ export function leverageColor(leverage: number): string {
 
 export const LEVERAGE_WARNING = "Higher leverage magnifies exposure and liquidation risk.";
 
+/** The warning line of a simulation, guaranteed to contain the platform's leverage sentence. */
+export function leverageWarning(res: { warning?: string | null } | null | undefined): string {
+  const w = res?.warning?.trim() ?? "";
+  return w.includes(LEVERAGE_WARNING) ? w : `${LEVERAGE_WARNING}${w ? ` ${w}` : ""}`;
+}
+
 export const RISK_META: Record<RiskLevel, { label: string; tone: Tone; text: string }> = {
   low: { label: "Нисък", tone: "info", text: "Ликвидацията е далеч спрямо типичното дневно движение (или не е достижима при cross margin)." },
   elevated: { label: "Повишен", tone: "warn", text: "Ликвидацията е на 3–8 типични дневни движения." },
@@ -397,6 +404,32 @@ export function isolatedLiqMovePct(leverage: number, maintenance = 0.5): number 
 /** P/L of a position for a price move (no fees). */
 export function pnlAtMove(notional: number, movePct: number, side: Side = "long"): number {
   return notional * (movePct / 100) * (side === "long" ? 1 : -1);
+}
+
+/**
+ * Cross-margin liquidation move in % of the entry price (fees ignored) — the paper broker's rule: the account is
+ * stopped out when equity falls to `maintenance` × used margin, so the loss room is equity − maintenance ×
+ * notional / leverage. 0 = the position cannot even be held; null = unreachable (a long cannot lose more than 100 %).
+ */
+export function crossLiqMovePct(equity: number, notional: number, leverage: number, maintenance = 0.5): number | null {
+  if (!(notional > 0) || !(leverage > 0)) return null;
+  const room = equity - maintenance * (notional / leverage);
+  if (room <= 0) return 0;
+  const move = (room / notional) * 100;
+  return move >= 100 ? null : move;
+}
+
+/** Moves (in %) listed in the table view of the equity chart. */
+export const TABLE_MOVES = [-20, -10, -5, -2, 0, 2, 5, 10, 20] as const;
+
+/** Equity of every series at `moves` (the chart's table view); a cell is null when the series has no such point. */
+export function curveTable(family: CurveFamily, moves: readonly number[]) {
+  return family.series.map((s) => ({
+    leverage: s.leverage,
+    canOpen: s.can_open,
+    liquidationMove: s.liquidation_move_pct,
+    cells: moves.map((m) => s.points.find((p) => !p.at_liquidation && p.move_pct === m) ?? null),
+  }));
 }
 
 export type SizeMode = "notional" | "margin";
@@ -446,33 +479,52 @@ export type CurveLayout = {
   bottom: number;
 };
 
-/** Scales + SVG paths of the "equity vs price move" chart (one polyline per leverage, liquidation points). */
-export function curveGeometry(family: CurveFamily, layout: CurveLayout) {
+/**
+ * Scales + SVG paths of the "equity vs price move" chart (one polyline per leverage, liquidation points).
+ * `domain` fixes the equity axis (e.g. [0, 2 × equity] so every view keeps one scale — the caller clips what
+ * leaves it); without it the axis fits the data.
+ */
+export function curveGeometry(family: CurveFamily, layout: CurveLayout, domain?: [number, number]) {
   const { width, height, left, right, top, bottom } = layout;
   const moves = family.moves_pct;
   const x0 = Math.min(...moves);
   const x1 = Math.max(...moves);
-  const all = family.series.flatMap((s) => s.points.map((p) => p.equity));
-  let y0 = Math.min(...all, family.equity);
-  let y1 = Math.max(...all, family.equity);
-  const padY = (y1 - y0) * 0.06 || Math.max(1, Math.abs(y1) * 0.02);
-  y0 -= padY;
-  y1 += padY;
-  const ticks = niceTicks(y0, y1, 5);
-  y0 = Math.min(y0, ticks[0] ?? y0);
-  y1 = Math.max(y1, ticks[ticks.length - 1] ?? y1);
+  let y0: number;
+  let y1: number;
+  let ticks: number[];
+  if (domain) {
+    [y0, y1] = domain;
+    ticks = niceTicks(y0, y1, 5).filter((t) => t >= y0 - 1e-9 && t <= y1 + 1e-9);
+  } else {
+    const all = family.series.flatMap((s) => s.points.map((p) => p.equity));
+    y0 = Math.min(...all, family.equity);
+    y1 = Math.max(...all, family.equity);
+    const padY = (y1 - y0) * 0.06 || Math.max(1, Math.abs(y1) * 0.02);
+    y0 -= padY;
+    y1 += padY;
+    ticks = niceTicks(y0, y1, 5);
+    y0 = Math.min(y0, ticks[0] ?? y0);
+    y1 = Math.max(y1, ticks[ticks.length - 1] ?? y1);
+  }
   const plotW = Math.max(1, width - left - right);
   const plotH = Math.max(1, height - top - bottom);
   const x = (m: number) => left + ((m - x0) / (x1 - x0 || 1)) * plotW;
   const y = (v: number) => top + ((y1 - v) / (y1 - y0 || 1)) * plotH;
   const series = family.series.map((s) => {
-    const pts = [...s.points].sort((a, b) => a.move_pct - b.move_pct);
+    const pts = [...s.points].sort((a, b) => a.move_pct - b.move_pct || Number(a.at_liquidation) - Number(b.at_liquidation));
     const d = pts.map((p, i) => `${i ? "L" : "M"}${x(p.move_pct).toFixed(1)},${y(p.equity).toFixed(1)}`).join(" ");
     const liq = pts.filter((p) => p.at_liquidation).map((p) => ({ x: x(p.move_pct), y: y(p.equity), move: p.move_pct, equity: p.equity }));
     const last = pts[pts.length - 1];
     return { leverage: s.leverage, d, liq, end: last ? { x: x(last.move_pct), y: y(last.equity), equity: last.equity } : null, series: s };
   });
   return { x, y, x0, x1, y0, y1, ticks, series, plotW, plotH };
+}
+
+/** The move (from the family's grid) closest to `m` — the crosshair snaps to it. */
+export function snapMove(moves: number[], m: number): number {
+  let best = moves[0] ?? 0;
+  for (const v of moves) if (Math.abs(v - m) < Math.abs(best - m)) best = v;
+  return best;
 }
 
 /** The regular (non-liquidation) point of each series closest to move `m` (tooltip read-out). */
@@ -486,6 +538,34 @@ export function pointsAt(family: CurveFamily, m: number) {
   });
 }
 
+/**
+ * Equity of a series at any move — linear between its points, which is exact: P/L is linear between them and
+ * the liquidation kink is one of the points (after it the line stays flat: the position is closed).
+ */
+export function equityAtMove(points: CurvePoint[], m: number): number | null {
+  if (!points.length) return null;
+  const pts = [...points].sort((a, b) => a.move_pct - b.move_pct);
+  if (m <= pts[0].move_pct) return pts[0].equity;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    if (m <= b.move_pct) {
+      const span = b.move_pct - a.move_pct;
+      return span > 0 ? a.equity + ((m - a.move_pct) / span) * (b.equity - a.equity) : b.equity;
+    }
+  }
+  return pts[pts.length - 1].equity;
+}
+
+/** "$12k" / "$9.5k" / "$800" — compact axis labels. */
+export function usdCompact(v: number): string {
+  const a = Math.abs(v);
+  const sign = v < 0 ? "−" : "";
+  if (a >= 1_000_000) return `${sign}$${+(a / 1_000_000).toFixed(a >= 10_000_000 ? 0 : 1)}M`;
+  if (a >= 1000) return `${sign}$${+(a / 1000).toFixed(a >= 10_000 ? 0 : 1)}k`;
+  return `${sign}$${Math.round(a)}`;
+}
+
 /* ═════════════════════════════════════════════════════════ Trade Simulator */
 
 /** Leverage chips allowed for an instrument: the standard chips ≤ max plus the max itself. */
@@ -494,6 +574,45 @@ export function allowedLeverages(max: number | null | undefined): number[] {
   const chips: number[] = LEVERAGES.filter((l) => l <= cap);
   if (!chips.includes(cap)) chips.push(cap);
   return chips.sort((a, b) => a - b);
+}
+
+/** The leverage actually used: the chosen chip when allowed, otherwise the largest allowed one below it. */
+export function effectiveLeverage(chosen: number, allowed: number[]): number {
+  if (allowed.includes(chosen)) return chosen;
+  const below = allowed.filter((l) => l <= chosen);
+  return below.length ? below[below.length - 1] : (allowed[0] ?? 1);
+}
+
+/** Executable price for the side: a long buys at the ask, a short sells at the bid (mid when missing). */
+export function marketPrice(q: { bid: number | null; ask: number | null; mid: number | null } | null | undefined, side: Side): number | null {
+  if (!q) return null;
+  const v = side === "long" ? (q.ask ?? q.mid) : (q.bid ?? q.mid);
+  return v !== null && v !== undefined && Number.isFinite(v) && v > 0 ? v : null;
+}
+
+/** Rounds a price to the instrument's precision. */
+export function roundTo(v: number, precision: number): number {
+  const k = 10 ** clamp(Math.round(precision), 0, 10);
+  return Math.round(v * k) / k;
+}
+
+/**
+ * Example stop / target for the what-if (always labelled as examples, never as advice): one typical daily move
+ * against the position for the stop and two in its favour for the target.
+ */
+export function exampleLevels(entry: number, side: Side, dailyVolPct: number | null | undefined, precision: number): { stop: number; target: number } | null {
+  if (!(entry > 0) || !dailyVolPct || !(dailyVolPct > 0)) return null;
+  const d = entry * (Math.min(dailyVolPct, 50) / 100);
+  const dir = side === "long" ? 1 : -1;
+  return { stop: roundTo(entry - dir * d, precision), target: roundTo(entry + dir * 2 * d, precision) };
+}
+
+/** Position units with sensible decimals: "1,250" · "12.5" · "0.01907". */
+export function fmtUnits(u: number | null | undefined): string {
+  if (u === null || u === undefined || !Number.isFinite(u)) return "—";
+  const a = Math.abs(u);
+  const digits = a >= 1000 ? 0 : a >= 10 ? 2 : a >= 1 ? 3 : a >= 0.01 ? 5 : 8;
+  return u.toLocaleString("en-US", { maximumFractionDigits: digits, minimumFractionDigits: 0 });
 }
 
 /** Client-side mirror of the backend's stop/target side check (null = OK). */

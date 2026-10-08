@@ -1,19 +1,13 @@
-import { Waypoints } from "lucide-react";
+import type { Metadata } from "next";
 
-import { ComingSoon } from "@/components/shell/ComingSoon";
+import { StructureLab } from "@/components/labs/structure/StructureLab";
+
+export const metadata: Metadata = {
+  title: "Market Structure Lab — Trading Academy",
+  description:
+    "Маркирай HH / HL / LH / LL, определи структурата (uptrend / downtrend / range) и намери breakout, retest и fakeout върху минали затворени свещи — с обяснена проверка.",
+};
 
 export default function MarketStructureLabPage() {
-  return (
-    <ComingSoon
-      title="Market Structure Lab"
-      subtitle="Тренд, swing точки, support и resistance."
-      icon={Waypoints}
-      description="Тук ще маркираш higher highs / higher lows, ще откриваш break of structure и ще упражняваш breakout и retest върху реални исторически графики. Дотогава — уроците в Academy."
-      planned={["Маркиране на HH / HL / LH / LL", "Support, resistance и пробиви", "Упражнения с обратна връзка"]}
-      links={[
-        { href: "/learn", label: "Academy", primary: true },
-        { href: "/learn/trend", label: "Урок: Trend" },
-      ]}
-    />
-  );
+  return <StructureLab />;
 }
