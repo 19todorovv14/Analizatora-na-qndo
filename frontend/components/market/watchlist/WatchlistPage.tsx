@@ -40,7 +40,7 @@ function aiColumn(): MarketColumn<WatchlistRow> {
       return (
         <Tooltip content={content} side="left" disabled={!content} className="flex min-w-0 items-center gap-2">
           <AiStatusBadge status={r.ai_status} pending={r.ai_pending} />
-          {r.ai_reason && <span className="hidden min-w-0 truncate text-[11px] text-faint 2xl:inline">{r.ai_reason}</span>}
+          {r.ai_reason && <span className="hidden min-w-0 truncate text-[11px] text-faint xl:inline">{r.ai_reason}</span>}
         </Tooltip>
       );
     },
@@ -67,7 +67,7 @@ export function WatchlistPage() {
     () => [
       builtinColumn<WatchlistRow>("symbol"),
       builtinColumn<WatchlistRow>("price"),
-      { ...builtinColumn<WatchlistRow>("change"), header: "Change 24h" },
+      { ...builtinColumn<WatchlistRow>("change"), header: "Change" },
       builtinColumn<WatchlistRow>("volume"),
       { ...builtinColumn<WatchlistRow>("range"), header: <Term k="volatility">Volatility</Term> },
       builtinColumn<WatchlistRow>("trend"),

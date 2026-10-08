@@ -8,7 +8,7 @@ import useSWR from "swr";
 
 import { ChartWorkspace } from "@/components/charts/ChartWorkspace";
 import { AiAnalysisCard } from "@/components/market/asset/AiAnalysisCard";
-import { AboutCard, EducationCard, KeyStatsCard, MiniStat, RegimeValue, RelatedAssets } from "@/components/market/asset/AssetSections";
+import { AboutCard, EducationCard, KeyStatsCard, MiniStat, RegimeValue, RelatedAssets, StatGrid } from "@/components/market/asset/AssetSections";
 import { AssetSearchCombobox } from "@/components/market/AssetSearchCombobox";
 import { ClassBadge, ClassIcon } from "@/components/market/ClassBadge";
 import { useRecordView } from "@/components/market/hooks";
@@ -207,7 +207,8 @@ export function AssetView({ slug }: { slug: string }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 border-t border-white/[0.06] bg-black/10 sm:grid-cols-4 xl:grid-cols-8 [&>*]:border-white/[0.05] max-sm:[&>*:nth-child(odd)]:border-r sm:[&>*:not(:nth-child(4n))]:border-r xl:[&>*]:border-r xl:[&>*:last-child]:border-r-0">
+        <div className="border-t border-white/[0.06] bg-black/10">
+          <StatGrid className="grid-cols-2 sm:grid-cols-4 xl:grid-cols-8">
           <MiniStat label="24h High" value={q ? <PriceText value={q.high_24h} precision={p} /> : "—"} />
           <MiniStat label="24h Low" value={q ? <PriceText value={q.low_24h} precision={p} /> : "—"} />
           <MiniStat
@@ -219,6 +220,7 @@ export function AssetView({ slug }: { slug: string }) {
           <MiniStat label="7d" value={<ChangePill value={q?.change_7d_pct} />} />
           <MiniStat label={<Term k="trend">Trend</Term>} value={trend ? <TrendBadge trend={q?.trend} /> : "—"} />
           <MiniStat label={<Term k="regime">Regime 1D</Term>} value={<RegimeValue block={data.regime?.["1d"]} />} />
+          </StatGrid>
         </div>
       </section>
 
@@ -261,6 +263,8 @@ export function AssetView({ slug }: { slug: string }) {
             )}
           </Card>
 
+          <KeyStatsCard data={data} advanced={!beginner} />
+
           <Card
             title={
               <span className="flex items-center gap-2">
@@ -276,7 +280,6 @@ export function AssetView({ slug }: { slug: string }) {
 
         <div className="min-w-0 space-y-4">
           <AiAnalysisCard symbol={data.symbol} precision={p} enabled={data.available} />
-          <KeyStatsCard data={data} advanced={!beginner} />
           <AboutCard data={data} advanced={!beginner} />
           <EducationCard lessons={data.lessons ?? []} />
         </div>

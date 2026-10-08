@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, EyeOff, Star } from "lucide-react";
+import { Check, Plus, Star } from "lucide-react";
 
 import { useFavoriteToggle, useMembership, useWatchlistToggle } from "@/components/market/hooks";
 import { Tooltip } from "@/components/ui";
@@ -74,7 +74,7 @@ export function WatchlistButton({ symbol, variant = "button", size = "md", class
   const on = useIsIn("watchlist", symbol, initial);
   const { busy, error, toggle } = useWatchlistToggle();
   const label = on ? "Премахни от watchlist" : "Добави в watchlist";
-  const Icon = on ? EyeOff : Eye;
+  const Icon = on ? Check : Plus;
   return (
     <Tooltip content={error ? `Грешка: ${error}` : on ? "Следиш този актив — натисни, за да го премахнеш" : "Следи цената, тренда и AI статуса"} side="bottom">
       <button

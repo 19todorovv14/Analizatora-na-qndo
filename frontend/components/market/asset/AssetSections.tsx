@@ -58,6 +58,15 @@ export function MiniStat({
   );
 }
 
+/** Grid of MiniStats with hairline separators (the outer right / bottom lines are clipped). */
+export function StatGrid({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className="overflow-hidden">
+      <div className={cx("-mb-px -mr-px grid [&>*]:border-b [&>*]:border-r [&>*]:border-white/[0.06]", className)}>{children}</div>
+    </div>
+  );
+}
+
 const regimeOk = (r: RegimeBlock | undefined): r is Extract<RegimeBlock, { available: true }> => !!r && r.available === true;
 
 export function RegimeValue({ block }: { block: RegimeBlock | undefined }) {
@@ -126,11 +135,11 @@ export function KeyStatsCard({ data, advanced }: { data: AssetPagePayload; advan
           DATA NOT AVAILABLE — {data.quote?.reason ?? "няма котировка от доставчика"}. Показваме само данните за инструмента.
         </p>
       )}
-      <div className="grid grid-cols-2 divide-white/[0.05] [&>*]:border-b [&>*]:border-white/[0.05] [&>*:nth-child(odd)]:border-r">
+      <StatGrid className="grid-cols-2 sm:grid-cols-4">
         {shown.map((r) => (
           <MiniStat key={r.k} label={r.label} value={r.value} tone={r.tone} sub={r.sub} />
         ))}
-      </div>
+      </StatGrid>
     </Card>
   );
 }

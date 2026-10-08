@@ -92,20 +92,20 @@ export function builtinColumn<T extends MarketItem>(key: MarketColumnKey): Marke
       return {
         key,
         header: "Цена",
-        width: "112px",
+        width: "104px",
         align: "right",
         sortKey: "price",
         render: (r) => <PriceCell quote={r.quote} precision={pricePrecision(r)} className="text-[12.5px]" />,
       };
     case "change":
-      return { key, header: "24h", width: "86px", align: "right", sortKey: "change", render: (r) => <ChangeCell quote={r.quote} /> };
+      return { key, header: "24h", width: "80px", align: "right", sortKey: "change", render: (r) => <ChangeCell quote={r.quote} /> };
     case "change7d":
-      return { key, header: "7d", width: "86px", align: "right", sortKey: "change7d", render: (r) => <ChangeCell quote={r.quote} field="change_7d_pct" /> };
+      return { key, header: "7d", width: "80px", align: "right", sortKey: "change7d", render: (r) => <ChangeCell quote={r.quote} field="change_7d_pct" /> };
     case "volume":
       return {
         key,
         header: <Term k="volume">Volume 24h</Term>,
-        width: "104px",
+        width: "96px",
         align: "right",
         sortKey: "volume",
         render: (r) => <VolumeCell quote={r.quote} className="text-[12px]" />,
@@ -114,13 +114,13 @@ export function builtinColumn<T extends MarketItem>(key: MarketColumnKey): Marke
       return {
         key,
         header: <Term k="volatility">Range 24h</Term>,
-        width: "92px",
+        width: "84px",
         align: "right",
         sortKey: "range",
         render: (r) => <RangeCell quote={r.quote} className="text-[12px]" />,
       };
     case "trend":
-      return { key, header: <Term k="trend">Trend</Term>, width: "112px", sortKey: "trend", render: (r) => <TrendBadge trend={quoteOk(r.quote) ? r.quote.trend : null} /> };
+      return { key, header: <Term k="trend">Trend</Term>, width: "104px", sortKey: "trend", render: (r) => <TrendBadge trend={quoteOk(r.quote) ? r.quote.trend : null} /> };
     case "regime":
       return {
         key,
@@ -130,12 +130,12 @@ export function builtinColumn<T extends MarketItem>(key: MarketColumnKey): Marke
         render: (r) => (quoteOk(r.quote) && r.quote.regime ? <RegimeBadge regime={r.quote.regime} /> : <span className="text-xs text-faint">—</span>),
       };
     case "sparkline":
-      return { key, header: "Графика", width: "86px", align: "center", render: (r) => <QuoteSparkline quote={r.quote} width={72} height={22} /> };
+      return { key, header: "Графика", width: "76px", align: "center", render: (r) => <QuoteSparkline quote={r.quote} width={68} height={22} /> };
     case "source":
       return {
         key,
         header: "Данни",
-        width: "92px",
+        width: "84px",
         align: "right",
         render: (r) => {
           const src = r.quote?.source ?? r.source;
@@ -151,7 +151,7 @@ export function builtinColumn<T extends MarketItem>(key: MarketColumnKey): Marke
     case "exchange":
       return { key, header: "Борса", width: "104px", render: (r) => <span className="truncate text-xs text-muted">{r.exchange || "—"}</span> };
     case "sector":
-      return { key, header: "Сектор", width: "minmax(120px,1fr)", render: (r) => <span className="truncate text-xs text-muted">{r.sector || r.category || "—"}</span> };
+      return { key, header: "Сектор", width: "minmax(110px,1fr)", render: (r) => <span className="truncate text-xs text-muted">{r.sector || r.category || "—"}</span> };
   }
 }
 
@@ -193,7 +193,7 @@ export function MarketTable<T extends MarketItem>({
           open(row);
         }}
         className={cx(
-          "grid h-full cursor-pointer items-center gap-3 border-b border-white/[0.045] px-3 transition-colors duration-100",
+          "grid h-full cursor-pointer items-center gap-2.5 border-b border-white/[0.045] px-3 transition-colors duration-100",
           active ? "bg-accent/[0.08]" : "hover:bg-white/[0.035]",
         )}
         style={{ gridTemplateColumns: template }}
@@ -210,7 +210,7 @@ export function MarketTable<T extends MarketItem>({
   const header = (
     <div
       role="row"
-      className="grid h-9 items-center gap-3 border-b border-white/[0.07] bg-surface/80 px-3 text-[10.5px] font-semibold uppercase tracking-[0.07em] text-faint"
+      className="grid h-9 items-center gap-2.5 border-b border-white/[0.07] bg-surface/80 px-3 text-[10.5px] font-semibold uppercase tracking-[0.07em] text-faint"
       style={{ gridTemplateColumns: template }}
     >
       {cols.map((c) => {
@@ -250,7 +250,7 @@ export function MarketTable<T extends MarketItem>({
     body = (
       <div role="rowgroup" aria-busy="true">
         {Array.from({ length: 8 }, (_, i) => (
-          <div key={i} className="grid items-center gap-3 border-b border-white/[0.04] px-3" style={{ gridTemplateColumns: template, height: rowHeight }} aria-hidden>
+          <div key={i} className="grid items-center gap-2.5 border-b border-white/[0.04] px-3" style={{ gridTemplateColumns: template, height: rowHeight }} aria-hidden>
             {cols.map((c, j) => (
               <Skeleton key={c.key} className={cx("h-3", c.align === "right" && "ml-auto")} style={{ width: j === 0 ? "70%" : `${40 + ((i * 7 + j * 13) % 40)}%` }} />
             ))}
@@ -285,7 +285,9 @@ export function MarketTable<T extends MarketItem>({
   }
 
   return (
-    <div className={cx("min-w-0 overflow-x-auto", className)}>
+    // `relative`: absolutely positioned descendants (sr-only labels) must be clipped by this scroller,
+    // otherwise they widen the whole page on phones
+    <div className={cx("relative min-w-0 overflow-x-auto", className)}>
       <div role="table" aria-label={ariaLabel} aria-rowcount={rows.length + 1} style={{ minWidth }}>
         {header}
         {body}

@@ -2,7 +2,7 @@
 
 import { ChartCandlestick, Eye, Globe, LayoutGrid } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import useSWR from "swr";
 
 import { AssetSearchCombobox } from "@/components/market/AssetSearchCombobox";
@@ -11,7 +11,7 @@ import { PersonalCards } from "@/components/market/explorer/PersonalCards";
 import { Heatmap } from "@/components/market/Heatmap";
 import { LinkButton } from "@/components/market/LinkButton";
 import { MarketMovers } from "@/components/market/MarketMovers";
-import { CATEGORY_TABS, TAB_BY_KEY, assetHref, isTabKey, tabCount, type CategoryTabKey, type HeatmapClass } from "@/components/market/model";
+import { CATEGORY_TABS, LIST_META, TAB_BY_KEY, assetHref, isTabKey, tabCount, type CategoryTabKey, type HeatmapClass } from "@/components/market/model";
 import type { CatalogPayload, ListKind } from "@/components/market/types";
 import { Card, PageHeader, Segmented, Tabs, Term, useStoredState } from "@/components/ui";
 import { fetcher } from "@/lib/api";
@@ -33,6 +33,7 @@ export function MarketsExplorer() {
   const [tabKey, setTabKey] = useStoredState<CategoryTabKey>("ta-markets-tab", "all", { validate: asTab });
   const [heat, setHeat] = useStoredState<HeatmapClass>("ta-markets-heatmap", "crypto", { validate: asHeat });
   const tab = TAB_BY_KEY[tabKey] ?? CATEGORY_TABS[0];
+  const [moverKind, setMoverKind] = useState<ListKind>("gainers");
 
   // deep links: /markets?class=crypto (or ?tab=metal)
   useEffect(() => {
@@ -119,10 +120,15 @@ export function MarketsExplorer() {
         <MarketMovers kind="popular" assetClass={tab.listClass} limit={5} className="md:col-span-2 xl:col-span-1" />
       </section>
 
-      <section aria-label="Market movers" className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <section aria-label="Market movers" className="hidden gap-3 md:grid md:grid-cols-2 xl:grid-cols-3">
         {MOVERS.map((k) => (
           <MarketMovers key={k} kind={k} assetClass={tab.listClass} limit={5} />
         ))}
+      </section>
+      {/* phones: one movers card with a list switcher instead of six stacked cards */}
+      <section aria-label="Market movers" className="space-y-2 md:hidden">
+        <Tabs value={moverKind} onChange={setMoverKind} tabs={MOVERS.map((k) => ({ key: k, label: LIST_META[k].title }))} />
+        <MarketMovers kind={moverKind} assetClass={tab.listClass} limit={5} />
       </section>
 
       <Card
@@ -134,6 +140,11 @@ export function MarketsExplorer() {
         }
         right={<Segmented size="sm" ariaLabel="Клас за heatmap" options={HEATMAP_OPTIONS} value={heat} onChange={setHeat} />}
       >
+        {!tab.heatmap && tab.key !== "all" && (
+          <p className="mb-2.5 text-xs text-faint">
+            Heatmap има за Crypto, Stocks и ETFs (секторите им дават смислени групи) — за {tab.label} използвай списъците и каталога.
+          </p>
+        )}
         <Heatmap assetClass={heat} />
       </Card>
 

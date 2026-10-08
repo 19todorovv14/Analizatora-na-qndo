@@ -130,7 +130,7 @@ export function layoutGroups<T>(
 // Mirrors the design tokens (app/globals.css): --color-down #f2555c, --color-up #22c79e, a neutral slate.
 const DOWN = [242, 85, 92];
 const UP = [34, 199, 158];
-const NEUTRAL = [44, 54, 74];
+const NEUTRAL = [42, 50, 66];
 
 /**
  * Symmetric scale limit for the colour of ±change: the 85th percentile of |change|, clamped to
@@ -149,8 +149,8 @@ export function heatColor(change: number | null | undefined, limit: number): str
   if (typeof change !== "number" || !Number.isFinite(change)) return "rgb(36,42,56)";
   const t = Math.max(-1, Math.min(1, change / (limit > 0 ? limit : 1)));
   const target = t >= 0 ? UP : DOWN;
-  // ease-out so small moves are already visibly tinted
-  const k = Math.sqrt(Math.abs(t)) * 0.82;
+  // mild ease-out: small moves are tinted, near-zero moves stay neutral (no muddy purple / olive)
+  const k = Math.pow(Math.abs(t), 0.7) * 0.85;
   const mix = NEUTRAL.map((c, i) => Math.round(c + (target[i] - c) * k));
   return `rgb(${mix[0]},${mix[1]},${mix[2]})`;
 }
