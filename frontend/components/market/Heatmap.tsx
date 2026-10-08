@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 
-import { assetHref, fmtPctSigned, fmtQuotePrice, fmtUsdCompact } from "@/components/market/model";
+import { assetHref, cleanReason, fmtPctSigned, fmtQuotePrice, fmtUsdCompact } from "@/components/market/model";
 import { colorLimit, heatColor, layoutGroups, legendStops, type Placed } from "@/components/market/treemap";
 import type { HeatmapPayload, HeatmapTile } from "@/components/market/types";
 import { DataNotAvailable, EmptyState, ErrorState, Skeleton, SourceBadge, Term } from "@/components/ui";
@@ -75,7 +75,7 @@ export function Heatmap({ assetClass, height = 440, compact, onSelect, className
     return <ErrorState title="Heatmap-ът не се зареди" onRetry={() => mutate()} className={className} />;
   }
   if (fresh && !fresh.available) {
-    return <DataNotAvailable reason={fresh.reason ?? "DATA NOT AVAILABLE"} className={className} />;
+    return <DataNotAvailable reason={cleanReason(fresh.reason, "Доставчикът не може да построи heatmap за този клас.")} className={className} />;
   }
 
   const basisLabel =

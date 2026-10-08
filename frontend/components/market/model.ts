@@ -159,6 +159,12 @@ export function quoteOk(q: Quote | null | undefined): q is Quote & { status: "ok
   return !!q && q.status === "ok" && q.available !== false;
 }
 
+/** Reason text shown under a "DATA NOT AVAILABLE" heading — without repeating that prefix. */
+export function cleanReason(reason: string | null | undefined, fallback = ""): string {
+  const r = (reason ?? "").replace(/^\s*DATA[ _]NOT[ _]AVAILABLE\s*[:—–-]?\s*/i, "").trim();
+  return r || fallback;
+}
+
 export type QuoteState = { kind: "ok" | "pending" | "na" | "on_demand" | "error" | "missing"; label: string; detail: string | null };
 
 /** How to present a quote that is not "ok" (short label for a table cell + the reason as detail). */
@@ -175,11 +181,11 @@ export function quoteState(q: Quote | null | undefined): QuoteState {
         detail: q.reason ?? "Доставчикът се пита само на страницата на актива и в watchlist (лимит на заявките).",
       };
     case "error":
-      return { kind: "error", label: "N/A", detail: q.reason ?? "Грешка от доставчика на данни." };
+      return { kind: "error", label: "N/A", detail: cleanReason(q.reason, "Грешка от доставчика на данни.") };
     case "unknown":
-      return { kind: "na", label: "N/A", detail: q.reason ?? "Непознат инструмент." };
+      return { kind: "na", label: "N/A", detail: cleanReason(q.reason, "Непознат инструмент.") };
     default:
-      return { kind: "na", label: "N/A", detail: q.reason ?? "DATA NOT AVAILABLE" };
+      return { kind: "na", label: "N/A", detail: cleanReason(q.reason, "Няма конфигуриран доставчик за този инструмент.") };
   }
 }
 
@@ -228,6 +234,27 @@ export function listKey(kind: ListKind, opts: { assetClass?: string | null; cate
   p.set("page", String(Math.max(1, opts.page ?? 1)));
   p.set("page_size", String(Math.max(1, Math.min(100, opts.pageSize ?? 6))));
   return `/markets/list?${p.toString()}`;
+}
+
+const COMMODITY_ALIASES = new Set(["metal", "energy", "agriculture"]);
+
+/**
+ * Does a list payload belong to the requested kind / class / category? (SWR keepPreviousData must never
+ * show the previous tab's list as this one.) The API echoes the commodity aliases as
+ * asset_class "commodity" + category; payloads without the echo (overview lists) are accepted.
+ */
+export function listMatches(
+  data: { kind: string; asset_class?: string | null; category?: string | null } | null | undefined,
+  kind: ListKind,
+  assetClass?: string | null,
+  category?: string | null,
+): boolean {
+  if (!data || data.kind !== kind) return false;
+  if (data.asset_class === undefined) return true;
+  const alias = assetClass && COMMODITY_ALIASES.has(assetClass);
+  const wantClass = alias ? "commodity" : (assetClass ?? null);
+  const wantCategory = alias ? assetClass : (category ?? null);
+  return (data.asset_class ?? null) === wantClass && (data.category ?? null) === wantCategory;
 }
 
 /** The secondary value a list row shows next to the change pill (volume / range); null for none. */

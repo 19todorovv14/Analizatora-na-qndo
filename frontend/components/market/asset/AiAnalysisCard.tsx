@@ -5,7 +5,7 @@ import useSWR from "swr";
 
 import { SETUP_DISCLAIMER, teacherHref } from "@/components/ai/model";
 import { LinkButton } from "@/components/market/LinkButton";
-import { decisionTone, fmtQuotePrice } from "@/components/market/model";
+import { cleanReason, decisionTone, fmtQuotePrice } from "@/components/market/model";
 import { Card, DataNotAvailable, Disclaimer, ErrorState, IconButton, InfoTip, RegimeBadge, SkeletonText, Term } from "@/components/ui";
 import { ApiError, errorMessage, errorReason, isDataNotAvailable, post } from "@/lib/api";
 import { cx } from "@/lib/format";
@@ -130,7 +130,7 @@ export function AiAnalysisCard({ symbol, precision = 2, enabled = true }: { symb
     body = <DataNotAvailable compact reason="Няма данни за анализ на този инструмент." />;
   } else if (error && !data) {
     body = isDataNotAvailable(error) ? (
-      <DataNotAvailable compact reason={errorReason(error)} />
+      <DataNotAvailable compact reason={cleanReason(errorReason(error), "Няма данни за анализ.")} />
     ) : (
       <ErrorState
         title="Анализът не се зареди"

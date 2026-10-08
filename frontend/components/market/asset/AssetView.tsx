@@ -18,6 +18,7 @@ import { FavoriteButton, WatchlistButton } from "@/components/market/MembershipB
 import {
   CATEGORY_TABS,
   askAiHref,
+  cleanReason,
   assetHref,
   chartHref,
   fmtCompact,
@@ -187,7 +188,7 @@ export function AssetView({ slug }: { slug: string }) {
                 <span className="text-xs text-faint">24h</span>
               </div>
             ) : (
-              <DataNotAvailable compact reason={qs.detail ?? data.reason ?? "Няма котировка от доставчика."} />
+              <DataNotAvailable compact reason={qs.detail ?? cleanReason(data.reason, "Няма котировка от доставчика.")} />
             )}
             {q?.partial && <p className="mt-1 text-[11px] text-faint">{q.reason}</p>}
           </div>
@@ -224,13 +225,6 @@ export function AssetView({ slug }: { slug: string }) {
         </div>
       </section>
 
-      {!data.available && (
-        <DataNotAvailable
-          reason={data.reason ?? "Нито един конфигуриран доставчик не обслужва този инструмент."}
-          provider={inst.source?.name ?? undefined}
-        />
-      )}
-
       <LearnHint title="Как да използваш тази страница">
         Започни от по-високия timeframe (1D) за контекст, после виж 1H. AI анализът описва какво виждат правилата —
         не е прогноза. Преди paper trade определи <Term k="stoploss">stop loss</Term> и риск на сделка.
@@ -259,7 +253,10 @@ export function AssetView({ slug }: { slug: string }) {
                 storageKey="asset"
               />
             ) : (
-              <DataNotAvailable reason={data.reason ?? "DATA NOT AVAILABLE"} className="min-h-[320px]" />
+              <DataNotAvailable
+                reason={cleanReason(data.reason, "Нито един конфигуриран доставчик не обслужва този инструмент.")}
+                className="min-h-[320px]"
+              />
             )}
           </Card>
 

@@ -4,14 +4,12 @@ import { Activity, ChevronLeft, ChevronRight, Flame, Gauge, Loader, Star, Trendi
 import { useState } from "react";
 import useSWR from "swr";
 
-import { LIST_META, listKey } from "@/components/market/model";
+import { LIST_META, cleanReason, listKey, listMatches } from "@/components/market/model";
 import { QuoteList } from "@/components/market/QuoteList";
 import type { ListKind, MarketList } from "@/components/market/types";
 import { Card, DataNotAvailable, EmptyState, ErrorState, InfoTip, SourceBadge, Term } from "@/components/ui";
 import { fetcher } from "@/lib/api";
 import { cx } from "@/lib/format";
-
-type ScopedList = MarketList & { __scope?: string };
 
 const KIND_ICON: Record<ListKind, { icon: LucideIcon; ink: string }> = {
   gainers: { icon: TrendingUp, ink: "text-up" },
@@ -51,17 +49,13 @@ export function MarketMovers({ kind, assetClass, category, limit = 6, title, com
   const page = pageState.scope === scope ? pageState.page : 1;
   const setPage = (p: number) => setPageState({ scope, page: p });
 
-  const { data, error, isLoading, mutate } = useSWR<ScopedList>(
-    listKey(kind, { assetClass, category, page, pageSize: limit }),
-    (key: string) => fetcher<MarketList>(key).then((d) => ({ ...d, __scope: scope })),
-    {
-      refreshInterval: (d) => (d?.status === "warming" ? 5_000 : 30_000),
-      keepPreviousData: true,
-      revalidateOnFocus: false,
-    },
-  );
+  const { data, error, isLoading, mutate } = useSWR<MarketList>(listKey(kind, { assetClass, category, page, pageSize: limit }), fetcher, {
+    refreshInterval: (d) => (d?.status === "warming" ? 5_000 : 30_000),
+    keepPreviousData: true,
+    revalidateOnFocus: false,
+  });
   // keepPreviousData keeps the old page while paging; another class / kind is never shown as this one
-  const fresh = data?.__scope === scope ? data : undefined;
+  const fresh = listMatches(data, kind, assetClass, category) ? data : undefined;
 
   const meta = LIST_META[kind];
   const { icon: Icon, ink } = KIND_ICON[kind];
@@ -126,7 +120,7 @@ export function MarketMovers({ kind, assetClass, category, limit = 6, title, com
   } else if (!fresh.available) {
     body = (
       <div className="p-3">
-        <DataNotAvailable compact reason={fresh.reason ?? "The configured provider plan cannot compute this list"} />
+        <DataNotAvailable compact reason={cleanReason(fresh.reason, "The configured provider plan cannot compute this list")} />
       </div>
     );
   } else if (!fresh.items.length) {

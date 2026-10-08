@@ -9,6 +9,7 @@ import { MarketStatusDot } from "@/components/market/MarketStatusDot";
 import {
   assetHref,
   classLabel,
+  cleanReason,
   fmtCompact,
   fmtCountdown,
   fmtPctPlain,
@@ -112,8 +113,7 @@ export function KeyStatsCard({ data, advanced }: { data: AssetPagePayload; advan
       k: "fees",
       label: <Term k="fees">Fees</Term>,
       value: inst.taker_fee !== null && inst.taker_fee !== undefined ? `${(inst.taker_fee * 100).toFixed(3)}%` : "—",
-      sub: inst.maker_fee !== null && inst.maker_fee !== undefined ? `maker ${(inst.maker_fee * 100).toFixed(3)}% · taker` : undefined,
-      adv: true,
+      sub: inst.maker_fee !== null && inst.maker_fee !== undefined ? `taker · maker ${(inst.maker_fee * 100).toFixed(3)}%` : undefined,
     },
     { k: "qty", label: "Min qty / step", value: inst.min_qty !== null && inst.min_qty !== undefined ? `${inst.min_qty} / ${inst.qty_step ?? "—"}` : "—", adv: true },
     { k: "asof", label: "Данни към", value: q?.as_of ? fmtTime(q.as_of) : "—", adv: true },
@@ -127,12 +127,12 @@ export function KeyStatsCard({ data, advanced }: { data: AssetPagePayload; advan
           Key stats
         </span>
       }
-      right={!advanced ? <span className="text-[10.5px] text-faint">Advanced показва и разходите</span> : null}
+      right={!advanced ? <span className="text-[10.5px] text-faint">Advanced показва още детайли</span> : null}
       bodyClass="p-0"
     >
       {!q && (
         <p className="border-b border-white/[0.05] px-3 py-2 text-[11px] text-faint">
-          DATA NOT AVAILABLE — {data.quote?.reason ?? "няма котировка от доставчика"}. Показваме само данните за инструмента.
+          DATA NOT AVAILABLE — {cleanReason(data.quote?.reason, "няма котировка от доставчика")} Показваме само данните за инструмента.
         </p>
       )}
       <StatGrid className="grid-cols-2 sm:grid-cols-4">

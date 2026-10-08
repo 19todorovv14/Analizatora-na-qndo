@@ -59,6 +59,9 @@ export function WatchlistPage() {
   const { toggle, busy: removing } = useWatchlistToggle();
   const adder = useAddToWatchlist();
 
+  // removing the last rows of the last page → step back instead of showing an empty page
+  if (data && data.pages > 0 && page > data.pages) setPage(data.pages);
+
   const rows = useMemo(() => sortRows(data?.items ?? [], sort), [data, sort]);
   const pages = data?.pages ?? 1;
   const symbols = (data?.items ?? []).map((r) => r.symbol);
