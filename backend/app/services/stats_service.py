@@ -14,20 +14,28 @@ from sqlalchemy.orm import Session
 from app.academy.challenges import CHALLENGES, CHALLENGES_BY_KEY
 from app.ai.coach import weekly_review
 from app.ai.providers import get_llm
+from app.ai.review import narrate, review_position
 from app.backtesting.metrics import json_safe, trade_metrics
+from app.journal import review as journal_review
 from app.journal.stats import journal_stats
+from app.market.catalog import UnknownAssetError, get_asset
 from app.models import (
     Backtest,
     Bot,
     ChallengeProgress,
     JournalEntry,
+    LearningProgress,
     PaperAccount,
     PaperPosition,
+    PaperTrade,
+    ReplayDecision,
     RiskEvent,
+    Strategy,
     User,
     WatchlistItem,
 )
 from app.psychology.behavior import analyze_behavior
+from app.psychology.patterns import build_positions, detect_patterns
 from app.services import learning_service, market_service, paper_service, settings_service
 
 
@@ -64,7 +72,126 @@ def journal_to_dict(e: JournalEntry, with_screenshot: bool = True) -> dict:
         "screenshot": e.screenshot if with_screenshot else (bool(e.screenshot) or None),
         "created_ts": e.created_ts,
         "updated_ts": e.updated_ts,
+        # v2
+        "exit_price": e.exit_price,
+        "strategy": e.strategy,
+        "risk_amount": e.risk_amount,
+        "notes": e.notes,
+        "ai_review": e.ai_review,
     }
+
+
+# ------------------------------------------------------------------ journal v2: strategy labels, linking, AI review
+def _label(value) -> str | None:
+    if isinstance(value, dict):
+        value = value.get("name")
+    return str(value).strip()[:100] or None if value else None
+
+
+def strategy_labels(db: Session, trades: list[dict]) -> list[dict]:
+    """Set t["strategy"] on closed-trade dicts (in place): the trade meta's strategy / strategy_name, else the saved
+    strategy (meta.strategy_id), else the bot's strategy (meta.bot_id → its strategy, else the bot name)."""
+    metas = [t.get("meta") or {} for t in trades]
+    bot_ids = {m["bot_id"] for m in metas if isinstance(m.get("bot_id"), int)}
+    bots = {b.id: b for b in db.scalars(select(Bot).where(Bot.id.in_(bot_ids)))} if bot_ids else {}
+    strat_ids = {m["strategy_id"] for m in metas if isinstance(m.get("strategy_id"), int)}
+    strat_ids |= {b.strategy_id for b in bots.values() if b.strategy_id}
+    names = dict(db.execute(select(Strategy.id, Strategy.name).where(Strategy.id.in_(strat_ids))).all()) if strat_ids else {}
+    for t, m in zip(trades, metas, strict=True):
+        label = _label(m.get("strategy")) or _label(m.get("strategy_name")) or _label(names.get(m.get("strategy_id")))
+        bot = bots.get(m.get("bot_id"))
+        if not label and bot is not None:
+            label = _label(names.get(bot.strategy_id)) or _label(bot.name)
+        t["strategy"] = label
+    return trades
+
+
+def linked_position(db: Session, user: User, trade_id: str) -> dict | None:
+    """The paper position behind a journal link (a trade id — any closed slice — or a position id) of the user's
+    manual / replay / bot accounts, aggregated over every closed slice: {position_id, trade_ids, symbol, side,
+    entry, stop, target, exit_price, result, r_multiple, risk_amount, timeframe, setup, strategy, slices, closed}."""
+    ids = user_account_ids(db, user, ("manual", "replay", "bot"))
+    if not ids or not trade_id:
+        return None
+    row = db.get(PaperTrade, trade_id)
+    pid = row.position_id if (row is not None and row.account_id in ids) else trade_id
+    rows = db.scalars(
+        select(PaperTrade)
+        .where(PaperTrade.position_id == pid, PaperTrade.account_id.in_(ids))
+        .order_by(PaperTrade.closed_ts)
+    ).all()
+    if not rows:
+        return None
+    trades = strategy_labels(db, [paper_service.trade_to_dict(t) for t in rows])
+    (p,) = build_positions(trades)
+    pos = db.get(PaperPosition, pid)
+    return {
+        "position_id": pid,
+        "trade_ids": p["trade_ids"],
+        "symbol": p["symbol"],
+        "side": p["side"],
+        "entry": p["entry_price"],
+        "stop": p["stop"],
+        "target": p["target"],
+        "exit_price": p["exit_price"],
+        "result": p["net_pnl"],
+        "r_multiple": p["r"],
+        "risk_amount": p["risk_amount"],
+        "timeframe": p["timeframe"],
+        "setup": p["setup"],
+        "strategy": trades[0]["strategy"],
+        "slices": p["slices"],
+        "closed": pos is None or pos.status == "closed",
+    }
+
+
+def journal_ai_review(db: Session, user: User, e: JournalEntry, now: int | None = None) -> dict:
+    """AI review of a journal entry: the TRADE REVIEW (app.ai.review.review_position) when the entry is linked to a
+    closed paper position, else a reflection review of the written fields (app.journal.review). Optional LLM
+    narrative (sanitised) on top; offline it is fully rule-based."""
+    now = int(now or time.time())
+    rules = settings_service.risk_rules(user)
+    link = linked_position(db, user, e.trade_id) if e.trade_id else None
+    out: dict | None = None
+    if link is not None and link["closed"]:
+        ids = user_account_ids(db, user, ("manual", "replay", "bot"))
+        detail = paper_service.position_detail(db, ids, link["position_id"])
+        if detail is not None and detail[1]:
+            pos, pts = detail
+            try:
+                precision = get_asset(pos["symbol"]).price_precision
+            except UnknownAssetError:
+                precision = 2
+            history = paper_service.closed_trades(db, ids)
+            out = journal_review.trade_review(
+                review_position(
+                    pos,
+                    pts,
+                    rules=rules,
+                    precision=precision,
+                    previous_trades=[t for t in history if t["closed_ts"] <= pos["opened_ts"]],
+                )
+            )
+    if out is None:
+        out = journal_review.reflection_review(journal_to_dict(e, with_screenshot=False), rules)
+        if link is not None and not link["closed"]:
+            out["note"] = "Позицията още е отворена — прегледът е по записаните полета."
+        elif e.trade_id and link is None:
+            out["note"] = "Свързаната сделка не е намерена — прегледът е по записаните полета."
+    out = narrate(out, get_llm())
+    out.setdefault("provider", "offline")
+    out["generated_ts"] = now
+    out["entry_id"] = e.id
+    out["linked"] = (
+        {k: link[k] for k in ("position_id", "symbol", "side", "result", "r_multiple", "closed")} if link else None
+    )
+    return json_safe(out)
+
+
+def journal_statistics(db: Session, user: User) -> dict:
+    """GET /api/journal/stats — journal_stats over the manual + replay history (trades carry strategy labels)."""
+    trades = strategy_labels(db, paper_service.closed_trades(db, user_account_ids(db, user)))
+    return json_safe(journal_stats(journal_dicts(db, user), trades, behavior(db, user)))
 
 
 def behavior(db: Session, user: User) -> dict:
@@ -139,6 +266,35 @@ def _equity(trades: list[dict]) -> list[list]:
     return out
 
 
+def replay_flag_counts(db: Session, user: User) -> dict[str, int]:
+    """How often each Replay scoring flag (entered_too_early, ignored_structure, chased, …) was raised on the
+    user's Replay decisions (the flags live in replay_decisions.outcome.meta.flags)."""
+    counts: Counter = Counter()
+    for outcome in db.scalars(select(ReplayDecision.outcome).where(ReplayDecision.user_id == user.id)):
+        meta = (outcome or {}).get("meta") or {}
+        for f in meta.get("flags") or []:
+            key = f.get("key") if isinstance(f, dict) else f
+            if key:
+                counts[str(key)] += 1
+    return dict(counts)
+
+
+def completed_lessons(db: Session, user: User) -> set[str]:
+    return set(db.scalars(select(LearningProgress.lesson_slug).where(LearningProgress.user_id == user.id)))
+
+
+def patterns(db: Session, user: User, trades: list[dict] | None = None, journal: list[dict] | None = None) -> dict:
+    """AI COACH v2 pattern detection over the user's manual + replay history (app.psychology.patterns)."""
+    trades = trades if trades is not None else paper_service.closed_trades(db, user_account_ids(db, user))
+    journal = journal if journal is not None else journal_dicts(db, user)
+    return detect_patterns(
+        trades,
+        settings_service.risk_rules(user),
+        replay_flags=replay_flag_counts(db, user),
+        journal_mistakes=[m for e in journal for m in (e.get("mistakes") or [])],
+    )
+
+
 def coach(db: Session, user: User, now: int | None = None) -> dict:
     now = int(now or time.time())
     week_ago = now - 7 * 86400
@@ -167,6 +323,10 @@ def coach(db: Session, user: User, now: int | None = None) -> dict:
             backtests=bts,
             period={"from": week_ago, "to": now},
             llm=get_llm(),
+            patterns=patterns(db, user, all_trades, journal),
+            rules=settings_service.risk_rules(user),
+            learning=learning_service.learning_dashboard(db, user),
+            completed_lessons=completed_lessons(db, user),
         )
     )
 

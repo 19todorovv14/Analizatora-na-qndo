@@ -265,9 +265,10 @@ def detect_entered_early(
     key = "entered_early"
     known = [p for p in positions if _has_context(p)]
     early = [p for p in known if _early_reason(p)]
-    reasons = defaultdict(int)
+    reasons: dict[str, int] = {}
     for p in early:
-        reasons[_early_reason(p)] += 1
+        why = _early_reason(p)
+        reasons[why] = reasons.get(why, 0) + 1
     replay = sum(int((replay_flags or {}).get(k, 0)) for k in EARLY_REPLAY_FLAGS)
     journal = sum(1 for m in journal_mistakes or [] if str(m).strip().lower() in EARLY_JOURNAL_CHIPS)
     if len(known) < EARLY_MIN_KNOWN and not replay and not journal:
@@ -289,11 +290,11 @@ def detect_entered_early(
     parts: list[str] = []
     if early:
         detail = []
-        if reasons["unconfirmed"]:
+        if reasons.get("unconfirmed"):
             detail.append(f"{reasons['unconfirmed']} при WAIT/NO TRADE на затворените свещи")
-        if reasons["against_setup"]:
+        if reasons.get("against_setup"):
             detail.append(f"{reasons['against_setup']} срещу анализирания setup")
-        if reasons["against_structure"]:
+        if reasons.get("against_structure"):
             detail.append(f"{reasons['against_structure']} срещу текущата структура/тренд")
         parts.append(
             f"{len(early)} от {len(known)} paper входа ({ratio * 100:.0f}%) са преди потвърждение: {', '.join(detail)}."

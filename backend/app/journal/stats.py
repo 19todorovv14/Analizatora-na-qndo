@@ -18,6 +18,14 @@ def journal_stats(entries: list[dict], trades: list[dict], behavior: dict | None
         e = by_trade.get(t["id"]) or by_trade.get(t["position_id"])
         return (e and e.get("timeframe")) or (t.get("meta") or {}).get("timeframe") or "unknown"
 
+    def strategy_of(t: dict) -> str:
+        """Linked journal entry's strategy → the trade's resolved strategy (stats_service.strategy_labels sets
+        t["strategy"]: meta strategy, the bot's strategy, the saved strategy) → "unlabelled"."""
+        e = by_trade.get(t["id"]) or by_trade.get(t["position_id"])
+        meta = t.get("meta") or {}
+        label = (e and e.get("strategy")) or t.get("strategy") or meta.get("strategy") or meta.get("strategy_name")
+        return str(label) if label and isinstance(label, str) else "unlabelled"
+
     def group(key_fn) -> list[dict]:
         g: dict[str, list[dict]] = defaultdict(list)
         for t in trades:
@@ -38,6 +46,7 @@ def journal_stats(entries: list[dict], trades: list[dict], behavior: dict | None
 
     setups = group(setup_of)
     tfs = group(tf_of)
+    strategies = group(strategy_of)
     mistakes = Counter(m for e in entries for m in (e.get("mistakes") or []))
     for f in (behavior or {}).get("findings", []):
         mistakes[f["title"]] += f["count"]
@@ -69,4 +78,32 @@ def journal_stats(entries: list[dict], trades: list[dict], behavior: dict | None
         "average_r": mean(rs) if rs else None,
         "emotions": dict(emotions.most_common()),
         "confidence_vs_r": {str(k): mean(v) for k, v in sorted(conf.items())},
+        # v2: by strategy (trades grouped like setups/timeframes) + the journal entries themselves per strategy
+        "strategies": strategies,
+        "best_strategy": strategies[0] if strategies else None,
+        "worst_strategy": strategies[-1] if len(strategies) > 1 else None,
+        "entries_by_strategy": entries_by_strategy(entries),
     }
+
+
+def entries_by_strategy(entries: list[dict]) -> list[dict]:
+    """Journal entries grouped by their `strategy` field: {key, entries, with_result, net_result, win_rate,
+    average_r} (results from the entry itself — auto-filled from the linked trade or typed in)."""
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for e in entries:
+        groups[(e.get("strategy") or "").strip() or "unlabelled"].append(e)
+    rows = []
+    for k, es in groups.items():
+        results = [float(e["result"]) for e in es if e.get("result") is not None]
+        rs = [float(e["r_multiple"]) for e in es if e.get("r_multiple") is not None]
+        rows.append(
+            {
+                "key": k,
+                "entries": len(es),
+                "with_result": len(results),
+                "net_result": sum(results) if results else None,
+                "win_rate": sum(1 for r in results if r > 0) / len(results) * 100 if results else None,
+                "average_r": mean(rs) if rs else None,
+            }
+        )
+    return sorted(rows, key=lambda r: (-r["entries"], r["key"]))
