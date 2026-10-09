@@ -6,10 +6,10 @@ import { downloadDataUrl } from "@/components/charts/capture";
 import { normSymbol } from "@/components/charts/chartMath";
 import type { PriceLineDef } from "@/components/charts/TradingChart";
 import { useChartWorkspace } from "@/components/charts/useChartWorkspace";
-import { screenshotName } from "@/components/terminal/model";
+import { prefillStatus, screenshotName } from "@/components/terminal/model";
 import type { PricePick } from "@/components/terminal/PriceLevelChooser";
 import type { TradeCapture } from "@/components/trading/Tables";
-import { aiDraft, computeTicket, draftLevels, type LevelKind } from "@/components/trading/ticket";
+import { aiDraft, computeTicket, draftLevels, type LevelKind, type TicketPrefill } from "@/components/trading/ticket";
 import { useOrderTicket } from "@/components/trading/useOrderTicket";
 import { marketEntry } from "@/lib/sizing";
 import { useAccount, usePaperInstrument, usePaperTrades } from "@/lib/hooks";
@@ -56,6 +56,30 @@ export function usePaperTerminal({ storageKey, symbol, timeframe, beginner }: { 
     [ticket.state, inst, ws.lastPrice, precision, view?.equity, freeMargin],
   );
   const draft = useMemo(() => aiDraft(ticket.state, calc), [ticket.state, calc]);
+
+  // link prefill (/trade?side=&entry=&stop=&target=&leverage=): queued until the linked instrument's decimals,
+  // bid / ask and max leverage are known, then written into the ticket once (state adjusted during render —
+  // no effect). It only fills the draft; placing the order stays the user's submit.
+  const [pendingPrefill, setPendingPrefill] = useState<{ order: TicketPrefill; symbol: string | null } | null>(null);
+  const [prefillNonce, setPrefillNonce] = useState(0);
+  const prefillOrder = useCallback((order: TicketPrefill, forSymbol: string | null = null) => setPendingPrefill({ order, symbol: forSymbol }), []);
+  if (pendingPrefill) {
+    const status = prefillStatus(pendingPrefill.symbol, symbol, !!inst || !!instrument.error);
+    if (status !== "wait") {
+      setPendingPrefill(null);
+      if (status === "apply") {
+        const side = pendingPrefill.order.side ?? ticket.state.side;
+        ticket.dispatch({
+          type: "prefill",
+          prefill: pendingPrefill.order,
+          market: marketEntry(side, inst?.bid, inst?.ask, ws.lastPrice),
+          precision,
+          maxLeverage: inst?.max_leverage ?? null,
+        });
+        setPrefillNonce((n) => n + 1);
+      }
+    }
+  }
 
   const { mutate: mutateAccount } = account;
   const { mutate: mutateTrades } = trades;
@@ -127,6 +151,10 @@ export function usePaperTerminal({ storageKey, symbol, timeframe, beginner }: { 
     onPriceClick,
     closePick,
     chooseLevel,
+    /** queue a link prefill for the ticket (applied once the instrument loaded; dropped if the symbol changes first) */
+    prefillOrder,
+    /** increments every time a prefill was written into the ticket (pages show the order panel) */
+    prefillNonce,
   };
 }
 

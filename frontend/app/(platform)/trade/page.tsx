@@ -2,7 +2,7 @@
 
 import { Landmark, Sparkles, Wallet } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ChartCanvas } from "@/components/charts/ChartCanvas";
 import { DrawToolbar } from "@/components/charts/ChartControls";
@@ -44,15 +44,27 @@ export default function TradePage() {
   const [timeframe, setTimeframe] = useLocalState("ta-paper-tf", "15m");
   const [section, setSection] = useState<Section>("order");
 
+  const layout = useTerminalLayout("trade", { right: { def: 360 } });
+  const term = usePaperTerminal({ storageKey: "paper", symbol, timeframe, beginner });
+  const { ws, ticket, view, instrument, prefillOrder, prefillNonce } = term;
+
+  // ?symbol=&tf= + the optional order prefill (?side=&entry=&stop=&target=&leverage= — Trade Simulator link):
+  // the levels only fill the ticket, the order is never placed automatically
   useEffect(() => {
     const q = readTerminalQuery(window.location.search);
     if (q.symbol) setSymbol(q.symbol);
     if (q.timeframe) setTimeframe(q.timeframe);
-  }, [setSymbol, setTimeframe]);
+    if (q.order) prefillOrder(q.order, q.symbol);
+  }, [setSymbol, setTimeframe, prefillOrder]);
 
-  const layout = useTerminalLayout("trade", { right: { def: 360 } });
-  const term = usePaperTerminal({ storageKey: "paper", symbol, timeframe, beginner });
-  const { ws, ticket, view, instrument } = term;
+  // a prefilled ticket is shown: desktop expands the right panel, tablet / phone open the order sheet
+  const { openRight } = layout;
+  const prefillShown = useRef(0);
+  useEffect(() => {
+    if (prefillNonce === prefillShown.current) return;
+    prefillShown.current = prefillNonce;
+    openRight();
+  }, [prefillNonce, openRight]);
 
   const { dispatch } = ticket;
   const onSide = useCallback((side: "buy" | "sell") => dispatch({ type: "side", side }), [dispatch]);

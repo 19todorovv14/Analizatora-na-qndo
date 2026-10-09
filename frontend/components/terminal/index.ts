@@ -38,11 +38,13 @@ export {
   fmtUtcClock,
   gridTemplate,
   letterBindings,
+  prefillStatus,
   readTerminalQuery,
   screenshotName,
   termKey,
   timeframeBindings,
 } from "@/components/terminal/model";
+export type { TerminalQuery } from "@/components/terminal/model";
 export { BOTTOM_TABS, ReplayCard, usePaperBottomPanel } from "@/components/terminal/PaperBottomPanel";
 export type { BottomTab } from "@/components/terminal/PaperBottomPanel";
 export { PriceLevelChooser } from "@/components/terminal/PriceLevelChooser";

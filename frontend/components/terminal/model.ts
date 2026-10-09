@@ -2,8 +2,11 @@
  * Terminal model — pure helpers (no React) shared by TerminalLayout, the terminal hotkeys and the
  * session clock. Unit-tested in components/terminal/__tests__.
  */
+import { normSymbol } from "@/components/charts/chartMath";
 import { TOOL_HOTKEYS, type Tool } from "@/components/charts/drawings";
+import type { TicketPrefill } from "@/components/trading/ticket";
 import { TIMEFRAMES } from "@/lib/format";
+import { parseNum, type OrderSide } from "@/lib/sizing";
 
 /* ───────────────────────────────────────────────────────── layout */
 
@@ -180,10 +183,58 @@ export function screenshotName(symbol: string, timeframe: string, now: number, e
   return `${symbol.replace(/[^A-Za-z0-9]+/g, "-")}_${timeframe}_${stamp}.${ext}`;
 }
 
-/** Read `?symbol=` (and `?tf=`) of a URL search string. */
-export function readTerminalQuery(search: string): { symbol: string | null; timeframe: string | null } {
+/** Parameters of a terminal link (/charts?…, /trade?…). */
+export type TerminalQuery = {
+  symbol: string | null;
+  timeframe: string | null;
+  /** order levels to PREFILL the ticket with (null = none in the link) — never placed automatically */
+  order: TicketPrefill | null;
+};
+
+function querySide(raw: string | null): OrderSide | null {
+  switch (raw?.trim().toLowerCase()) {
+    case "buy":
+    case "long":
+      return "buy";
+    case "sell":
+    case "short":
+      return "sell";
+    default:
+      return null;
+  }
+}
+
+function queryPrice(raw: string | null): number | null {
+  const v = parseNum(raw);
+  return v !== null && v > 0 ? v : null;
+}
+
+/**
+ * Terminal link parameters: `?symbol=&tf=` plus the optional order prefill
+ * `side=buy|sell (long|short)&entry=&stop=&target=&leverage=` (Trade Simulator → "Отвори в Paper Trading").
+ * Invalid values are ignored one by one; leverage below 1x is ignored, above 100x capped.
+ */
+export function readTerminalQuery(search: string): TerminalQuery {
   const p = new URLSearchParams(search);
   const symbol = p.get("symbol")?.trim() || null;
   const tf = p.get("tf") || p.get("timeframe");
-  return { symbol, timeframe: tf && (TIMEFRAMES as readonly string[]).includes(tf) ? tf : null };
+  const lev = parseNum(p.get("leverage")?.trim().replace(/x$/i, "") ?? null);
+  const order: TicketPrefill = {
+    side: querySide(p.get("side")),
+    entry: queryPrice(p.get("entry")),
+    stop: queryPrice(p.get("stop")),
+    target: queryPrice(p.get("target")),
+    leverage: lev !== null && lev >= 1 ? Math.min(lev, 100) : null,
+  };
+  const hasOrder = Object.values(order).some((v) => v !== null);
+  return { symbol, timeframe: tf && (TIMEFRAMES as readonly string[]).includes(tf) ? tf : null, order: hasOrder ? order : null };
+}
+
+/**
+ * A queued link prefill: "apply" once the ticket is on the linked instrument and its parameters (decimals,
+ * bid / ask, max leverage) arrived or failed to load; "drop" when another instrument was chosen meanwhile.
+ */
+export function prefillStatus(target: string | null, symbol: string, settled: boolean): "wait" | "apply" | "drop" {
+  if (target && normSymbol(target) !== normSymbol(symbol)) return "drop";
+  return settled ? "apply" : "wait";
 }

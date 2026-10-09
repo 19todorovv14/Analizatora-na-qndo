@@ -69,6 +69,18 @@ export const INITIAL_TICKET: TicketState = {
 
 export type TicketField = "entry" | "stop" | "target" | "riskPct" | "manualQty" | "setup";
 
+/**
+ * Order levels handed to the terminal by a link (`/trade?symbol=…&side=buy|sell&entry=&stop=&target=&leverage=`,
+ * e.g. the Trade Simulator's "Отвори в Paper Trading"); `null` = not in the link. Prices in the quote currency.
+ */
+export type TicketPrefill = {
+  side: OrderSide | null;
+  entry: number | null;
+  stop: number | null;
+  target: number | null;
+  leverage: number | null;
+};
+
 export type TicketAction =
   | { type: "side"; side: OrderSide }
   | { type: "orderType"; orderType: OrderType }
@@ -81,6 +93,8 @@ export type TicketAction =
   | { type: "instrument" }
   /** after a placed order: drop the price levels and the manual quantity */
   | { type: "placed" }
+  /** levels from a link (Trade Simulator → /trade?side=&entry=&stop=&target=&leverage=): fills the draft, never places an order */
+  | { type: "prefill"; prefill: TicketPrefill; market: number | null; precision: number; maxLeverage?: number | null }
   | { type: "reset" };
 
 /** Price as the text a field shows (fixed decimals of the instrument). */
@@ -113,6 +127,8 @@ export function ticketReducer(s: TicketState, a: TicketAction): TicketState {
       return { ...s, entry: "", stop: "", target: "", manualQty: "", leverage: null };
     case "placed":
       return { ...s, entry: "", stop: "", target: "", manualQty: "" };
+    case "prefill":
+      return applyPrefill(s, a.prefill, a.market, a.precision, a.maxLeverage);
     case "reset":
       return INITIAL_TICKET;
   }
@@ -190,6 +206,32 @@ export function effectiveLeverage(t: Pick<TicketState, "leverage">, inst?: Pick<
   const def = pos(defRaw) ? Math.min(defRaw, max) : 1;
   if (t.leverage !== null && pos(t.leverage)) return { leverage: Math.min(Math.max(1, t.leverage), max), source: "order", max };
   return { leverage: Math.max(1, def), source: "account", max };
+}
+
+/** A linked level as field text: the instrument's decimals, unless that would move it by more than 0.01 %. */
+function linkedLevelText(v: number, precision: number): string {
+  const t = priceText(v, precision);
+  const back = Number(t);
+  return back > 0 && Math.abs(back - v) <= v * 1e-4 ? t : String(Number(v.toPrecision(10)));
+}
+
+/**
+ * Applies a link prefill to the draft: the side first, then the entry with the same rule as the chart's
+ * "set as Entry" (LIMIT / STOP against the live market — no entry keeps the order type), stop loss, take
+ * profit and the per-order leverage capped at the instrument maximum (below 1x ignored). Sizing stays as
+ * it is (by risk % → the quantity follows from the stop). Only fills the ticket — the user's submit places it.
+ */
+export function applyPrefill(s: TicketState, p: TicketPrefill, market: number | null, precision: number, maxLeverage?: number | null): TicketState {
+  let next: TicketState = p.side === "buy" || p.side === "sell" ? { ...s, side: p.side } : s;
+  if (pos(p.entry)) next = { ...next, entry: linkedLevelText(p.entry, precision), type: entryTypeForLevel(next.side, p.entry, market) };
+  if (pos(p.stop)) next = { ...next, stop: linkedLevelText(p.stop, precision) };
+  if (pos(p.target)) next = { ...next, target: linkedLevelText(p.target, precision) };
+  // below 1x is not a leverage (ignored → account default); above the instrument max → the max
+  if (pos(p.leverage) && p.leverage >= 1) {
+    const cap = pos(maxLeverage) ? Math.max(1, Math.min(100, maxLeverage)) : 100;
+    next = { ...next, leverage: Math.min(p.leverage, cap) };
+  }
+  return next;
 }
 
 export function computeTicket(t: TicketState, ctx: TicketContext): TicketCalc {

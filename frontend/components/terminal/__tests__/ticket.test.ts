@@ -10,6 +10,7 @@ import {
   STOP_PCTS,
   TARGET_RS,
   aiDraft,
+  applyPrefill,
   computeTicket,
   draftLevels,
   effectiveLeverage,
@@ -22,6 +23,7 @@ import {
   ticketHints,
   ticketReducer,
   type TicketInstrument,
+  type TicketPrefill,
   type TicketState,
 } from "@/components/trading/ticket";
 
@@ -237,5 +239,60 @@ describe("quick buttons, labels, chart levels, AI draft", () => {
     const t = with_({ stop: "99000", target: "102000" });
     assert.deepEqual(aiDraft(t, computeTicket(t, ctx(BTC))), { side: "buy", entry: 100000, stop: 99000, target: 102000, qty: 0.1 });
     assert.equal(aiDraft(INITIAL_TICKET, computeTicket(INITIAL_TICKET, ctx(null, { last: null }))), null);
+  });
+});
+
+describe("link prefill (Trade Simulator → /trade?side=&entry=&stop=&target=&leverage=)", () => {
+  const NONE: TicketPrefill = { side: null, entry: null, stop: null, target: null, leverage: null };
+  const prefill = (s: TicketState, p: Partial<TicketPrefill>, market: number | null, precision = 2, maxLeverage: number | null = 2) =>
+    ticketReducer(s, { type: "prefill", prefill: { ...NONE, ...p }, market, precision, maxLeverage });
+
+  test("a SHORT plan above the market becomes a SELL LIMIT with its SL / TP and leverage; size stays by risk", () => {
+    const s = prefill(INITIAL_TICKET, { side: "sell", entry: 1.1, stop: 1.11, target: 1.08, leverage: 10 }, 1.095, 5, 30);
+    assert.deepEqual(
+      { side: s.side, type: s.type, entry: s.entry, stop: s.stop, target: s.target, leverage: s.leverage, sizing: s.sizing, manualQty: s.manualQty },
+      { side: "sell", type: "limit", entry: "1.10000", stop: "1.11000", target: "1.08000", leverage: 10, sizing: "risk", manualQty: "" },
+    );
+  });
+  test("entry type follows the chart's 'set as Entry' rule for the LINKED side (BUY above the market → STOP)", () => {
+    assert.equal(prefill(INITIAL_TICKET, { side: "buy", entry: 101000 }, 100000).type, "stop");
+    assert.equal(prefill(INITIAL_TICKET, { side: "buy", entry: 99000 }, 100000).type, "limit");
+    const short = prefill({ ...INITIAL_TICKET, side: "buy" }, { side: "sell", entry: 99000 }, 100000);
+    assert.equal(short.type, "stop", "the side switch happens before the entry type is chosen");
+    assert.equal(prefill(INITIAL_TICKET, { side: "buy", entry: 99000 }, null).type, "limit", "unknown market → LIMIT");
+  });
+  test("no entry keeps the order type (market order with the linked SL / TP)", () => {
+    const s = prefill(INITIAL_TICKET, { side: "buy", stop: 99000, target: 102000 }, 100000);
+    assert.equal(s.type, "market");
+    assert.equal(s.entry, "");
+    assert.equal(s.stop, "99000.00");
+    assert.equal(s.target, "102000.00");
+  });
+  test("leverage is capped at the instrument max (and never below 1x)", () => {
+    assert.equal(prefill(INITIAL_TICKET, { leverage: 10 }, null, 2, 2).leverage, 2);
+    assert.equal(prefill(INITIAL_TICKET, { leverage: 7 }, null, 2, 30).leverage, 7);
+    assert.equal(prefill(INITIAL_TICKET, { leverage: 7 }, null, 2, null).leverage, 7, "unknown max → computeTicket caps later");
+    assert.equal(prefill(INITIAL_TICKET, { leverage: 0.5 }, null).leverage, null, "invalid → account default");
+  });
+  test("levels are written with the instrument's decimals unless that would move them (> 0.01 %)", () => {
+    assert.equal(prefill(INITIAL_TICKET, { stop: 66339.12345 }, null, 2).stop, "66339.12");
+    assert.equal(prefill(INITIAL_TICKET, { stop: 0.000123 }, null, 2).stop, "0.000123", "too few decimals → the linked value");
+    assert.equal(prefill(INITIAL_TICKET, { target: 1.0800000000000001 }, null, 5).target, "1.08000");
+  });
+  test("only the linked fields change; keeps risk %, setup and an empty link changes nothing", () => {
+    const base: TicketState = { ...INITIAL_TICKET, riskPct: "0.5", setup: "breakout", stop: "95000.00" };
+    const s = prefill(base, { target: 110000 }, 100000);
+    assert.equal(s.stop, "95000.00");
+    assert.equal(s.riskPct, "0.5");
+    assert.equal(s.setup, "breakout");
+    assert.equal(applyPrefill(base, NONE, 100000, 2, 2), base);
+  });
+  test("a prefilled ticket is a ready draft: the quantity follows from the risk and nothing is sent by itself", () => {
+    const s = prefill(INITIAL_TICKET, { side: "buy", entry: 99000, stop: 98010, target: 100980, leverage: 2 }, 100000, 2, 2);
+    const c = computeTicket(s, { instrument: BTC, last: 100000, precision: 2, equity: 10000 });
+    assert.ok(c.qty > 0 && c.canSubmit);
+    assert.equal(c.leverage, 2);
+    assert.ok(Math.abs((c.riskUsd ?? 0) - 100) < 2, "≈ 1 % of the equity at the stop");
+    assert.equal(submitLabel(s.side, c.qtyText).startsWith("BUY / LONG"), true);
   });
 });

@@ -40,6 +40,7 @@ export {
   STOP_PCTS,
   TARGET_RS,
   aiDraft,
+  applyPrefill,
   computeTicket,
   draftLevels,
   effectiveLeverage,
@@ -51,6 +52,6 @@ export {
   ticketHints,
   ticketReducer,
 } from "@/components/trading/ticket";
-export type { DraftLevel, LevelKind, OrderRequest, TicketAction, TicketCalc, TicketInstrument, TicketState } from "@/components/trading/ticket";
+export type { DraftLevel, LevelKind, OrderRequest, TicketAction, TicketCalc, TicketInstrument, TicketPrefill, TicketState } from "@/components/trading/ticket";
 export { useOrderPreview, useOrderTicket } from "@/components/trading/useOrderTicket";
 export type { OrderTicket, PreviewState } from "@/components/trading/useOrderTicket";

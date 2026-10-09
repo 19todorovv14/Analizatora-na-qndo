@@ -17,6 +17,7 @@ import {
   gridTemplate,
   isNavSequence,
   letterBindings,
+  prefillStatus,
   readTerminalQuery,
   screenshotName,
   termKey,
@@ -127,8 +128,48 @@ describe("session clock", () => {
     assert.equal(screenshotName("BTC/USDT", "1h", Date.UTC(2026, 9, 8, 14, 5) / 1000), "BTC-USDT_1h_2026-10-08_1405.png");
   });
   test("?symbol= / ?tf= query", () => {
-    assert.deepEqual(readTerminalQuery("?symbol=ETH%2FUSDT&tf=4h"), { symbol: "ETH/USDT", timeframe: "4h" });
-    assert.deepEqual(readTerminalQuery("?symbol=%20&tf=7h"), { symbol: null, timeframe: null });
-    assert.deepEqual(readTerminalQuery(""), { symbol: null, timeframe: null });
+    assert.deepEqual(readTerminalQuery("?symbol=ETH%2FUSDT&tf=4h"), { symbol: "ETH/USDT", timeframe: "4h", order: null });
+    assert.deepEqual(readTerminalQuery("?symbol=%20&tf=7h"), { symbol: null, timeframe: null, order: null });
+    assert.deepEqual(readTerminalQuery(""), { symbol: null, timeframe: null, order: null });
+  });
+});
+
+describe("order prefill link (Trade Simulator → /trade?…)", () => {
+  test("the simulator's link fills side, entry, stop, target and leverage", () => {
+    // exactly what components/labs/model.ts tradeHref() builds
+    const q = readTerminalQuery("?symbol=EUR%2FUSD&side=sell&entry=1.1&stop=1.11&target=1.08&leverage=10");
+    assert.equal(q.symbol, "EUR/USD");
+    assert.deepEqual(q.order, { side: "sell", entry: 1.1, stop: 1.11, target: 1.08, leverage: 10 });
+    assert.deepEqual(readTerminalQuery("?symbol=BTC%2FUSDT&side=buy").order, { side: "buy", entry: null, stop: null, target: null, leverage: null });
+  });
+  test("long / short aliases, case and spaces; unknown sides are ignored", () => {
+    assert.equal(readTerminalQuery("?side=LONG&entry=1").order?.side, "buy");
+    assert.equal(readTerminalQuery("?side=%20short%20&entry=1").order?.side, "sell");
+    assert.equal(readTerminalQuery("?side=constructor&entry=1").order?.side, null, "no prototype keys");
+    assert.equal(readTerminalQuery("?side=hold").order, null, "nothing usable → no prefill");
+  });
+  test("invalid numbers are dropped one by one; decimals with a comma are read", () => {
+    const q = readTerminalQuery("?side=buy&entry=abc&stop=-5&target=0&leverage=0.5");
+    assert.deepEqual(q.order, { side: "buy", entry: null, stop: null, target: null, leverage: null });
+    assert.equal(readTerminalQuery("?entry=1,25").order?.entry, 1.25);
+    assert.equal(readTerminalQuery("?entry=1e3").order?.entry, 1000);
+    assert.equal(readTerminalQuery("?entry=").order, null);
+  });
+  test("leverage: '20x' accepted, below 1x ignored, above 100x capped (instrument max applies later)", () => {
+    assert.equal(readTerminalQuery("?leverage=20x").order?.leverage, 20);
+    assert.equal(readTerminalQuery("?leverage=1").order?.leverage, 1);
+    assert.equal(readTerminalQuery("?leverage=500").order?.leverage, 100);
+    assert.equal(readTerminalQuery("?leverage=0").order, null);
+  });
+  test("a link prefill is never an order request — only levels (no qty / type / submit flag)", () => {
+    const q = readTerminalQuery("?symbol=BTC%2FUSDT&side=buy&entry=60000&qty=5&type=market&submit=1&autoplace=true");
+    assert.deepEqual(Object.keys(q.order ?? {}).sort(), ["entry", "leverage", "side", "stop", "target"]);
+  });
+  test("prefillStatus: wait for the linked instrument, apply once settled, drop after a switch", () => {
+    assert.equal(prefillStatus("EUR/USD", "EUR/USD", false), "wait");
+    assert.equal(prefillStatus("EUR/USD", "EUR/USD", true), "apply");
+    assert.equal(prefillStatus("EUR-USD", "EUR/USD", true), "apply", "slug / compact spellings match");
+    assert.equal(prefillStatus("EUR/USD", "BTC/USDT", true), "drop");
+    assert.equal(prefillStatus(null, "BTC/USDT", true), "apply", "no symbol in the link → the current instrument");
   });
 });
