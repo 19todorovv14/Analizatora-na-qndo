@@ -40,14 +40,13 @@ def _day(ts: int) -> str:
 
 def analyze_behavior(trades: list[dict], rules: RiskRules, max_trades_per_day: int = 8) -> dict:
     trades = sorted(trades, key=lambda t: t["opened_ts"])
-    # only count each position once (partial closes create several trade rows)
-    seen: set[str] = set()
+    # only count each position once (partial closes create several trade rows); `parts` keeps every closed slice
+    parts: dict[str, list[dict]] = defaultdict(list)
     entries = []
     for t in trades:
-        if t["position_id"] in seen:
-            continue
-        seen.add(t["position_id"])
-        entries.append(t)
+        if t["position_id"] not in parts:
+            entries.append(t)
+        parts[t["position_id"]].append(t)
 
     findings: dict[str, dict] = {}
 
@@ -116,7 +115,8 @@ def analyze_behavior(trades: list[dict], rules: RiskRules, max_trades_per_day: i
                     [t["position_id"]],
                 )
 
-    moved = [t for t in entries if (t.get("meta") or {}).get("stop_widened")]
+    # a stop widened before a LATER partial close is only recorded on that later slice → look at every part
+    moved = [t for t in entries if any((p.get("meta") or {}).get("stop_widened") for p in parts[t["position_id"]])]
     if moved:
         add(
             "moving_stops",

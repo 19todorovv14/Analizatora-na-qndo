@@ -43,6 +43,8 @@ export function AccountMetrics({ view, beginner }: { view: AccountView; beginner
 const TABLE = "w-full text-[12.5px]";
 const THEAD = "sticky top-0 z-[1] bg-surface/95 text-left text-[10.5px] uppercase tracking-[0.05em] text-muted backdrop-blur-sm [&_th]:whitespace-nowrap [&_th]:px-2 [&_th]:py-1.5 [&_th:first-child]:pl-3";
 const ROW = "border-t border-white/[0.05] [&>td]:px-2 [&>td]:py-1.5 [&>td:first-child]:pl-3";
+/** action cells stay visible while a wide table scrolls sideways */
+const STICKY = "sticky right-0 z-[1] bg-surface/95 backdrop-blur-sm shadow-[-10px_0_12px_-10px_rgb(0_0_0/0.6)]";
 
 /** Stop-loss widening (moves the stop AWAY from the price → more risk after the entry). */
 export function isWideningStop(side: Position["side"], current: number | null, next: number | null): boolean {
@@ -118,7 +120,7 @@ function PositionRow({ p, onChanged, beginner, cols, onSelectSymbol }: { p: Posi
             </td>
           </>
         )}
-        <td className="whitespace-nowrap text-right">
+        <td className={cx("whitespace-nowrap text-right", STICKY)}>
           <Button type="button" size="sm" variant="outline" aria-expanded={edit} onClick={() => setEdit((e) => !e)}>
             SL/TP
           </Button>{" "}
@@ -231,7 +233,7 @@ export function PositionsTable({
                 </th>
               </>
             )}
-            <th />
+            <th className={STICKY} />
           </tr>
         </thead>
         <tbody>
@@ -292,7 +294,7 @@ export function OrdersTable({ orders, onChanged, onSelectSymbol }: { orders: Ord
             </th>
             <th>Status</th>
             <th>Created</th>
-            <th />
+            <th className={STICKY} />
           </tr>
         </thead>
         <tbody>
@@ -317,7 +319,7 @@ export function OrdersTable({ orders, onChanged, onSelectSymbol }: { orders: Ord
                 <Badge tone="info">{o.status}</Badge>
               </td>
               <td className="whitespace-nowrap text-xs text-muted">{fmtTime(o.created_ts)}</td>
-              <td className="text-right">
+              <td className={cx("text-right", STICKY)}>
                 <CancelButton order={o} onChanged={onChanged} />
               </td>
             </tr>
@@ -389,7 +391,7 @@ export function TradesTable({
                 <Term k="r">R</Term>
               </th>
               <th>Held</th>
-              <th />
+              <th className={STICKY} />
             </tr>
           </thead>
           <tbody>
@@ -410,7 +412,7 @@ export function TradesTable({
                 <td className={cx("num font-semibold", pnlClass(t.net_pnl))}>{fmtMoney(t.net_pnl, true)}</td>
                 <td className="num">{fmtR(t.r_multiple)}</td>
                 <td className="whitespace-nowrap text-xs text-muted">{fmtDuration(t.closed_ts - t.opened_ts)}</td>
-                <td className="whitespace-nowrap text-right">
+                <td className={cx("whitespace-nowrap text-right", STICKY)}>
                   <Button type="button" size="sm" variant="outline" onClick={() => openReview(t)}>
                     AI review
                   </Button>{" "}

@@ -333,7 +333,9 @@ export function TerminalLayout({
         ) : null}
         {/* slot 6 — right panel (desktop) / sticky sheet tab bar (mobile) */}
         {desktop ? (
-          <aside aria-label={typeof rightTab?.label === "string" ? rightTab.label : "Панел"} style={{ gridArea: "right" }} className="flex min-h-0 min-w-0 flex-col border-l border-white/[0.06] bg-surface/40">
+          <aside
+            aria-label={right.stacked ? (typeof right.title === "string" ? right.title : "Панел") : (rightTab?.label ?? "Панел")}
+            style={{ gridArea: "right" }} className="flex min-h-0 min-w-0 flex-col border-l border-white/[0.06] bg-surface/40">
             {rightOpen ? (
               <>
                 {rightHeader}

@@ -14,7 +14,12 @@ export function SessionInfo({ timeframe, marketStatus }: { timeframe: string; ma
   const left = now ? barCloseIn(now, timeframe) : null;
   return (
     <div className="num hidden items-center gap-3 whitespace-nowrap text-[11px] text-muted md:flex">
-      {marketStatus && <MarketStatusDot status={marketStatus} showLabel />}
+      {marketStatus && (
+        <>
+          <MarketStatusDot status={marketStatus} showLabel className="hidden 2xl:inline-flex" />
+          <MarketStatusDot status={marketStatus} className="2xl:hidden" />
+        </>
+      )}
       <span className="hidden items-center gap-1 2xl:flex" title="Време (UTC)">
         <Clock size={12} className="text-faint" aria-hidden />
         {fmtUtcClock(now)}

@@ -1,9 +1,9 @@
 "use client";
 
 import { Landmark, Sparkles, Wallet } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
 
-import { AIPanel } from "@/components/ai/AIPanel";
 import { ChartCanvas } from "@/components/charts/ChartCanvas";
 import { DrawToolbar } from "@/components/charts/ChartControls";
 import { readTerminalQuery } from "@/components/terminal/model";
@@ -15,8 +15,15 @@ import { usePaperTerminal } from "@/components/terminal/usePaperTerminal";
 import { useTerminalHotkeys } from "@/components/terminal/useTerminalHotkeys";
 import { AccountBlock } from "@/components/trading/AccountBlock";
 import { OrderPanel } from "@/components/trading/OrderPanel";
+import { SkeletonText } from "@/components/ui";
 import { useLocalState } from "@/lib/hooks";
 import { useSession } from "@/lib/session";
+
+// the AI block sits below the order ticket — loaded as its own chunk
+const AIPanel = dynamic(() => import("@/components/ai/AIPanel").then((m) => m.AIPanel), {
+  ssr: false,
+  loading: () => <SkeletonText lines={6} />,
+});
 
 type Section = "order" | "account" | "ai";
 const SECTIONS = [

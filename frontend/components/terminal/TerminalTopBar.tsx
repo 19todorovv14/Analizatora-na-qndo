@@ -19,19 +19,19 @@ import type { MarketSession, PaperInstrument } from "@/lib/types";
 export function TopBar({ children, end, className }: { children: React.ReactNode; end?: React.ReactNode; className?: string }) {
   return (
     <div className={cx("flex h-12 min-w-0 items-center", className)}>
-      <div role="toolbar" aria-label="Терминал" className="no-scrollbar flex h-full min-w-0 flex-1 items-center gap-1.5 overflow-x-auto px-2">
+      <div role="toolbar" aria-label="Терминал" className="no-scrollbar flex h-full min-w-0 flex-1 items-center gap-1 overflow-x-auto pl-2 pr-1.5">
         {children}
       </div>
-      {end && <div className="flex h-full shrink-0 items-center gap-1 border-l border-white/[0.06] px-1.5">{end}</div>}
+      {end && <div className="flex h-full shrink-0 items-center gap-0.5 border-l border-white/[0.06] px-1">{end}</div>}
     </div>
   );
 }
 
-/** Wide terminal (labels next to the top-bar icons): the chart area is ≥ 1440 px wide. */
-export const WIDE_QUERY = "(min-width: 1440px)";
+/** Wide terminal (labels next to the top-bar icons): viewport ≥ 1536 px (2xl). */
+export const WIDE_QUERY = "(min-width: 1536px)";
 
 export function TopBarDivider() {
-  return <span aria-hidden className="mx-1 h-6 w-px shrink-0 bg-white/[0.08]" />;
+  return <span aria-hidden className="mx-0.5 h-6 w-px shrink-0 bg-white/[0.08]" />;
 }
 
 /**
@@ -61,7 +61,7 @@ export function InstrumentHeader({
   const change = q && q.available ? q.change_24h_pct : null;
   return (
     <div className="flex shrink-0 items-center gap-2.5">
-      <AssetSearchCombobox value={symbol} onChange={onSymbol} size="sm" className="w-40 shrink-0" ariaLabel="Инструмент" placeholder="Търси инструмент…" />
+      <AssetSearchCombobox value={symbol} onChange={onSymbol} size="sm" className="w-36 shrink-0" ariaLabel="Инструмент" placeholder="Търси инструмент…" />
       <div className="flex min-w-0 flex-col justify-center leading-tight">
         <div className="flex items-center gap-1.5">
           <PriceText value={price} precision={precision} flash className="text-[14px] font-semibold" />
@@ -164,14 +164,37 @@ export function TerminalTopBar({
 }) {
   const wide = useMediaQuery(WIDE_QUERY, true);
   const replayHref = `/replay?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(timeframe)}`;
+  const replay = (
+    <Link
+      href={replayHref}
+      aria-label="Replay"
+      title={`Market Replay — ${symbol}`}
+      className={cx(
+        "inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md text-xs font-medium transition-colors",
+        wide ? "border border-white/10 bg-white/[0.04] px-2 text-text hover:border-white/[0.18] hover:bg-white/[0.07]" : "w-7 text-muted hover:bg-white/[0.06] hover:text-text",
+      )}
+    >
+      <Rewind size={wide ? 13 : 15} aria-hidden />
+      {wide && "Replay"}
+    </Link>
+  );
+  const paper = paperBadge ? <PaperBadge compact className="mx-0.5 shrink-0" /> : null;
+  const shot = <ScreenshotButton onCapture={onScreenshot} />;
+  // phones / tablets: only the panel toggle stays pinned, the rest scrolls with the tools
+  const desktop = layout.desktop;
   return (
     <TopBar
       end={
-        <>
-          {paperBadge && <PaperBadge compact className="mr-1" />}
-          <ScreenshotButton onCapture={onScreenshot} />
+        desktop ? (
+          <>
+            {paper}
+            {replay}
+            {shot}
+            <LayoutToggles layout={layout} />
+          </>
+        ) : (
           <LayoutToggles layout={layout} />
-        </>
+        )
       }
     >
       <InstrumentHeader
@@ -188,7 +211,6 @@ export function TerminalTopBar({
       <TopBarDivider />
       <IndicatorMenu active={ws.active} onChange={ws.setActive} compact={!wide} />
       <ChartTypeMenu value={ws.chartType} onChange={ws.setChartType} />
-      <TopBarDivider />
       {compare &&
         (wide ? (
           <Button
@@ -204,15 +226,14 @@ export function TerminalTopBar({
         ) : (
           <IconButton icon={Columns2} label="Compare TFs" size="sm" active={compare.on} onClick={compare.toggle} />
         ))}
-      <Link
-        href={replayHref}
-        aria-label="Replay"
-        title={`Market Replay — ${symbol}`}
-        className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2 text-xs font-medium text-text transition-colors hover:border-white/[0.18] hover:bg-white/[0.07]"
-      >
-        <Rewind size={13} aria-hidden />
-        {wide && "Replay"}
-      </Link>
+      {!desktop && (
+        <>
+          <TopBarDivider />
+          {replay}
+          {shot}
+          {paper}
+        </>
+      )}
     </TopBar>
   );
 }

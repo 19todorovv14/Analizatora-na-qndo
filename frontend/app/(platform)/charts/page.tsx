@@ -1,13 +1,11 @@
 "use client";
 
 import { Sparkles, Star, Wallet } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
 
-import { AIPanel } from "@/components/ai/AIPanel";
 import { ChartCanvas } from "@/components/charts/ChartCanvas";
 import { DrawToolbar } from "@/components/charts/ChartControls";
-import { WatchlistPanel } from "@/components/market/WatchlistPanel";
-import { CompareGrid } from "@/components/terminal/CompareGrid";
 import { readTerminalQuery, termKey } from "@/components/terminal/model";
 import { usePaperBottomPanel } from "@/components/terminal/PaperBottomPanel";
 import { PriceLevelChooser } from "@/components/terminal/PriceLevelChooser";
@@ -17,9 +15,15 @@ import { usePaperTerminal } from "@/components/terminal/usePaperTerminal";
 import { useTerminalHotkeys } from "@/components/terminal/useTerminalHotkeys";
 import { AccountBlock } from "@/components/trading/AccountBlock";
 import { OrderPanel } from "@/components/trading/OrderPanel";
-import { useStoredState } from "@/components/ui";
+import { SkeletonText, useStoredState } from "@/components/ui";
 import { useLocalState } from "@/lib/hooks";
 import { useSession } from "@/lib/session";
+
+// on-demand panels load as separate chunks (the chart + order ticket come first)
+const panelSkeleton = () => <SkeletonText lines={6} className="p-3" />;
+const AIPanel = dynamic(() => import("@/components/ai/AIPanel").then((m) => m.AIPanel), { ssr: false, loading: panelSkeleton });
+const WatchlistPanel = dynamic(() => import("@/components/market/WatchlistPanel").then((m) => m.WatchlistPanel), { ssr: false, loading: panelSkeleton });
+const CompareGrid = dynamic(() => import("@/components/terminal/CompareGrid").then((m) => m.CompareGrid), { ssr: false, loading: panelSkeleton });
 
 type RightTab = "ai" | "watchlist" | "trade";
 const RIGHT_TABS = [

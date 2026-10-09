@@ -100,22 +100,23 @@ export function OrderPanel({
   const request = useMemo(() => orderRequest(symbol, timeframe, t, calc), [symbol, timeframe, t, calc]);
   const { preview, error: previewError, loading: previewLoading } = useOrderPreview(request);
 
-  const [result, setResult] = useState<Order | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // outcome of the last submit — shown only while the same instrument is selected
+  const [outcome, setOutcome] = useState<{ symbol: string; order: Order | null; error: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
+  const result = outcome?.symbol === symbol ? outcome.order : null;
+  const error = outcome?.symbol === symbol ? outcome.error : null;
 
   const submit = async () => {
     if (!request || busy) return;
     setBusy(true);
-    setError(null);
-    setResult(null);
+    setOutcome(null);
     try {
       const res = await post<{ order: Order; view: AccountView }>("/paper/orders", request);
-      setResult(res.order);
+      setOutcome({ symbol: request.symbol, order: res.order, error: null });
       if (res.order.status !== "rejected") dispatch({ type: "placed" });
       onPlaced?.(res);
     } catch (e) {
-      setError(errorMessage(e));
+      setOutcome({ symbol: request.symbol, order: null, error: errorMessage(e) });
     } finally {
       setBusy(false);
     }
