@@ -16,9 +16,14 @@ from app.ai.coach import weekly_review
 from app.ai.providers import get_llm
 from app.ai.review import narrate, review_position
 from app.backtesting.metrics import json_safe, trade_metrics
+from app.bots import stats as bot_stats
+from app.journal import performance as perf
 from app.journal import review as journal_review
 from app.journal.stats import journal_stats
-from app.market.catalog import UnknownAssetError, get_asset
+from app.market import overview
+from app.market.base import MarketDataError
+from app.market.catalog import ASSETS, UnknownAssetError, get_asset
+from app.market.overview import ENGINE
 from app.models import (
     Backtest,
     Bot,
@@ -35,8 +40,15 @@ from app.models import (
     WatchlistItem,
 )
 from app.psychology.behavior import analyze_behavior
-from app.psychology.patterns import build_positions, detect_patterns
-from app.services import learning_service, market_service, paper_service, settings_service
+from app.psychology.patterns import build_positions, detect_patterns, lesson_ref
+from app.services import (
+    bot_service,
+    learning_service,
+    market_service,
+    markets_service,
+    paper_service,
+    settings_service,
+)
 
 
 def user_account_ids(db: Session, user: User, kinds: tuple[str, ...] = ("manual", "replay")) -> list[int]:
@@ -295,6 +307,76 @@ def patterns(db: Session, user: User, trades: list[dict] | None = None, journal:
     )
 
 
+PERFORMANCE_SCOPES: dict[str, tuple[str, ...]] = {
+    "manual": ("manual", "replay"),  # the user's own decisions (paper terminal + Replay) — default, as /stats/report
+    "bots": ("bot",),
+    "all": ("manual", "replay", "bot"),
+}
+DEFAULT_CAPITAL = 10_000.0
+
+
+def _asset_class(symbol: str) -> str | None:
+    try:
+        return get_asset(symbol).asset_class
+    except UnknownAssetError:
+        return None
+
+
+def performance(db: Session, user: User, scope: str = "manual") -> dict:
+    """GET /api/stats/performance — v2 performance report over closed paper POSITIONS of the scope.
+
+    Return % / drawdown use a reference capital: the initial balance of the scope's manual and bot accounts
+    (Replay practice accounts are left out of the capital; their P/L is included for scope manual/all)."""
+    if scope not in PERFORMANCE_SCOPES:
+        raise ValueError(f"Unknown scope '{scope}'")
+    accounts = list(
+        db.scalars(
+            select(PaperAccount).where(
+                PaperAccount.user_id == user.id, PaperAccount.kind.in_(PERFORMANCE_SCOPES[scope])
+            )
+        )
+    )
+    ids = [a.id for a in accounts]
+    trades = strategy_labels(db, paper_service.closed_trades(db, ids)) if ids else []
+    positions = build_positions(trades)
+    # labels: the trades' resolved strategy; a linked journal entry's setup / strategy wins (as in journal stats)
+    label_of = {t["position_id"]: t.get("strategy") for t in trades if t.get("strategy")}
+    linked = {e["trade_id"]: e for e in journal_dicts(db, user) if e.get("trade_id")}
+    for p in positions:
+        e = linked.get(p["position_id"]) or next((linked[i] for i in p["trade_ids"] if i in linked), None)
+        p["strategy"] = (e and e.get("strategy")) or label_of.get(p["position_id"]) or p.get("strategy")
+        p["setup"] = (e and e.get("setup")) or p.get("setup")
+    capital_accounts = [a for a in accounts if a.kind != "replay"]
+    reference = sum(a.initial_balance for a in capital_accounts) or DEFAULT_CAPITAL
+    report = perf.build_report(positions, reference_capital=reference, asset_class_of=_asset_class)
+    n = len(positions)
+    enough = n >= 10
+    return json_safe(
+        {
+            "version": 2,
+            "scope": scope,
+            "scopes": list(PERFORMANCE_SCOPES),
+            "currency": "USD",
+            "reference_capital": reference,
+            "reference_capital_note": (
+                f"Return % и drawdown са спрямо {reference:,.2f} USD — началния баланс на "
+                + ("paper сметките на ботовете" if scope == "bots" else "основната paper сметка")
+                + (" и ботовете" if scope == "all" and any(a.kind == "bot" for a in accounts) else "")
+                + ". Replay сделките влизат в P/L, но не и в капитала."
+            ),
+            "enough_data": enough,
+            "message": None if enough else f"Направи поне 10 paper сделки за пълен отчет (имаш {n}).",
+            "positions": n,
+            "trades": len(trades),
+            **report,
+            # v1-compatible extras (same meaning as /api/stats/report, for this scope)
+            "metrics": report["summary"],
+            "equity_curve": _equity(trades),
+            "by_exit_reason": dict(Counter(p["exit_reason"] for p in positions)),
+        }
+    )
+
+
 def coach(db: Session, user: User, now: int | None = None) -> dict:
     now = int(now or time.time())
     week_ago = now - 7 * 86400
@@ -331,6 +413,32 @@ def coach(db: Session, user: User, now: int | None = None) -> dict:
     )
 
 
+def exposure_breakdown(broker, equity: float) -> dict:
+    """Open exposure (USD notional at the current mark) by instrument and by asset class, as % of equity."""
+    by_symbol: dict[tuple[str, str], float] = {}
+    for p in broker.open_positions():
+        key = (p.symbol, p.side)
+        by_symbol[key] = by_symbol.get(key, 0.0) + broker.position_notional(p)
+    by_class: dict[str, float] = {}
+    for (symbol, _side), notional in by_symbol.items():
+        cls = _asset_class(symbol) or "unknown"
+        by_class[cls] = by_class.get(cls, 0.0) + notional
+
+    def pct(v: float) -> float | None:
+        return v / equity * 100 if equity > 0 else None
+
+    return {
+        "by_symbol": [
+            {"symbol": s, "side": side, "notional": n, "pct_of_equity": pct(n)}
+            for (s, side), n in sorted(by_symbol.items(), key=lambda x: -x[1])
+        ],
+        "by_class": [
+            {"asset_class": c, "label": perf.CLASS_LABELS_BG.get(c, c), "notional": n, "pct_of_equity": pct(n)}
+            for c, n in sorted(by_class.items(), key=lambda x: -x[1])
+        ],
+    }
+
+
 def risk_status(db: Session, user: User, now: int | None = None) -> dict:
     now = int(now or time.time())
     acc = paper_service.get_manual_account(db, user)
@@ -359,55 +467,469 @@ def risk_status(db: Session, user: User, now: int | None = None) -> dict:
         "margin_level": snap["margin_level"],
         "max_drawdown_pct": acc.max_drawdown_pct,
         "recent_events": [{"ts": e.ts, "kind": e.kind, "severity": e.severity, "message": e.message} for e in events],
+        # v2 (additive)
+        "exposure_breakdown": exposure_breakdown(broker, snap["equity"]),
+        "max_exposure_pct": rules.max_portfolio_exposure_pct,
+        "used_margin": snap.get("used_margin"),
+        "available_margin": snap.get("available_margin"),
+    }
+
+
+# ------------------------------------------------------------------ dashboard v2 (TRADING COMMAND CENTER)
+DASHBOARD_WATCHLIST = 20
+DASHBOARD_MOVERS = 5
+DASHBOARD_LIST_SECONDS = 0.75  # time the dashboard may spend computing missing market snapshots (warm-up fills the rest)
+DASHBOARD_INSIGHT_FINDINGS = 2
+REGIME_TIMEFRAME = "4h"
+
+REGIME_INSIGHTS: dict[str, tuple[str, str]] = {
+    # regime → (why, lesson): describes the PAST candles and what a beginner should watch — never a direction call
+    "TRENDING_UP": (
+        "Последните свещи правят по-високи върхове и дъна. В тренд setup-ите в посоката му се търсят след pullback "
+        "и затворена потвърждаваща свещ, със stop под последното дъно. Това описва миналото, не бъдещата посока.",
+        "trend",
+    ),
+    "TRENDING_DOWN": (
+        "Последните свещи правят по-ниски върхове и дъна. LONG срещу такава структура изисква много по-силна причина; "
+        "чакай потвърждение на затворена свещ. Това описва миналото, не бъдещата посока.",
+        "trend",
+    ),
+    "RANGING": (
+        "Цената се движи между support и resistance. Пробивите на диапазона често са фалшиви (fakeout) — изчаквай "
+        "затворена свещ извън него, преди да действаш.",
+        "range",
+    ),
+    "HIGH_VOLATILITY": (
+        "Свещите са по-големи от обичайното. По-широк stop означава по-малък размер на позицията, за да остане "
+        "рискът в пари същият.",
+        "volatility-and-sizing",
+    ),
+    "LOW_VOLATILITY": (
+        "Тих пазар с малки свещи — движението може да не покрие разходите (spread, такси). Не форсирай сделки.",
+        "volatility",
+    ),
+    "UNCLEAR": (
+        "Няма ясен режим. Когато картината е смесена, WAIT е легитимно решение — сделка не е задължителна.",
+        "market-regimes",
+    ),
+}
+CLASS_ORDER = ("crypto", "stock", "etf", "forex", "index", "commodity")
+
+
+def _lesson_href(slug: str | None) -> str | None:
+    ref = lesson_ref(slug)
+    return ref["href"] if ref else None
+
+
+def _summary_item(spec, quote: dict) -> dict:
+    """S1 list item (asset_summary + quote) — the shape QuoteList / MarketMovers rows use."""
+    return {**market_service.asset_summary(spec), "quote": quote}
+
+
+def market_row(spec, quote: dict) -> dict:
+    """Dashboard row from an S1 snapshot quote: the v1 WatchRow keys (symbol, name, asset_class, price,
+    change_24h_pct, volume_24h, volatility_pct, trend, regime, source, precision, error?) + slug, category,
+    available/status/code/reason, sparkline, as_of, href. Unavailable data → nulls + `error` (never invented)."""
+    ok = bool(quote.get("available"))
+    row = {
+        "symbol": spec.symbol,
+        "slug": spec.slug,
+        "name": spec.name,
+        "asset_class": spec.asset_class,
+        "category": spec.category,
+        "price": quote.get("price"),
+        "change_24h_pct": quote.get("change_24h_pct"),
+        "volume_24h": quote.get("volume_24h"),
+        "volume_24h_usd": quote.get("volume_24h_usd"),
+        "volatility_pct": quote.get("atr_pct_1d"),
+        "trend": quote.get("trend"),
+        "regime": quote.get("regime"),
+        "source": quote.get("source"),
+        "precision": quote.get("precision") or spec.price_precision,
+        "sparkline": quote.get("sparkline") or [],
+        "available": ok,
+        "status": quote.get("status"),
+        "code": quote.get("code"),
+        "reason": quote.get("reason"),
+        "as_of": quote.get("as_of"),
+        "href": f"/markets/{spec.slug}",
+    }
+    if not ok:
+        row["error"] = quote.get("reason") or "DATA NOT AVAILABLE"
+    return row
+
+
+def _unknown_row(symbol: str) -> dict:
+    return {
+        "symbol": symbol,
+        "slug": None,
+        "name": symbol,
+        "asset_class": None,
+        "available": False,
+        "status": "unknown",
+        "code": "UNKNOWN_INSTRUMENT",
+        "reason": f"Непознат инструмент: {symbol} (вече не е в каталога)",
+        "error": f"Непознат инструмент: {symbol} (вече не е в каталога)",
+        "href": None,
+    }
+
+
+def dashboard_market(now: int) -> tuple[list[dict], dict]:
+    """(market_overview rows: the top 24h mover of every asset class, market block: movers across classes + per
+    class tiles + coverage) from the S1 snapshot engine (cached snapshots ≤ 10 min; missing ones are computed within
+    a small time budget and the warm-up thread fills the rest)."""
+    col = ENGINE.collect(ASSETS, now=now, seconds=DASHBOARD_LIST_SECONDS)
+    sources = markets_service.sources_by_class()
+    movable = [(s, q) for s, q in col.items if q.get("available") and q.get("change_24h_pct") is not None]
+    classes = []
+    overview_rows = []
+    for cls in CLASS_ORDER:
+        members = [(s, q) for s, q in movable if s.asset_class == cls]
+        source = sources.get(cls) or {}
+        if members:
+            spec, quote = max(members, key=lambda x: (abs(x[1]["change_24h_pct"]), -x[0].popularity))
+            changes = [q["change_24h_pct"] for _, q in members]
+            overview_rows.append(market_row(spec, quote))
+            classes.append(
+                {
+                    "asset_class": cls,
+                    "label": perf.CLASS_LABELS_BG[cls],
+                    "available": True,
+                    "reason": None,
+                    "code": None,
+                    "source": source,
+                    "ranked": len(members),
+                    "advancers": sum(1 for c in changes if c > 0),
+                    "decliners": sum(1 for c in changes if c < 0),
+                    "average_change_pct": round(mean(changes), 3),
+                    "top_mover": _summary_item(spec, quote),
+                    "href": f"/markets?asset_class={cls}",
+                }
+            )
+            continue
+        if source.get("status") == "unavailable":
+            reason, code = "DATA NOT AVAILABLE: няма конфигуриран доставчик за този клас.", "DATA_NOT_AVAILABLE"
+        elif cls in col.rate_limited_classes:
+            reason, code = markets_service.REASON_PLAN + " (само on demand на страницата на актива).", "PLAN_LIMIT"
+        elif col.missing:
+            reason, code = markets_service.REASON_WARMING, "WARMING"
+        else:
+            reason, code = "DATA NOT AVAILABLE", "DATA_NOT_AVAILABLE"
+        classes.append(
+            {
+                "asset_class": cls,
+                "label": perf.CLASS_LABELS_BG[cls],
+                "available": False,
+                "reason": reason,
+                "code": code,
+                "source": source,
+                "ranked": 0,
+                "advancers": None,
+                "decliners": None,
+                "average_change_pct": None,
+                "top_mover": None,
+                "href": f"/markets?asset_class={cls}",
+            }
+        )
+    movers = {
+        kind: [_summary_item(s, q) for s, q in markets_service.rank(kind, col.items)[:DASHBOARD_MOVERS]]
+        for kind in ("gainers", "losers", "most_volume")
+    }
+    if col.missing:
+        ENGINE.start_warmup()  # no-op when disabled (tests) — otherwise fills the remaining snapshots
+    block = {
+        "as_of": now,
+        "movers": movers,
+        "classes": classes,
+        "coverage": {
+            "ranked": len(col.items),
+            "eligible": col.eligible,
+            "unavailable": col.unavailable,
+            "rate_limited": col.rate_limited,
+            "missing": col.missing,
+            "excluded_classes": list(col.rate_limited_classes),
+        },
+        "note": (
+            f"{col.missing} инструмента още се зареждат (warm-up) и не са в класацията." if col.missing else None
+        ),
+        "heatmap_href": "/markets?view=heatmap",
+        "markets_href": "/markets",
+    }
+    return overview_rows, block
+
+
+def dashboard_watchlist(db: Session, user: User, now: int) -> tuple[list[dict], int]:
+    """(first DASHBOARD_WATCHLIST rows by position, total) — snapshot quotes (cheap: no on-demand provider wait)."""
+    symbols = list(
+        db.scalars(
+            select(WatchlistItem.symbol)
+            .where(WatchlistItem.user_id == user.id)
+            .order_by(WatchlistItem.position, WatchlistItem.id)
+        )
+    )
+    first = symbols[:DASHBOARD_WATCHLIST]
+    specs = {}
+    for s in first:
+        try:
+            specs[s] = get_asset(s)
+        except UnknownAssetError:
+            continue
+    quotes = ENGINE.quotes(list(specs.values()), now=now, fetch="cheap", max_age=overview.LIST_MAX_STALE)
+    rows = [market_row(specs[s], quotes[specs[s].symbol]) if s in specs else _unknown_row(s) for s in first]
+    return rows, len(symbols)
+
+
+def _finding_insight(f: dict) -> dict:
+    lesson = f.get("lesson") or {}
+    return {
+        "kind": "behavior",
+        "key": f["key"],
+        "title": f["title"],
+        "text": f["evidence"],
+        "why": f["impact"],
+        "lesson": lesson.get("slug"),
+        "href": lesson.get("href"),
+        "action": {"label": f"Урок: {lesson['title']}", "href": lesson["href"]} if lesson else None,
+        "severity": f.get("severity", "warn"),
+        "count": f.get("count"),
+        "sample": f.get("sample"),
+        "available": True,
+    }
+
+
+def _behavior_insight(f: dict) -> dict:
+    href = _lesson_href(f.get("lesson"))
+    return {
+        "kind": "behavior",
+        "key": f["kind"],
+        "title": f["title"],
+        "text": f["text"],
+        "why": "Повтарящ се модел в твоите paper сделки — урокът обяснява правилото, което го спира.",
+        "lesson": f.get("lesson"),
+        "href": href,
+        "action": {"label": "Към урока", "href": href} if href else None,
+        "severity": f.get("severity", "warn"),
+        "count": f.get("count"),
+        "sample": None,
+        "available": True,
+    }
+
+
+def regime_insight(symbol: str, now: int) -> dict:
+    """Market regime of `symbol` on 4H (closed candles) with an educational why — DATA NOT AVAILABLE when the
+    provider cannot serve it. Describes the past candles; never a direction call."""
+    try:
+        spec = get_asset(symbol)
+    except UnknownAssetError:
+        spec = None
+    slug = spec.slug if spec else None
+    base = {"kind": "market", "key": "regime", "symbol": symbol, "timeframe": REGIME_TIMEFRAME, "count": None,
+            "sample": None}
+    try:
+        snap = market_service.regime_snapshot(symbol, REGIME_TIMEFRAME, now)
+    except MarketDataError as exc:
+        return {
+            **base,
+            "title": f"{symbol} {REGIME_TIMEFRAME.upper()}: DATA NOT AVAILABLE",
+            "text": getattr(exc, "reason", None) or overview.scrub_secrets(exc),
+            "why": "Без пазарни данни режимът не може да се определи — числата никога не се измислят.",
+            "lesson": None,
+            "href": f"/markets/{slug}" if slug else None,
+            "action": None,
+            "severity": "info",
+            "regime": None,
+            "available": False,
+        }
+    regime = snap["regime"]
+    why, lesson = REGIME_INSIGHTS.get(regime, REGIME_INSIGHTS["UNCLEAR"])
+    href = _lesson_href(lesson)
+    return {
+        **base,
+        "title": f"{symbol} {REGIME_TIMEFRAME.upper()}: {regime}",
+        "text": " ".join(snap.get("reasons", [])[:2]) or f"Режим {regime} на затворените {REGIME_TIMEFRAME} свещи.",
+        "why": why,
+        "lesson": lesson,
+        "href": href,
+        "action": {"label": f"Отвори {symbol}", "href": f"/markets/{slug}"} if slug else None,
+        "severity": "info",
+        "regime": regime,
+        "trend": snap.get("trend"),
+        "volatility_pct": snap.get("volatility_pct"),
+        "source": market_service.source_of(symbol) if spec else None,
+        "available": True,
+    }
+
+
+def dashboard_insights(
+    pattern_findings: list[dict], behavior_findings: list[dict], learning: dict, focus_symbol: str, has_trades: bool,
+    now: int,
+) -> list[dict]:
+    """AI MARKET INSIGHTS v2: behaviour findings (coach patterns first, legacy behaviour detector as fallback) +
+    the market regime of the user's top watchlist asset + the next learning step. Each: {kind, key, title, text,
+    why, lesson, href, action, severity, available} (v1 keys kind/title/text/lesson kept)."""
+    insights = [_finding_insight(f) for f in pattern_findings[:DASHBOARD_INSIGHT_FINDINGS]]
+    covered = {"moving_stops", "no_stop", "oversizing"} | {i["key"] for i in insights}
+    for f in behavior_findings:
+        if len(insights) >= DASHBOARD_INSIGHT_FINDINGS:
+            break
+        if f["kind"] not in covered:
+            insights.append(_behavior_insight(f))
+    insights.append(regime_insight(focus_symbol, now))
+    nxt = learning.get("next") or {}
+    if nxt.get("href"):
+        level = (learning.get("current_level") or {})
+        insights.append(
+            {
+                "kind": "next_step",
+                "key": "learning",
+                "title": f"Следваща стъпка: {nxt.get('title')}",
+                "text": f"LEVEL {nxt.get('level')} — {level.get('title_bg') or level.get('title') or ''}".strip(" —"),
+                "why": "Следващият урок / quiz / lab в твоя learning path — уменията се трупат по ред.",
+                "lesson": nxt.get("slug"),
+                "href": nxt["href"],
+                "action": {"label": "Продължи", "href": nxt["href"]},
+                "severity": "info",
+                "available": True,
+            }
+        )
+    if not has_trades:
+        href = _lesson_href("stop-order")
+        insights.append(
+            {
+                "kind": "next_step",
+                "key": "first_trade",
+                "title": "Първа paper сделка",
+                "text": "Отвори Paper Trading, избери актив, постави stop loss и направи първата си виртуална сделка.",
+                "why": "Без сделки няма какво да анализираме — първата сделка със stop loss отключва AI Coach.",
+                "lesson": "stop-order",
+                "href": "/trade",
+                "action": {"label": "Към Paper Trading", "href": "/trade"},
+                "lesson_href": href,
+                "severity": "info",
+                "available": True,
+            }
+        )
+    return insights
+
+
+def next_actions(learning: dict, has_trades: bool, unjournaled: int, risk: dict) -> list[dict]:
+    """Clear next actions for the command center (new users first): [{key, label, href, reason}] (≤ 4)."""
+    out = []
+    nxt = learning.get("next") or {}
+    if nxt.get("href"):
+        out.append({"key": "learn", "label": f"Продължи: {nxt.get('title')}", "href": nxt["href"],
+                    "reason": "Следващата стъпка в learning path."})
+    if not has_trades:
+        out.append({"key": "first_trade", "label": "Първа paper сделка", "href": "/trade",
+                    "reason": "Виртуални пари — упражни входа със stop loss."})
+        out.append({"key": "replay", "label": "Replay сесия", "href": "/replay?preset=trend&mode=predict",
+                    "reason": "Решения върху исторически свещи без риск."})
+    if unjournaled:
+        out.append({"key": "journal", "label": "Запиши сделките в журнала", "href": "/journal",
+                    "reason": f"{unjournaled} затворени сделки без запис в журнала."})
+    if risk.get("status") in ("WARNING", "LIMIT"):
+        out.append({"key": "risk", "label": "Провери риска", "href": "/risk",
+                    "reason": f"Risk status: {risk['status']}."})
+    return out[:4]
+
+
+def _bot_row(b: Bot) -> dict:
+    stats = bot_service.evaluation_stats(b)
+    return {
+        "id": b.id,
+        "name": b.name,
+        "symbol": b.symbol,
+        "timeframe": b.timeframe,
+        "status": b.status,
+        "regime": b.regime,
+        "last_signal": (b.last_signal or {}).get("signal"),
+        # v2: BOT AI COACH headline (pure counters from the bot runtime, no data fetch)
+        "pause_reason": b.pause_reason,
+        "coach_headline": bot_stats.headline(stats),
+        "setups_generated": stats["setups_generated"],
+        "all_conditions_met": stats["all_conditions_met"],
+        "entries": stats["entries"],
+        "last_processed_ts": b.last_processed_ts,
+        "href": f"/bots/{b.id}",
     }
 
 
 def dashboard(db: Session, user: User, now: int | None = None) -> dict:
+    """GET /api/dashboard — TRADING COMMAND CENTER. Keeps every v1 key (user, market_overview, watchlist, account,
+    open_positions, recent_trades, learning, bots, strategy_performance, risk, ai_insights, tour_done) with
+    additive v2 fields (see the S7 report for the exact shape)."""
     now = int(now or time.time())
     acc = paper_service.get_manual_account(db, user)
     broker = paper_service.sync_account(db, acc, now)
     view = paper_service.account_view(db, acc, broker, now)
-    symbols = [
-        w.symbol
-        for w in db.scalars(
-            select(WatchlistItem).where(WatchlistItem.user_id == user.id).order_by(WatchlistItem.position)
-        )
-    ]
-    overview_syms = ["BTC/USDT", "EUR/USD", "SPX", "XAU/USD"]
+    settings = settings_service.user_settings(user)
     trades = paper_service.closed_trades(db, [acc.id])
+    history = paper_service.closed_trades(db, user_account_ids(db, user))
     bots = db.scalars(select(Bot).where(Bot.user_id == user.id).order_by(Bot.id.desc()).limit(5)).all()
     bts = db.scalars(select(Backtest).where(Backtest.user_id == user.id).order_by(Backtest.id.desc()).limit(5)).all()
     prog = learning_service.progress(db, user)
+    ld = learning_service.learning_dashboard(db, user)
     beh = behavior(db, user)
-    insights = []
-    for f in beh["findings"][:2]:
-        insights.append({"kind": "behavior", "title": f["title"], "text": f["text"], "lesson": f["lesson"]})
-    try:
-        snap = market_service.regime_snapshot("BTC/USDT", "4h", now)
-        insights.append(
-            {
-                "kind": "market",
-                "title": f"BTC/USDT 4H: {snap['regime']}",
-                "text": " ".join(snap["reasons"][:2]),
-                "lesson": "market-regimes",
-            }
-        )
-    except Exception:  # noqa: BLE001 - dashboard should render even if market data fails
-        pass
-    if not trades:
-        insights.append(
-            {
-                "kind": "next_step",
-                "title": "Първа paper сделка",
-                "text": "Отвори Paper Trading, избери актив, постави stop loss и направи първата си виртуална сделка.",
-                "lesson": "stop-order",
-            }
-        )
+    journal = journal_dicts(db, user)
+    pats = patterns(db, user, history, journal)
+
+    overview_rows, market = dashboard_market(now)
+    watch_rows, watch_total = dashboard_watchlist(db, user, now)
+    focus = next((r["symbol"] for r in watch_rows if r.get("slug")), None) or settings.get("default_symbol", "BTC/USDT")
+    risk = risk_status(db, user, now)
+    journaled = {e["trade_id"] for e in journal if e.get("trade_id")}
+    unjournaled = sum(
+        1
+        for pid, first in {t["position_id"]: t for t in trades}.items()
+        if pid not in journaled and first["id"] not in journaled
+    )
+    learning = {
+        "xp": prog["xp"],
+        "level": prog["level"],
+        "categories": prog["categories"],
+        "lessons_completed": prog["lessons_completed"],
+        "lessons_total": prog["lessons_total"],
+        "next_module": next((m for m in prog["modules"] if m["unlocked"] and m["percent"] < 100), None),
+        # v2: GET /api/learn/dashboard summary
+        **{
+            k: ld.get(k)
+            for k in (
+                "current_level",
+                "next",
+                "xp_level",
+                "xp_progress",
+                "levels_completed",
+                "levels_total",
+                "quiz_avg_score",
+                "quizzes_passed",
+                "quizzes_total",
+                "replay_score",
+                "replay_sessions",
+                "replay_finished",
+                "paper_trades",
+                "risk_discipline",
+                "strongest_skill",
+                "weakest_skill",
+                "most_common_mistake",
+            )
+        },
+        "recommendations": (ld.get("recommendations") or [])[:3],
+    }
     return json_safe(
         {
-            "user": {"display_name": user.display_name, "mode": user.mode, "xp": user.xp, "is_guest": user.is_guest},
-            "market_overview": [market_service.watch_row(s, now) for s in overview_syms],
-            "watchlist": [market_service.watch_row(s, now) for s in symbols[:10]],
+            "user": {
+                "display_name": user.display_name,
+                "mode": user.mode,
+                "xp": user.xp,
+                "is_guest": user.is_guest,
+                "app_mode": settings.get("app_mode", "learn"),
+                "explain_mode": bool(settings.get("explain_mode", False)),
+            },
+            "market_overview": overview_rows,
+            "market": market,
+            "watchlist": watch_rows,
+            "watchlist_total": watch_total,
+            "watchlist_limit": DASHBOARD_WATCHLIST,
             "account": {
                 k: view[k]
                 for k in (
@@ -418,30 +940,22 @@ def dashboard(db: Session, user: User, now: int | None = None) -> dict:
                     "day_pnl",
                     "free_margin",
                     "max_drawdown_pct",
+                    # v2
+                    "currency",
+                    "used_margin",
+                    "available_margin",
+                    "margin_level",
+                    "margin_level_pct",
+                    "exposure",
+                    "exposure_pct",
+                    "effective_leverage",
                 )
-            },
+            }
+            | {"open_positions": len(view["positions"]), "initial_balance": acc.initial_balance},
             "open_positions": view["positions"],
             "recent_trades": trades[-5:][::-1],
-            "learning": {
-                "xp": prog["xp"],
-                "level": prog["level"],
-                "categories": prog["categories"],
-                "lessons_completed": prog["lessons_completed"],
-                "lessons_total": prog["lessons_total"],
-                "next_module": next((m for m in prog["modules"] if m["unlocked"] and m["percent"] < 100), None),
-            },
-            "bots": [
-                {
-                    "id": b.id,
-                    "name": b.name,
-                    "symbol": b.symbol,
-                    "timeframe": b.timeframe,
-                    "status": b.status,
-                    "regime": b.regime,
-                    "last_signal": (b.last_signal or {}).get("signal"),
-                }
-                for b in bots
-            ],
+            "learning": learning,
+            "bots": [_bot_row(b) for b in bots],
             "strategy_performance": [
                 {
                     "id": b.id,
@@ -455,9 +969,11 @@ def dashboard(db: Session, user: User, now: int | None = None) -> dict:
                 }
                 for b in bts
             ],
-            "risk": risk_status(db, user, now),
-            "ai_insights": insights,
-            "tour_done": settings_service.user_settings(user).get("tour_done", False),
+            "risk": risk,
+            "ai_insights": dashboard_insights(pats["findings"], beh["findings"], ld, focus, bool(history), now),
+            "next_actions": next_actions(ld, bool(history), unjournaled, risk),
+            "tour_done": settings.get("tour_done", False),
+            "as_of": now,
         }
     )
 

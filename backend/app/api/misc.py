@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -150,6 +150,16 @@ def journal_statistics(user: User = Depends(current_user), db: Session = Depends
 @router.get("/stats/report")
 def report(user: User = Depends(current_user), db: Session = Depends(get_db)):
     return stats_service.performance_report(db, user)
+
+
+@router.get("/stats/performance")
+def performance(
+    scope: str = Query("manual", pattern="^(manual|bots|all)$"),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """v2 performance report (equity/drawdown curves, breakdowns, monthly returns, R histogram, confidence notes)."""
+    return stats_service.performance(db, user, scope)
 
 
 @router.get("/stats/behavior")
