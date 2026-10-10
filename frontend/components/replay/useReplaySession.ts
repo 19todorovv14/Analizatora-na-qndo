@@ -32,7 +32,11 @@ import type {
 import { ApiError, errorMessage, errorReason, fetcher, isDataNotAvailable, post } from "@/lib/api";
 import type { RiskFinding } from "@/lib/types";
 
-export type ReplayError = { message: string; unavailable: boolean; reason: string | null };
+export type ReplayError = {
+  message: string;
+  unavailable: boolean;
+  reason: string | null;
+};
 
 export type DecisionRequest = {
   action: ReplayAction;
@@ -43,13 +47,22 @@ export type DecisionRequest = {
   risk_pct?: number | null;
 };
 
-export type OrderRequest = { side: "buy" | "sell"; qty: number; stop_loss?: number | null; take_profit?: number | null };
+export type OrderRequest = {
+  side: "buy" | "sell";
+  qty: number;
+  stop_loss?: number | null;
+  take_profit?: number | null;
+};
 
 const TOAST_MS = 5200;
 
 function toError(e: unknown): ReplayError {
   const unavailable = isDataNotAvailable(e) || (e instanceof ApiError && e.status === 503);
-  return { message: errorMessage(e), unavailable, reason: unavailable ? errorReason(e) : null };
+  return {
+    message: errorMessage(e),
+    unavailable,
+    reason: unavailable ? errorReason(e) : null,
+  };
 }
 
 function replaceUrl(url: string) {
@@ -107,7 +120,7 @@ export function useReplaySession() {
   const toastQ = useToastQueue();
   const { push } = toastQ;
 
-  const call = useCallback(async <T,>(fn: () => Promise<T>): Promise<T | null> => {
+  const call = useCallback(async <T>(fn: () => Promise<T>): Promise<T | null> => {
     if (busyRef.current) return null;
     busyRef.current = true;
     setBusy(true);
@@ -210,7 +223,13 @@ export function useReplaySession() {
       setFindings(r.findings ?? []);
       const d = r.decision;
       const toasts = flagToasts(d.flags ?? [], `d${d.id ?? d.bar_ts}`);
-      if (r.order) toasts.unshift({ id: `ord-${r.order.id}`, tone: "info", title: "Paper поръчка изпратена", text: "Изпълнява се на OPEN на следващата свещ." });
+      if (r.order)
+        toasts.unshift({
+          id: `ord-${r.order.id}`,
+          tone: "info",
+          title: "Paper поръчка изпратена",
+          text: "Изпълнява се на OPEN на следващата свещ.",
+        });
       push(toasts);
       return r;
     },
@@ -312,17 +331,30 @@ export type ReplaySessionApi = ReturnType<typeof useReplaySession>;
 export function useDecisionPreview(
   sid: number | null,
   cursor: number | null,
-  draft: { action: ReplayAction | null; stop: number | null; target: number | null; valid: boolean },
+  draft: {
+    action: ReplayAction | null;
+    stop: number | null;
+    target: number | null;
+    valid: boolean;
+  },
   delayMs = 350,
 ) {
-  const [result, setResult] = useState<{ key: string; preview: DecisionPreview["decision"] | null; error: string | null } | null>(null);
+  const [result, setResult] = useState<{
+    key: string;
+    preview: DecisionPreview["decision"] | null;
+    error: string | null;
+  } | null>(null);
   const key = sid && cursor && draft.action && draft.action !== "wait" && draft.valid ? `${sid}|${cursor}|${draft.action}|${draft.stop}|${draft.target}` : null;
   useEffect(() => {
     if (!key || !sid || !draft.action) return;
     let cancelled = false;
     const t = setTimeout(async () => {
       try {
-        const body: Record<string, unknown> = { action: draft.action, stop: draft.stop, preview: true };
+        const body: Record<string, unknown> = {
+          action: draft.action,
+          stop: draft.stop,
+          preview: true,
+        };
         if (draft.target) body.target = draft.target;
         const r = await post<DecisionPreview>(`/replay/${sid}/decision`, body);
         if (!cancelled) setResult({ key, preview: r.decision, error: null });

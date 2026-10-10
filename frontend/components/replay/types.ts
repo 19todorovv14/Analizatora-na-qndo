@@ -9,7 +9,12 @@ export type ReplayAction = "long" | "short" | "wait";
 export type PresetKey = "random" | "trend" | "range" | "high_volatility" | "breakout";
 export type Grade = "A" | "B" | "C" | "D";
 
-export type ReplayPreset = { key: PresetKey | string; label: string; label_bg?: string; description?: string };
+export type ReplayPreset = {
+  key: PresetKey | string;
+  label: string;
+  label_bg?: string;
+  description?: string;
+};
 
 export type ReplayStrategyInfo = {
   id: number;
@@ -82,7 +87,13 @@ export type WaitOutcome = {
 
 export type DecisionOutcome = TradeOutcome | WaitOutcome;
 
-export type ScoreComponent = { score: number; text?: string; value?: number | null; distance_atr?: number | null; regime?: string | null };
+export type ScoreComponent = {
+  score: number;
+  text?: string;
+  value?: number | null;
+  distance_atr?: number | null;
+  regime?: string | null;
+};
 
 export type DecisionContext = {
   available?: boolean;
@@ -93,8 +104,16 @@ export type DecisionContext = {
   structure?: string | null;
   support?: number | null;
   resistance?: number | null;
-  swing_low_below?: { price: number; time: number; label?: string | null } | null;
-  swing_high_above?: { price: number; time: number; label?: string | null } | null;
+  swing_low_below?: {
+    price: number;
+    time: number;
+    label?: string | null;
+  } | null;
+  swing_high_above?: {
+    price: number;
+    time: number;
+    label?: string | null;
+  } | null;
   [k: string]: unknown;
 };
 
@@ -138,7 +157,12 @@ export type DecisionsSummary = {
   last_bar_ts: number | null;
 };
 
-export type LiveScore = { value: number | null; grade: Grade | null; scored: number; pending: number };
+export type LiveScore = {
+  value: number | null;
+  grade: Grade | null;
+  scored: number;
+  pending: number;
+};
 
 export type IndicatorSeries = {
   name: string;
@@ -147,7 +171,13 @@ export type IndicatorSeries = {
   series: Record<string, { time: number; value: number }[]>;
 };
 
-export type ReplayEvent = { id: number; ts: number; type: string; message: string; data?: Record<string, unknown> };
+export type ReplayEvent = {
+  id: number;
+  ts: number;
+  type: string;
+  message: string;
+  data?: Record<string, unknown>;
+};
 
 export type ResolvedItem = {
   id: number;
@@ -187,7 +217,10 @@ export type DecisionResponse = ReplayState & {
 
 export type DecisionPreview = { preview: true; decision: ReplayDecision };
 
-export type OrderResponse = ReplayState & { order: Order; findings: RiskFinding[] };
+export type OrderResponse = ReplayState & {
+  order: Order;
+  findings: RiskFinding[];
+};
 
 export type PaperTradeRow = {
   id: string;
@@ -218,9 +251,23 @@ export type CompactDecision = {
   text: string;
 };
 
-export type FlagItem = { id: number; bar_ts: number; action: ReplayAction; entry_price: number; text: string; level?: number | null; lesson?: string | null };
+export type FlagItem = {
+  id: number;
+  bar_ts: number;
+  action: ReplayAction;
+  entry_price: number;
+  text: string;
+  level?: number | null;
+  lesson?: string | null;
+};
 
-export type FlagSummary = { key: string; label: string; severity: FlagSeverity; count: number; lesson?: string | null };
+export type FlagSummary = {
+  key: string;
+  label: string;
+  severity: FlagSeverity;
+  count: number;
+  lesson?: string | null;
+};
 
 export type Prediction = {
   id: number;
@@ -240,7 +287,13 @@ export type Prediction = {
   comment: string;
 };
 
-export type SwingPoint = { index?: number; time: number; price: number; kind: "high" | "low" | string; label?: string | null };
+export type SwingPoint = {
+  index?: number;
+  time: number;
+  price: number;
+  kind: "high" | "low" | string;
+  label?: string | null;
+};
 
 export type WhatHappened = {
   available: boolean;
@@ -261,11 +314,29 @@ export type WhatHappened = {
   regime_start?: string | null;
   regime_end?: string | null;
   regimes?: { regime: string; bars: number; pct: number }[];
-  regime_segments?: { regime: string; start_ts: number; end_ts: number; bars: number }[];
+  regime_segments?: {
+    regime: string;
+    start_ts: number;
+    end_ts: number;
+    bars: number;
+  }[];
   key_swings?: SwingPoint[];
   structure_end?: { trend: string; text: string } | null;
-  next?: { bars: number; end_ts: number; end_price: number; change_pct: number; high: number; low: number } | null;
-  setup?: { preset: string; label: string; label_bg?: string; matched?: boolean; text?: string } | null;
+  next?: {
+    bars: number;
+    end_ts: number;
+    end_price: number;
+    change_pct: number;
+    high: number;
+    low: number;
+  } | null;
+  setup?: {
+    preset: string;
+    label: string;
+    label_bg?: string;
+    matched?: boolean;
+    text?: string;
+  } | null;
   text?: string[];
 };
 
@@ -342,7 +413,15 @@ export type StrategyComparison = {
   disclaimer?: string;
 };
 
-export type ReviewLesson = { slug: string; title: string; reason: string; href?: string; flag?: string; flags?: string[]; count?: number };
+export type ReviewLesson = {
+  slug: string;
+  title: string;
+  reason: string;
+  href?: string;
+  flag?: string;
+  flags?: string[];
+  count?: number;
+};
 
 export type TeacherSection = { key: string; title: string; body: string[] };
 
@@ -379,7 +458,12 @@ export type HistoryReview = {
   disclaimer?: string;
 };
 
-export type ReplayMetrics = { total_trades: number; net_pnl: number; win_rate: number | null; [k: string]: unknown };
+export type ReplayMetrics = {
+  total_trades: number;
+  net_pnl: number;
+  win_rate: number | null;
+  [k: string]: unknown;
+};
 
 /** POST /replay/{sid}/finish */
 export type FinishResponse = ReplayState & {
@@ -442,7 +526,16 @@ export type ReplayStats = {
   active?: number;
   avg_score: number | null;
   best_score: number | null;
-  last_scores: { id: number; symbol: string; timeframe: string; mode?: ReplayMode; preset?: string | null; score: number | null; grade?: Grade | null; created_ts?: number }[];
+  last_scores: {
+    id: number;
+    symbol: string;
+    timeframe: string;
+    mode?: ReplayMode;
+    preset?: string | null;
+    score: number | null;
+    grade?: Grade | null;
+    created_ts?: number;
+  }[];
   common_flags: (FlagSummary & { lesson_title?: string; href?: string })[];
   decisions?: number;
   correct?: number;
@@ -451,13 +544,35 @@ export type ReplayStats = {
 };
 
 export type ReplayOptions = {
-  modes: { key: ReplayMode; label: string; label_bg?: string; description?: string }[];
+  modes: {
+    key: ReplayMode;
+    label: string;
+    label_bg?: string;
+    description?: string;
+  }[];
   presets: ReplayPreset[];
   actions?: ReplayAction[];
-  defaults?: { mode?: ReplayMode; bars?: number; balance?: number; preset?: string | null };
-  limits?: { bars?: { min: number; max: number }; balance?: { min: number; max: number }; step_max?: number; next_bars?: number };
+  defaults?: {
+    mode?: ReplayMode;
+    bars?: number;
+    balance?: number;
+    preset?: string | null;
+  };
+  limits?: {
+    bars?: { min: number; max: number };
+    balance?: { min: number; max: number };
+    step_max?: number;
+    next_bars?: number;
+  };
   rules?: Record<string, unknown>;
-  flags?: { key: string; label: string; severity: FlagSeverity; lesson?: string; lesson_title?: string; href?: string }[];
+  flags?: {
+    key: string;
+    label: string;
+    severity: FlagSeverity;
+    lesson?: string;
+    lesson_title?: string;
+    href?: string;
+  }[];
   strategy_sentence?: string;
   disclaimer?: string;
 };

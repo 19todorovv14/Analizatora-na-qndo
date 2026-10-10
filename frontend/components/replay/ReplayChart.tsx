@@ -18,6 +18,14 @@ import type { Candle } from "@/lib/types";
 
 type Box = { x: number; x2: number; w: number; h: number };
 
+/** Half of the bar spacing around logical index `i` (px). */
+function halfBar(scale: ReturnType<IChartApi["timeScale"]>, i: number): number {
+  const a = scale.logicalToCoordinate(i as Logical);
+  const b = scale.logicalToCoordinate((i - 1) as Logical);
+  if (a === null || b === null) return 3;
+  return Math.max(1, Math.abs(a - b) / 2);
+}
+
 /**
  * Vertical boundary after candle `index` (logical), re-projected on scroll / zoom / resize. `index` past the
  * data = nothing. `untilIndex` (review) limits the tinted area to the revealed "what happened next" bars.
@@ -37,13 +45,22 @@ function useBoundaryBox(apiRef: React.RefObject<IChartApi | null>, index: number
         const w = scale.width();
         const panes = chart.panes();
         const h = Math.max(0, panes.reduce((sum, p) => sum + p.getHeight(), 0) + Math.max(0, panes.length - 1));
-        const x = scale.logicalToCoordinate((index + 0.5) as Logical);
-        const x2 = untilIndex !== null ? scale.logicalToCoordinate((untilIndex + 0.5) as Logical) : w;
+        // logicalToCoordinate needs whole indexes (fractional ones come back as 0): bar centre + half a bar
+        const half = halfBar(scale, index);
+        const c1 = scale.logicalToCoordinate(index as Logical);
+        const c2 = untilIndex !== null ? scale.logicalToCoordinate(untilIndex as Logical) : null;
+        const x = c1 === null ? null : c1 + half;
+        const x2 = untilIndex === null ? w : c2 === null ? null : c2 + half;
         if (x === null || x2 === null) {
           setBox(null);
           return;
         }
-        const next = { x: Math.round(x), x2: Math.round(Math.min(w, Math.max(x, x2))), w, h: Math.round(h) };
+        const next = {
+          x: Math.round(x),
+          x2: Math.round(Math.min(w, Math.max(x, x2))),
+          w,
+          h: Math.round(h),
+        };
         setBox((b) => (b && b.x === next.x && b.x2 === next.x2 && b.w === next.w && b.h === next.h ? b : next));
       } catch {
         /* chart disposed */
@@ -87,33 +104,64 @@ function FutureBoundary({ box, mode, label }: { box: Box; mode: "live" | "review
   const width = Math.max(0, box.x2 - box.x);
   const live = mode === "live";
   return (
-    <div style={{ pointerEvents: "none", position: "absolute", left: 0, top: 0, width: box.w, height: box.h }} aria-hidden={!live}>
+    <div
+      style={{
+        pointerEvents: "none",
+        position: "absolute",
+        left: 0,
+        top: 0,
+        width: box.w,
+        height: box.h,
+      }}
+      aria-hidden={!live}
+    >
       <div
         className="absolute top-0"
         style={{
           left: box.x,
           width,
           height: box.h,
-          background: live ? `${HATCH}, linear-gradient(90deg, ${withAlpha(PALETTE.accent, 0.12)}, ${withAlpha(PALETTE.accent, 0.03)})` : withAlpha(PALETTE.violet, 0.06),
+          background: live
+            ? `${HATCH}, linear-gradient(90deg, ${withAlpha(PALETTE.accent, 0.12)}, ${withAlpha(PALETTE.accent, 0.03)})`
+            : withAlpha(PALETTE.violet, 0.06),
         }}
       />
       <div
         className="absolute top-0"
-        style={{ left: box.x, height: box.h, borderLeft: `1.5px dashed ${live ? withAlpha(PALETTE.accent2, 0.85) : withAlpha(PALETTE.violet, 0.85)}` }}
+        style={{
+          left: box.x,
+          height: box.h,
+          borderLeft: `1.5px dashed ${live ? withAlpha(PALETTE.accent2, 0.85) : withAlpha(PALETTE.violet, 0.85)}`,
+        }}
       />
-      {width > 34 && (
-        <div
-          className={cx(
-            "absolute top-2 flex max-w-[180px] items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em]",
-            live ? "border-accent/30 bg-surface/85 text-accent2" : "border-violet/30 bg-surface/85 text-violet",
-          )}
-          style={{ left: box.x + 6 }}
-          role={live ? "note" : undefined}
-        >
-          {live && <EyeOff size={11} aria-hidden />}
-          <span className="truncate">{label}</span>
-        </div>
-      )}
+      {box.x > 0 &&
+        box.x < box.w &&
+        (width >= 150 ? (
+          <div
+            className={cx(
+              "absolute top-2 flex max-w-[220px] items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em]",
+              live ? "border-accent/30 bg-surface/85 text-accent2" : "border-violet/30 bg-surface/85 text-violet",
+            )}
+            style={{ left: box.x + 6 }}
+            role={live ? "note" : undefined}
+          >
+            {live && <EyeOff size={11} aria-hidden />}
+            <span className="truncate">{label}</span>
+          </div>
+        ) : (
+          // narrow strip (live: the chart's right offset) → a vertical label inside the hatched area
+          <div
+            className={cx(
+              "absolute flex items-center gap-1 whitespace-nowrap rounded-md border px-0.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em]",
+              live ? "border-accent/30 bg-surface/85 text-accent2" : "border-violet/30 bg-surface/85 text-violet",
+            )}
+            style={{ left: box.x + Math.max(2, width / 2 - 9), top: "38%", writingMode: "vertical-rl" }}
+            role={live ? "note" : undefined}
+          >
+            {live && <EyeOff size={11} className="rotate-90" aria-hidden />}
+            {label}
+          </div>
+        ))}
     </div>
   );
 }
@@ -168,8 +216,17 @@ export function ReplayChart({
   const overlays = useMemo<LineDef[]>(() => {
     const pts = showEma ? indicators?.[EMA_KEY]?.series?.value : null;
     if (!pts?.length) return [];
+    // only points inside the candle range: extra times would shift the chart's logical indexes
+    const first = candles[0]?.time ?? -Infinity;
     const last = candles[candles.length - 1]?.time ?? Infinity;
-    return [{ id: "ema20", data: pts.filter((p) => p.time <= last), color: withAlpha(PALETTE.gold, 0.8), width: 1 }];
+    return [
+      {
+        id: "ema20",
+        data: pts.filter((p) => p.time >= first && p.time <= last),
+        color: withAlpha(PALETTE.gold, 0.8),
+        width: 1,
+      },
+    ];
   }, [indicators, showEma, candles]);
 
   let index: number | null = null;

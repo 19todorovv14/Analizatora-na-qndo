@@ -50,11 +50,36 @@ export const INDICATORS_QUERY = "ema:20";
 
 /** Fallback when GET /replay/options is unavailable (same keys / labels as the backend). */
 export const FALLBACK_PRESETS: ReplayPreset[] = [
-  { key: "random", label: "Random", label_bg: "Случаен период", description: "Произволен минал период." },
-  { key: "trend", label: "Trend", label_bg: "Тренд", description: "Период с ясен тренд (посоката не се казва предварително)." },
-  { key: "range", label: "Range", label_bg: "Диапазон", description: "Цената се движи странично в диапазон." },
-  { key: "high_volatility", label: "High volatility", label_bg: "Висока волатилност", description: "Големи свещи и резки движения — тест за stop и размер." },
-  { key: "breakout", label: "Breakout", label_bg: "Пробив", description: "Консолидация, последвана от пробив (кога и накъде — откриваш сам)." },
+  {
+    key: "random",
+    label: "Random",
+    label_bg: "Случаен период",
+    description: "Произволен минал период.",
+  },
+  {
+    key: "trend",
+    label: "Trend",
+    label_bg: "Тренд",
+    description: "Период с ясен тренд (посоката не се казва предварително).",
+  },
+  {
+    key: "range",
+    label: "Range",
+    label_bg: "Диапазон",
+    description: "Цената се движи странично в диапазон.",
+  },
+  {
+    key: "high_volatility",
+    label: "High volatility",
+    label_bg: "Висока волатилност",
+    description: "Големи свещи и резки движения — тест за stop и размер.",
+  },
+  {
+    key: "breakout",
+    label: "Breakout",
+    label_bg: "Пробив",
+    description: "Консолидация, последвана от пробив (кога и накъде — откриваш сам).",
+  },
 ];
 export const PRESET_KEYS: PresetKey[] = ["random", "trend", "range", "high_volatility", "breakout"];
 
@@ -141,17 +166,27 @@ export function defaultSetup(now: number = Math.floor(Date.now() / 1000)): Repla
   };
 }
 
-export type SetupIssue = { field: "symbol" | "start" | "bars"; message: string };
+export type SetupIssue = {
+  field: "symbol" | "start" | "bars";
+  message: string;
+};
 
 export function validateSetup(s: ReplaySetupValues, now: number = Math.floor(Date.now() / 1000)): SetupIssue[] {
   const out: SetupIssue[] = [];
   if (!s.symbol.trim()) out.push({ field: "symbol", message: "Избери инструмент." });
   if (!Number.isFinite(s.bars) || s.bars < BARS_LIMITS.min || s.bars > BARS_LIMITS.max)
-    out.push({ field: "bars", message: `Свещите трябва да са между ${BARS_LIMITS.min} и ${BARS_LIMITS.max}.` });
+    out.push({
+      field: "bars",
+      message: `Свещите трябва да са между ${BARS_LIMITS.min} и ${BARS_LIMITS.max}.`,
+    });
   if (s.period === "date") {
     const ts = s.start ? fromDateInput(s.start) : NaN;
     if (!Number.isFinite(ts)) out.push({ field: "start", message: "Избери начална дата." });
-    else if (ts >= now - DAY) out.push({ field: "start", message: "Началото трябва да е в миналото — бъдещите свещи трябва да съществуват." });
+    else if (ts >= now - DAY)
+      out.push({
+        field: "start",
+        message: "Началото трябва да е в миналото — бъдещите свещи трябва да съществуват.",
+      });
   }
   return out;
 }
@@ -167,7 +202,12 @@ export type CreateBody = {
 };
 
 export function buildCreateBody(s: ReplaySetupValues): CreateBody {
-  const body: CreateBody = { symbol: s.symbol, timeframe: s.timeframe, bars: Math.round(s.bars), mode: s.mode };
+  const body: CreateBody = {
+    symbol: s.symbol,
+    timeframe: s.timeframe,
+    bars: Math.round(s.bars),
+    mode: s.mode,
+  };
   if (s.period === "date") body.start_ts = fromDateInput(s.start);
   else body.preset = s.period;
   if (s.strategyId) body.strategy_id = s.strategyId;
@@ -175,7 +215,13 @@ export function buildCreateBody(s: ReplaySetupValues): CreateBody {
 }
 
 /** ?symbol= &tf= &session= &preset= &mode= of /replay */
-export type ReplayQuery = { symbol: string | null; timeframe: string | null; session: number | null; preset: PresetKey | null; mode: ReplayMode | null };
+export type ReplayQuery = {
+  symbol: string | null;
+  timeframe: string | null;
+  session: number | null;
+  preset: PresetKey | null;
+  mode: ReplayMode | null;
+};
 
 export function readReplayQuery(search: string): ReplayQuery {
   const p = new URLSearchParams(search);
@@ -198,7 +244,11 @@ export function sessionUrl(id: number | null): string {
 
 /* ───────────────────────────────────────────────────────────── levels */
 
-export type LevelCheck = { stopError: string | null; targetError: string | null; ok: boolean };
+export type LevelCheck = {
+  stopError: string | null;
+  targetError: string | null;
+  ok: boolean;
+};
 
 /** Same rules as the backend: LONG → stop < entry < target, SHORT → target < entry < stop. Stop required. */
 export function checkLevels(action: ReplayAction, entry: number | null, stop: number | null, target: number | null, precision = 2): LevelCheck {
@@ -273,16 +323,31 @@ export function levelForClick(action: ReplayAction, entry: number, price: number
 
 export const isWaitOutcome = (d: { action: ReplayAction; outcome: unknown }): d is { action: "wait"; outcome: WaitOutcome } => d.action === "wait";
 
-export type OutcomeView = { label: string; tone: Tone; final: boolean; r: number | null };
+export type OutcomeView = {
+  label: string;
+  tone: Tone;
+  final: boolean;
+  r: number | null;
+};
 
 export function outcomeView(d: Pick<ReplayDecision, "action" | "outcome">): OutcomeView {
   if (d.action === "wait") {
     const o = d.outcome as WaitOutcome;
     if (o.status !== "resolved" || o.right_to_wait === null || o.right_to_wait === undefined)
-      return { label: "WAIT · наблюдава се", tone: "neutral", final: false, r: null };
+      return {
+        label: "WAIT · наблюдава се",
+        tone: "neutral",
+        final: false,
+        r: null,
+      };
     return o.right_to_wait
       ? { label: "Правилно изчакване", tone: "up", final: true, r: null }
-      : { label: `Пропуснато движение${o.clean_move === "up" ? " ↑" : o.clean_move === "down" ? " ↓" : ""}`, tone: "warn", final: true, r: null };
+      : {
+          label: `Пропуснато движение${o.clean_move === "up" ? " ↑" : o.clean_move === "down" ? " ↓" : ""}`,
+          tone: "warn",
+          final: true,
+          r: null,
+        };
   }
   const o = d.outcome as TradeOutcome;
   const r = o.r_result ?? null;
@@ -292,9 +357,19 @@ export function outcomeView(d: Pick<ReplayDecision, "action" | "outcome">): Outc
     case "stop":
       return { label: `Stop ${fmtR(r)}`, tone: "down", final: true, r };
     case "expired":
-      return { label: `Изтекла ${fmtR(r)}`, tone: r !== null && r > 0 ? "up" : r !== null && r < 0 ? "down" : "neutral", final: true, r };
+      return {
+        label: `Изтекла ${fmtR(r)}`,
+        tone: r !== null && r > 0 ? "up" : r !== null && r < 0 ? "down" : "neutral",
+        final: true,
+        r,
+      };
     default:
-      return { label: `Отворена ${r !== null && o.bars_held ? fmtR(r) : ""}`.trim(), tone: "accent", final: false, r };
+      return {
+        label: `Отворена ${r !== null && o.bars_held ? fmtR(r) : ""}`.trim(),
+        tone: "accent",
+        final: false,
+        r,
+      };
   }
 }
 
@@ -314,7 +389,13 @@ export function decisionMarkers(decisions: ReplayDecision[], opts: MarkerOpts = 
     const color = decisionColor(d);
     const sel = opts.selectedId !== undefined && opts.selectedId !== null && d.id === opts.selectedId;
     if (d.action === "wait") {
-      out.push({ time: d.bar_ts, position: "aboveBar", shape: "circle", color, text: sel ? "▶ W" : "W" });
+      out.push({
+        time: d.bar_ts,
+        position: "aboveBar",
+        shape: "circle",
+        color,
+        text: sel ? "▶ W" : "W",
+      });
       continue;
     }
     const long = d.action === "long";
@@ -328,21 +409,50 @@ export function decisionMarkers(decisions: ReplayDecision[], opts: MarkerOpts = 
     const o = d.outcome as TradeOutcome;
     if ((o.status === "target" || o.status === "stop" || o.status === "expired") && o.exit_ts) {
       const above = (o.status === "target") === long;
-      out.push({ time: o.exit_ts, position: above ? "aboveBar" : "belowBar", shape: "circle", color, text: fmtR(o.r_result ?? null) });
+      out.push({
+        time: o.exit_ts,
+        position: above ? "aboveBar" : "belowBar",
+        shape: "circle",
+        color,
+        text: fmtR(o.r_result ?? null),
+      });
     }
   }
   return out;
 }
 
-export type DraftLevels = { action: ReplayAction | null; stop: number | null; target: number | null };
+export type DraftLevels = {
+  action: ReplayAction | null;
+  stop: number | null;
+  target: number | null;
+};
 
 /** Stop / target lines: the draft + the still-open LONG / SHORT predictions (latest 3) or one selected decision. */
-export function decisionLines(decisions: ReplayDecision[], draft: DraftLevels | null, precision: number, opts: { selectedId?: number | null; maxOpen?: number } = {}): PriceLineDef[] {
+export function decisionLines(
+  decisions: ReplayDecision[],
+  draft: DraftLevels | null,
+  precision: number,
+  opts: { selectedId?: number | null; maxOpen?: number } = {},
+): PriceLineDef[] {
   const out: PriceLineDef[] = [];
   if (draft && draft.action && draft.action !== "wait") {
     const tag = draft.action === "long" ? "LONG" : "SHORT";
-    if (draft.stop !== null) out.push({ id: "draft-stop", price: roundTo(draft.stop, precision), color: PALETTE.down, title: `SL ${tag} (план)`, dashed: true });
-    if (draft.target !== null) out.push({ id: "draft-target", price: roundTo(draft.target, precision), color: PALETTE.up, title: `TP ${tag} (план)`, dashed: true });
+    if (draft.stop !== null)
+      out.push({
+        id: "draft-stop",
+        price: roundTo(draft.stop, precision),
+        color: PALETTE.down,
+        title: `SL ${tag} (план)`,
+        dashed: true,
+      });
+    if (draft.target !== null)
+      out.push({
+        id: "draft-target",
+        price: roundTo(draft.target, precision),
+        color: PALETTE.up,
+        title: `TP ${tag} (план)`,
+        dashed: true,
+      });
   }
   const selected = opts.selectedId ?? null;
   const shown =
@@ -353,8 +463,22 @@ export function decisionLines(decisions: ReplayDecision[], draft: DraftLevels | 
     if (d.action === "wait") continue;
     const n = d.id ?? d.bar_ts;
     const tag = `${d.action === "long" ? "L" : "S"}#${n}`;
-    if (d.stop !== null) out.push({ id: `d${n}-stop`, price: d.stop, color: withAlpha(PALETTE.down, 0.75), title: `SL ${tag}`, dashed: true });
-    if (d.target !== null) out.push({ id: `d${n}-target`, price: d.target, color: withAlpha(PALETTE.up, 0.75), title: `TP ${tag}`, dashed: true });
+    if (d.stop !== null)
+      out.push({
+        id: `d${n}-stop`,
+        price: d.stop,
+        color: withAlpha(PALETTE.down, 0.75),
+        title: `SL ${tag}`,
+        dashed: true,
+      });
+    if (d.target !== null)
+      out.push({
+        id: `d${n}-target`,
+        price: d.target,
+        color: withAlpha(PALETTE.up, 0.75),
+        title: `TP ${tag}`,
+        dashed: true,
+      });
   }
   return out;
 }
@@ -377,7 +501,13 @@ export function strategyTradeMarkers(trades: StrategyTrade[]): MarkerDef[] {
   const out: MarkerDef[] = [];
   for (const t of trades) {
     const long = t.side === "long";
-    out.push({ time: t.entry_ts, position: long ? "belowBar" : "aboveBar", shape: long ? "arrowUp" : "arrowDown", color: PALETTE.violet, text: `Strategy ${long ? "LONG" : "SHORT"}` });
+    out.push({
+      time: t.entry_ts,
+      position: long ? "belowBar" : "aboveBar",
+      shape: long ? "arrowUp" : "arrowDown",
+      color: PALETTE.violet,
+      text: `Strategy ${long ? "LONG" : "SHORT"}`,
+    });
     out.push({
       time: t.exit_ts,
       position: long ? "aboveBar" : "belowBar",
@@ -394,8 +524,20 @@ export function paperTradeMarkers(trades: PaperTradeRow[]): MarkerDef[] {
   const out: MarkerDef[] = [];
   for (const t of trades) {
     const long = t.side === "long";
-    out.push({ time: t.opened_ts, position: long ? "belowBar" : "aboveBar", shape: long ? "arrowUp" : "arrowDown", color: PALETTE.gold, text: long ? "BUY" : "SELL" });
-    out.push({ time: t.closed_ts, position: long ? "aboveBar" : "belowBar", shape: "square", color: PALETTE.gold, text: exitLabel(t.exit_reason) });
+    out.push({
+      time: t.opened_ts,
+      position: long ? "belowBar" : "aboveBar",
+      shape: long ? "arrowUp" : "arrowDown",
+      color: PALETTE.gold,
+      text: long ? "BUY" : "SELL",
+    });
+    out.push({
+      time: t.closed_ts,
+      position: long ? "aboveBar" : "belowBar",
+      shape: "square",
+      color: PALETTE.gold,
+      text: exitLabel(t.exit_reason),
+    });
   }
   return out;
 }
@@ -432,7 +574,11 @@ export function mergeCandles(a: Candle[], b: Candle[]): Candle[] {
 export function progress(s: { bars?: number; revealed?: number; remaining: number }): { revealed: number; total: number; pct: number } {
   const total = Math.max(0, s.bars ?? (s.revealed ?? 0) + s.remaining);
   const revealed = Math.max(0, s.revealed ?? total - s.remaining);
-  return { revealed, total, pct: total ? Math.min(100, Math.round((revealed / total) * 100)) : 0 };
+  return {
+    revealed,
+    total,
+    pct: total ? Math.min(100, Math.round((revealed / total) * 100)) : 0,
+  };
 }
 
 /** Default replay order qty: ≈10 % of equity in notional, 2 significant digits (0.01 BTC at ~90k). */
@@ -448,25 +594,62 @@ export function defaultQty(price: number | null | undefined, equity: number | nu
 
 /* ───────────────────────────────────────────────────────────── toasts */
 
-export type ToastSpec = { id: string; tone: Tone; title: string; text?: string };
+export type ToastSpec = {
+  id: string;
+  tone: Tone;
+  title: string;
+  text?: string;
+};
 
 /** Flag chips that deserve a toast when a decision is recorded (warnings: "Chasing?", "Against structure", …). */
 export function flagToasts(flags: DecisionFlag[], key: string): ToastSpec[] {
   return flags
     .filter((f) => f.severity === "warning")
-    .map((f) => ({ id: `${key}-${f.key}`, tone: "warn" as Tone, title: f.label, text: f.text }));
+    .map((f) => ({
+      id: `${key}-${f.key}`,
+      tone: "warn" as Tone,
+      title: f.label,
+      text: f.text,
+    }));
 }
 
 export function resolvedToast(r: ResolvedItem): ToastSpec {
   const tag = ACTION_META[r.action]?.label ?? r.action.toUpperCase();
   if (r.action === "wait") {
     return r.right_to_wait
-      ? { id: `res-${r.id}`, tone: "up", title: "WAIT беше правилно", text: "Нямаше чисто движение — търпението беше решение." }
-      : { id: `res-${r.id}`, tone: "warn", title: "WAIT пропусна движение", text: "Имаше чиста възможност — виж прегледа в края." };
+      ? {
+          id: `res-${r.id}`,
+          tone: "up",
+          title: "WAIT беше правилно",
+          text: "Нямаше чисто движение — търпението беше решение.",
+        }
+      : {
+          id: `res-${r.id}`,
+          tone: "warn",
+          title: "WAIT пропусна движение",
+          text: "Имаше чиста възможност — виж прегледа в края.",
+        };
   }
-  if (r.status === "target") return { id: `res-${r.id}`, tone: "up", title: `${tag} → target ${fmtR(r.r_result)}`, text: r.score !== null ? `Оценка ${Math.round(r.score)}/100` : undefined };
-  if (r.status === "stop") return { id: `res-${r.id}`, tone: "down", title: `${tag} → stop ${fmtR(r.r_result)}`, text: "Загуба с ограничен риск е нормална цена — провери дали stop-ът беше на правилното място." };
-  return { id: `res-${r.id}`, tone: "neutral", title: `${tag} изтече ${fmtR(r.r_result)}`, text: "Нито stop, нито target за 50 свещи." };
+  if (r.status === "target")
+    return {
+      id: `res-${r.id}`,
+      tone: "up",
+      title: `${tag} → target ${fmtR(r.r_result)}`,
+      text: r.score !== null ? `Оценка ${Math.round(r.score)}/100` : undefined,
+    };
+  if (r.status === "stop")
+    return {
+      id: `res-${r.id}`,
+      tone: "down",
+      title: `${tag} → stop ${fmtR(r.r_result)}`,
+      text: "Загуба с ограничен риск е нормална цена — провери дали stop-ът беше на правилното място.",
+    };
+  return {
+    id: `res-${r.id}`,
+    tone: "neutral",
+    title: `${tag} изтече ${fmtR(r.r_result)}`,
+    text: "Нито stop, нито target за 50 свещи.",
+  };
 }
 
 /* ───────────────────────────────────────────────────────────── review data */
@@ -524,3 +707,123 @@ export function presetLabel(key: string | null | undefined, presets: ReplayPrese
 /** "Here is what a rule-based strategy would have done." — exact sentence of the backend review. */
 export const STRATEGY_SENTENCE = "Here is what a rule-based strategy would have done.";
 export const STRATEGY_DISCLAIMER = "This is a rule-based hypothetical setup, not a guarantee of future price movement.";
+
+/* ───────────────────────────────────────────────────────────── decision draft */
+
+export type Draft = {
+  action: "long" | "short" | null;
+  stop: string;
+  target: string;
+  note: string;
+  /** trade mode: also place a paper market order (fills on the next candle's open) */
+  placeOrder: boolean;
+  riskPct: string;
+};
+
+export const EMPTY_DRAFT: Draft = {
+  action: null,
+  stop: "",
+  target: "",
+  note: "",
+  placeOrder: false,
+  riskPct: "1",
+};
+
+/**
+ * Arm LONG / SHORT: keeps the user's stop / target when they are still on the correct side of the current
+ * close, otherwise starts from the ATR suggestion (stop 1.5 ATR, target 2R). Arming the armed side again
+ * leaves the draft unchanged.
+ */
+export function armDraft(d: Draft, action: "long" | "short", candles: Candle[], precision: number): Draft {
+  if (d.action === action && d.stop) return d;
+  const entry = candles[candles.length - 1]?.close ?? null;
+  const stop = num(d.stop);
+  const target = num(d.target);
+  const chk = checkLevels(action, entry, stop, target, precision);
+  const s = suggestLevels(action, candles, precision);
+  return {
+    ...d,
+    action,
+    stop: stop !== null && !chk.stopError ? d.stop : s ? priceInput(s.stop, precision) : "",
+    target: target !== null && !chk.targetError ? d.target : s ? priceInput(s.target, precision) : "",
+  };
+}
+
+/** After recording: a clean draft that keeps the per-user preferences (paper order switch, risk %). */
+export function clearDraft(d: Draft): Draft {
+  return { ...EMPTY_DRAFT, placeOrder: d.placeOrder, riskPct: d.riskPct };
+}
+
+/** Fallback labels of the backend flag keys (GET /replay/options has the same list). */
+export const FLAG_LABELS: Record<string, string> = {
+  chased: "Chasing?",
+  entered_too_early: "Entered too early",
+  ignored_structure: "Against structure",
+  counter_trend: "Counter-trend",
+  poor_rr: "Poor R:R",
+  low_rr: "Low R:R",
+  no_target: "No target",
+  stop_in_noise: "Stop in noise",
+  stop_inside_structure: "Stop inside structure",
+  wide_stop: "Wide stop",
+  missed_move: "Missed move",
+};
+
+export function flagLabel(key: string, options?: { key: string; label: string }[] | null): string {
+  return options?.find((f) => f.key === key)?.label ?? FLAG_LABELS[key] ?? key.replace(/_/g, " ");
+}
+
+type PositionLike = {
+  id: string;
+  side: "long" | "short";
+  entry_price: number;
+  stop_loss: number | null;
+  take_profit: number | null;
+};
+type OrderLike = {
+  id: string;
+  side: "buy" | "sell";
+  type: string;
+  price: number | null;
+  status: string;
+};
+
+/** Trade mode: entry / SL / TP of open paper positions and pending limit / stop orders. */
+export function positionLines(positions: PositionLike[], orders: OrderLike[] = []): PriceLineDef[] {
+  const out: PriceLineDef[] = [];
+  for (const p of positions) {
+    out.push({
+      id: `p${p.id}e`,
+      price: p.entry_price,
+      color: PALETTE.muted,
+      title: p.side.toUpperCase(),
+    });
+    if (p.stop_loss)
+      out.push({
+        id: `p${p.id}s`,
+        price: p.stop_loss,
+        color: PALETTE.down,
+        title: "SL",
+        dashed: true,
+      });
+    if (p.take_profit)
+      out.push({
+        id: `p${p.id}t`,
+        price: p.take_profit,
+        color: PALETTE.up,
+        title: "TP",
+        dashed: true,
+      });
+  }
+  for (const o of orders) {
+    if (o.price && o.type !== "market" && (o.status === "pending" || o.status === "open"))
+      out.push({
+        id: `o${o.id}`,
+        price: o.price,
+        color: PALETTE.info,
+        title: `${o.type.toUpperCase()} ${o.side.toUpperCase()}`,
+        dashed: true,
+      });
+  }
+  return out;
+}

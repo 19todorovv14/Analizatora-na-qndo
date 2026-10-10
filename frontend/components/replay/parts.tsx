@@ -85,7 +85,11 @@ export function OutcomeBadge({ decision, className }: { decision: Pick<ReplayDec
   );
 }
 
-const SEVERITY_TONE: Record<string, Tone> = { warning: "warn", info: "info", high: "down" };
+const SEVERITY_TONE: Record<string, Tone> = {
+  warning: "warn",
+  info: "info",
+  high: "down",
+};
 
 export function FlagChip({ flag, className }: { flag: Pick<DecisionFlag, "key" | "label" | "severity" | "text">; className?: string }) {
   const tone = SEVERITY_TONE[flag.severity] ?? "neutral";
@@ -104,7 +108,11 @@ export function FlagChip({ flag, className }: { flag: Pick<DecisionFlag, "key" |
   );
 }
 
-const TOAST_ICON: Partial<Record<Tone, typeof Info>> = { up: CheckCircle2, down: XCircle, warn: AlertTriangle };
+const TOAST_ICON: Partial<Record<Tone, typeof Info>> = {
+  up: CheckCircle2,
+  down: XCircle,
+  warn: AlertTriangle,
+};
 const TOAST_RING: Partial<Record<Tone, string>> = {
   up: "border-up/30",
   down: "border-down/30",
@@ -112,20 +120,28 @@ const TOAST_RING: Partial<Record<Tone, string>> = {
   info: "border-info/30",
 };
 
-/** Bottom-right toast stack (flags of a recorded decision, resolved predictions). */
-export function ReplayToasts({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: string) => void }) {
+/** Toast stack (flags of a recorded decision, resolved predictions): fixed bottom-right, or `inline` inside a relative box. */
+export function ReplayToasts({ toasts, onDismiss, inline }: { toasts: Toast[]; onDismiss: (id: string) => void; inline?: boolean }) {
   return (
     <div
       role="status"
       aria-live="polite"
-      className="pointer-events-none fixed bottom-4 right-3 z-50 flex w-[min(340px,calc(100vw-1.5rem))] flex-col gap-2 sm:right-4"
+      className={cx(
+        "pointer-events-none z-50 flex flex-col gap-2",
+        // inline: over the bottom-left of the chart (the decision panel stays visible)
+        inline ? "absolute bottom-10 left-3 w-[min(320px,calc(100%-1.5rem))]" : "fixed bottom-4 right-3 w-[min(340px,calc(100vw-1.5rem))] sm:right-4",
+      )}
+      style={inline ? { pointerEvents: "none" } : undefined}
     >
       {toasts.map((t) => {
         const Icon = TOAST_ICON[t.tone] ?? Info;
         return (
           <div
             key={t.id}
-            className={cx("glass-strong pointer-events-auto flex gap-2.5 rounded-xl border px-3 py-2.5 shadow-pop animate-slide-in-up", TOAST_RING[t.tone] ?? "border-white/10")}
+            className={cx(
+              "glass-strong pointer-events-auto flex gap-2.5 rounded-xl border px-3 py-2.5 shadow-pop animate-slide-in-up",
+              TOAST_RING[t.tone] ?? "border-white/10",
+            )}
           >
             <Icon size={16} className="mt-0.5 shrink-0" style={{ color: TONE_COLOR[t.tone] }} aria-hidden />
             <div className="min-w-0 flex-1">
