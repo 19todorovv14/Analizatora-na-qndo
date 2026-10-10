@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  bucketAxis,
   bucketShort,
   bucketTone,
   checkMeta,
@@ -142,7 +143,7 @@ describe("analytics model", () => {
   });
 
   test("confidence notes", () => {
-    const exp = fixtures.performance.confidence.expectancy_r as { value: number; ci95: [number, number]; n: number; note: string };
+    const exp = fixtures.performance.confidence.expectancy_r as unknown as { value: number; ci95: [number, number]; n: number; note: string };
     assert.match(ciText(exp, (v) => v.toFixed(2)) ?? "", /^95% CI: -?\d/);
     assert.equal(ciText({ value: 1, n: 1, note: null, ci95: null }, String), null);
     assert.equal(ciIncludes({ value: 1, n: 3, note: null, ci95: [-0.5, 2] }), true);
@@ -197,6 +198,9 @@ describe("analytics model", () => {
     assert.equal(bucketShort({ from: null, to: -2 }), "<-2");
     assert.equal(bucketShort({ from: 3, to: null }), "≥3");
     assert.equal(bucketShort({ from: -1, to: -0.5 }), "-1…-0.5");
+    assert.equal(bucketAxis({ from: null, to: -2 }), "<-2");
+    assert.equal(bucketAxis({ from: -0.5, to: 0 }), "-0.5");
+    assert.equal(bucketAxis({ from: 3, to: null }), "≥3");
   });
 
   test("streak text and coach checks", () => {

@@ -162,7 +162,7 @@ export function JournalTable({
                       type="button"
                       onClick={() => setOpen(e.id ?? null)}
                       className={cx(
-                        "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset transition-colors",
+                        "inline-flex items-center gap-1 whitespace-nowrap rounded-md px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset transition-colors",
                         grade ? cx("ring-white/10 hover:bg-white/[0.05]", GRADE_INK[gradeTone(grade)]) : "text-violet ring-violet/25 hover:bg-violet/10",
                       )}
                     >

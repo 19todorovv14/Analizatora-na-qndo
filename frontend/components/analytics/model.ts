@@ -218,6 +218,14 @@ export function bucketShort(b: Pick<RBucket, "from" | "to">): string {
   return "—";
 }
 
+/** Histogram axis tick under a bar: the bucket's lower bound ("<-2" for the first, "≥3" for the last). */
+export function bucketAxis(b: Pick<RBucket, "from" | "to">): string {
+  const n = (v: number) => String(Math.round(v * 100) / 100);
+  if (b.from === null) return b.to !== null ? `<${n(b.to)}` : "—";
+  if (b.to === null) return `≥${n(b.from)}`;
+  return n(b.from);
+}
+
 export function maxBucket(buckets: RBucket[]): number {
   return buckets.reduce((m, b) => Math.max(m, b.count), 0);
 }
