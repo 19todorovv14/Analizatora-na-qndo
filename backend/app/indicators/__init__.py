@@ -163,8 +163,13 @@ def adx(highs: Sequence[float], lows: Sequence[float], closes: Sequence[float], 
     return out
 
 
-def vwap(candles: Sequence[Candle], anchor: str = "day") -> Series:
-    """Volume-weighted average price, reset every UTC day (or week for >=1d data)."""
+def vwap(candles: Sequence[Candle], anchor: str = "auto") -> Series:
+    """Volume-weighted average price, reset every UTC day (or week for >=1d data).
+
+    anchor "auto" (default) picks "week" when the bars are a day or longer apart — before W4a the daily reset was
+    always used, so on 1d charts every bar was its own session and "VWAP" was just the bar's typical price."""
+    if anchor == "auto":
+        anchor = "week" if len(candles) >= 2 and candles[1].ts - candles[0].ts >= 86_400 else "day"
     out: Series = []
     pv = vol = 0.0
     current = None

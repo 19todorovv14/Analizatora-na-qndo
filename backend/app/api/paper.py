@@ -132,7 +132,7 @@ def modify(position_id: str, body: ModifyIn, user: User = Depends(current_user),
 
 @router.get("/trades")
 def trades(
-    limit: int = Query(200, le=1000),
+    limit: int = Query(200, ge=1, le=1000),  # ge=1: limit=-1 used to mean "no limit" in SQLite
     symbol: str | None = Query(None, min_length=1, max_length=40),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
@@ -169,6 +169,10 @@ def update_account(body: AccountSettingsIn, user: User = Depends(current_user), 
     if body.leverage:
         acc.leverage = body.leverage
     if body.execution is not None:
+        try:  # wrong types / out-of-range values → 400 (stored, they used to break every later order with a 500)
+            ExecutionConfig.from_dict(body.execution, strict=True)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Невалидна настройка: {exc}") from exc
         acc.execution = ExecutionConfig.from_dict({**(acc.execution or {}), **body.execution}).to_dict()
         settings_service.update_settings(db, user, {"execution": acc.execution})
     db.commit()

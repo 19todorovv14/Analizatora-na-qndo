@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields
 
+from app.core.coerce import coerce_fields
 from app.market.base import AssetSpec
 
 UNUSUALLY_LARGE_MESSAGE = "This trade risks an unusually large portion of your account."
@@ -25,13 +26,27 @@ class RiskRules:
     require_stop_loss: bool = True
 
     @classmethod
-    def from_dict(cls, data: dict | None) -> RiskRules:
-        data = data or {}
-        allowed = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in data.items() if k in allowed})
+    def from_dict(cls, data: dict | None, *, strict: bool = False) -> RiskRules:
+        """Known keys only. strict=True (API input) raises ValueError for a wrong type / out-of-range value;
+        otherwise such a value falls back to the default (or is clamped) so stored data never breaks a check."""
+        return cls(**coerce_fields(cls, data, RISK_RULE_FIELDS, strict=strict))
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+# type / range of every RiskRules field (app.core.coerce) — the same bounds PUT /api/risk/rules always enforced
+_PCT = ("float", 0.001, 10_000.0)
+RISK_RULE_FIELDS: dict[str, tuple] = {
+    "max_risk_per_trade_pct": _PCT,
+    "warn_risk_pct": _PCT,
+    "max_daily_loss_pct": _PCT,
+    "max_open_positions": ("int", 1, 100),
+    "max_portfolio_exposure_pct": _PCT,
+    "min_reward_risk": _PCT,
+    "require_stop_loss": ("bool",),
+}
+assert set(RISK_RULE_FIELDS) == {f.name for f in fields(RiskRules)}
 
 
 @dataclass

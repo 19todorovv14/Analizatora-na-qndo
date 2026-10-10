@@ -28,13 +28,22 @@ _PATTERNS = [
     r"сигурен\s+(?:успех|печалба)",
     r"(?:купи|продай|купувай|продавай)\s+(?:веднага|сега)",
     r"няма\s+как\s+да\s+загубиш",
+    # price predictions / targets presented as facts (W4a): "BTC will reach 120k", "цената ще достигне 1.10"
+    r"(?:will|is\s+going\s+to|gonna)\s+(?:definitely\s+|surely\s+|certainly\s+)?"
+    r"(?:reach|hit|rise\s+to|fall\s+to|drop\s+to|climb\s+to|go\s+(?:up|down)\s+to|pump|moon|skyrocket|explode)\b",
+    r"(?:definitely|certainly|surely)\s+(?:go(?:es|ing)?\s+(?:up|down)|rises?|falls?|drops?|pumps?|crash(?:es)?|rall(?:y|ies))",
+    r"ще\s+(?:със\s+сигурност\s+|сигурно\s+|определено\s+)?(?:достигне|стигне|скочи\s+до|се\s+покачи\s+до|"
+    r"падне\s+до|се\s+качи\s+до|поскъпне\s+до|поевтинее\s+до|се\s+срине)",
+    r"(?:със\s+сигурност|определено)\s+ще\s+(?:се\s+)?(?:покачи|качи|падне|поскъпне|поевтинее|расте|пада|обърне)",
 ]
 _BANNED = re.compile("|".join(f"(?:{p})" for p in _PATTERNS), re.IGNORECASE)
 _NEGATION = re.compile(
     r"(?:\bnot\b|\bno\b|\bnever\b|n't\b|\bwithout\b|\bне\b|\bняма\b|\bникога\b|\bнито\b|\bбез да\b)[^.!?\n]{0,30}$",
     re.IGNORECASE,
 )
-_SENTENCE = re.compile(r"[^.!?\n]+[.!?]?|\n")
+# a "." between two digits (prices such as 1.0850) does not end a sentence — splitting there used to leave an
+# orphaned fragment ("0850 …") behind when the sentence before it was removed
+_SENTENCE = re.compile(r"(?:[^.!?\n]|(?<=\d)\.(?=\d))+[.!?]?|\n")
 
 
 def find_violations(text: str) -> list[str]:

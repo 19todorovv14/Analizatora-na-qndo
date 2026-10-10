@@ -6,7 +6,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api import system
@@ -99,9 +99,17 @@ def _apply_journal(db: Session, user: User, e: JournalEntry, body: JournalIn) ->
 
 
 @router.get("/journal")
-def list_journal(user: User = Depends(current_user), db: Session = Depends(get_db)):
-    rows = db.scalars(select(JournalEntry).where(JournalEntry.user_id == user.id).order_by(JournalEntry.id.desc()))
-    return {"entries": [stats_service.journal_to_dict(e) for e in rows]}
+def list_journal(
+    limit: int = Query(500, ge=1, le=2000),
+    offset: int = Query(0, ge=0),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Newest first. Bounded (W4a): entries can carry ~1.5 MB screenshots, so the list is paged (`total` = all)."""
+    where = JournalEntry.user_id == user.id
+    rows = db.scalars(select(JournalEntry).where(where).order_by(JournalEntry.id.desc()).offset(offset).limit(limit))
+    total = db.scalar(select(func.count()).select_from(JournalEntry).where(where)) or 0
+    return {"entries": [stats_service.journal_to_dict(e) for e in rows], "total": total}
 
 
 @router.post("/journal")
@@ -184,14 +192,14 @@ def get_user_settings(user: User = Depends(current_user)):
 @router.put("/settings")
 def put_user_settings(body: dict, user: User = Depends(current_user), db: Session = Depends(get_db)):
     allowed = {k: v for k, v in body.items() if k in settings_service.DEFAULTS}
+    try:  # types / ranges first (a non-string default_symbol must be a 422, not a 500)
+        settings_service.validate_patch(allowed)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if "default_symbol" in allowed:
         symbol_param(allowed["default_symbol"])
     if "default_timeframe" in allowed:
         timeframe_param(allowed["default_timeframe"])
-    try:
-        settings_service.validate_patch(allowed)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"settings": settings_service.update_settings(db, user, allowed)}
 
 

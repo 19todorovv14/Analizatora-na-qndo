@@ -13,9 +13,10 @@ from fastapi.responses import JSONResponse
 
 from app.api import academy, ai, auth, learn, market, markets, misc, paper, replay, risk, strategies, teacher
 from app.config import get_settings
+from app.core.json_guard import RejectNonFiniteJSONMiddleware, SafeJSONResponse
 from app.database import SessionLocal, init_db
 from app.exchange.base import LiveTradingDisabledError
-from app.market.base import DataNotAvailableError, MarketDataError
+from app.market.base import DataNotAvailableError, MarketDataError, redact_secrets
 from app.market.catalog import UnknownAssetError
 from app.market.timeframes import TimeframeError
 
@@ -57,8 +58,11 @@ app = FastAPI(
     version="1.0.0",
     description="Educational trading platform. All trading is simulated (paper). No real orders, deposits or withdrawals.",
     lifespan=lifespan,
+    default_response_class=SafeJSONResponse,  # NaN / ±inf in a payload → null, never a 500 (app.core.json_guard)
 )
 
+# innermost: JSON bodies with NaN / Infinity → 422 before any endpoint can store them (app.core.json_guard)
+app.add_middleware(RejectNonFiniteJSONMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_origins,
@@ -88,7 +92,7 @@ async def _market_error(_: Request, exc: MarketDataError):
     code = DATA_NOT_AVAILABLE when no configured provider supports the instrument (configuration),
     MARKET_DATA_ERROR for provider failures. Query strings are stripped (never echo API keys).
     """
-    reason = _QUERY_STRING.sub("?…", str(exc))
+    reason = redact_secrets(_QUERY_STRING.sub("?…", str(exc)))
     content: dict = {
         "detail": f"Market data unavailable: {reason}",
         "code": exc.code if isinstance(exc, DataNotAvailableError) else "MARKET_DATA_ERROR",

@@ -7,6 +7,7 @@ execution lives exclusively in app.paper_engine (simulation).
 from __future__ import annotations
 
 import logging
+import math
 import re
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
@@ -19,9 +20,26 @@ _SECRET_PARAM = re.compile(
 )
 
 
+def _configured_secrets() -> list[str]:
+    """The provider / AI keys configured on the server (never shown anywhere, so they are scrubbed verbatim too)."""
+    try:
+        from app.config import get_settings
+
+        s = get_settings()
+    except Exception:  # noqa: BLE001 - redaction must never fail (it runs inside logging filters)
+        return []
+    keys = (s.twelvedata_api_key, s.finnhub_api_key, s.coingecko_api_key, s.anthropic_api_key)
+    return [k for k in keys if isinstance(k, str) and len(k) >= 6]
+
+
 def redact_secrets(text: object) -> str:
-    """`text` with the values of credential query parameters replaced by "***" (URLs stay readable)."""
-    return _SECRET_PARAM.sub(r"\1***", str(text))
+    """`text` with the values of credential query parameters replaced by "***" (URLs stay readable) and any
+    configured API key that appears verbatim (e.g. echoed in a provider error body) replaced by "***"."""
+    out = _SECRET_PARAM.sub(r"\1***", str(text))
+    for secret in _configured_secrets():
+        if secret in out:
+            out = out.replace(secret, "***")
+    return out
 
 
 class _RedactSecretsFilter(logging.Filter):
@@ -129,8 +147,10 @@ class AssetSpec:
         return round(price, self.price_precision)
 
     def round_qty(self, qty: float) -> float:
-        steps = int(qty / self.qty_step + 1e-9)
-        return round(steps * self.qty_step, 10)
+        steps = qty / self.qty_step + 1e-9
+        if not math.isfinite(steps):  # e.g. max_qty for an absurd limit price (1e-300) — no OverflowError → 500
+            return float(qty) if math.isfinite(qty) else 0.0
+        return round(int(steps) * self.qty_step, 10)
 
 
 _SLUG_SAFE = re.compile(r"[^A-Z0-9._-]")

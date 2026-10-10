@@ -645,18 +645,26 @@ def order(db: Session, user: User, s: ReplaySession, req: dict, *, with_state: b
         else (q.ask if req["side"] == "buy" else q.bid)
     )
     rules = settings_service.risk_rules(user)
-    from app.risk.engine import evaluate_trade, trade_plan
+    from app.market.base import MarketDataError
+    from app.risk.engine import evaluate_trade
 
     snap = broker.snapshot()
-    plan = trade_plan(
-        side=req["side"],
-        entry=entry,
-        stop=req.get("stop_loss"),
-        take_profit=req.get("take_profit"),
-        qty=float(req["qty"]),
-        balance=snap["equity"],
-        fee_rate=spec.taker_fee,
-    )
+    try:  # money in the account currency (USD) — risk.engine.trade_plan alone is in the QUOTE currency (W4a fix:
+        # a USD/JPY replay order was reported as "15090% exposure, 150x leverage" and stored risk_pct ×150)
+        plan = paper_service.account_plan(
+            broker,
+            symbol=s.symbol,
+            side=req["side"],
+            entry=entry,
+            stop=req.get("stop_loss"),
+            take_profit=req.get("take_profit"),
+            qty=float(req["qty"]),
+            equity=snap["equity"],
+            fee_rate=spec.taker_fee,
+            ts=s.cursor_ts,
+        )
+    except MarketDataError as exc:  # ConversionUnavailableError: no quote → USD rate at the cursor
+        raise ReplayError(f"Няма курс за превалутиране на {s.symbol} в USD: {getattr(exc, 'reason', None) or exc}") from exc
     findings = evaluate_trade(
         rules=rules,
         equity=snap["equity"],
@@ -664,7 +672,7 @@ def order(db: Session, user: User, s: ReplaySession, req: dict, *, with_state: b
         has_stop=req.get("stop_loss") is not None,
         open_positions=snap["open_positions"],
         exposure=snap["exposure"],
-        new_notional=float(req["qty"]) * entry,
+        new_notional=plan["notional"],
         day_pnl=0.0,
     )
     o = broker.place_order(

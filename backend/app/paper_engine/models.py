@@ -5,6 +5,8 @@ from __future__ import annotations
 import uuid
 from dataclasses import asdict, dataclass, field, fields
 
+from app.core.coerce import coerce_fields
+
 BUY, SELL = "buy", "sell"
 LONG, SHORT = "long", "short"
 MARKET, LIMIT, STOP = "market", "limit", "stop"
@@ -37,13 +39,34 @@ class ExecutionConfig:
     intrabar_policy: str = "worst_case"  # worst_case | path
 
     @classmethod
-    def from_dict(cls, data: dict | None) -> ExecutionConfig:
-        data = data or {}
-        allowed = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in data.items() if k in allowed})
+    def from_dict(cls, data: dict | None, *, strict: bool = False) -> ExecutionConfig:
+        """Known keys only. strict=True (API input) raises ValueError for a wrong type / out-of-range value;
+        otherwise such a value falls back to the default (or is clamped) so stored data never breaks the broker."""
+        return cls(**coerce_fields(cls, data, EXECUTION_FIELDS, strict=strict))
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+# type / range of every ExecutionConfig field (app.core.coerce)
+EXECUTION_FIELDS: dict[str, tuple] = {
+    "fees_enabled": ("bool",),
+    "spread_enabled": ("bool",),
+    "spread_multiplier": ("float", 0.0, 10.0),
+    "slippage_enabled": ("bool",),
+    "base_slippage_bps": ("float", 0.0, 500.0),
+    "volatility_slippage": ("float", 0.0, 1.0),
+    "impact_bps_per_pct_volume": ("float", 0.0, 100.0),
+    "latency_enabled": ("bool",),
+    "latency_ms": ("int", 0, 10_000),
+    "partial_fills_enabled": ("bool",),
+    "participation_rate": ("float", 0.01, 1.0),
+    "touch_fill_ratio": ("float", 0.0, 1.0),
+    "liquidation_enabled": ("bool",),
+    "stop_out_level": ("float", 0.05, 1.0),
+    "intrabar_policy": ("choice", ("worst_case", "path")),
+}
+assert set(EXECUTION_FIELDS) == {f.name for f in fields(ExecutionConfig)}
 
 
 @dataclass

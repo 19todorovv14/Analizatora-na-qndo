@@ -97,7 +97,10 @@ def rules(user: User = Depends(current_user)):
 
 @router.put("/rules")
 def update_rules(body: dict, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    clean = RiskRules.from_dict(body).to_dict()
+    try:  # wrong types / out-of-range values → 400 (they used to be a 500, or were stored and broke later checks)
+        clean = RiskRules.from_dict(body, strict=True).to_dict()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Невалидно правило: {exc}") from exc
     for k in (
         "max_risk_per_trade_pct",
         "warn_risk_pct",

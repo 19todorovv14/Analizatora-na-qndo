@@ -7,7 +7,7 @@ import copy
 import time
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -34,6 +34,9 @@ DEFAULT_CONFIG = {
 }
 WARMUP_BARS = 250
 MAX_BARS_PER_RUN = 3000
+# GET /api/bots processes every bot of the user (catch-up without Celery) and each bot owns a paper account, so the
+# number of bots per user is bounded (W4a) — an unbounded count made every list request do unbounded work.
+MAX_BOTS_PER_USER = 25
 
 
 def log(db: Session, bot: Bot, level: str, message: str, ts: int | None = None, **data) -> None:
@@ -41,6 +44,9 @@ def log(db: Session, bot: Bot, level: str, message: str, ts: int | None = None, 
 
 
 def create_bot(db: Session, user: User, data: dict) -> Bot:
+    count = db.scalar(select(func.count()).select_from(Bot).where(Bot.user_id == user.id)) or 0
+    if count >= MAX_BOTS_PER_USER:
+        raise ValueError(f"Максимум {MAX_BOTS_PER_USER} paper бота на профил — изтрий бот, който не ползваш.")
     strategy = db.get(Strategy, data["strategy_id"]) if data.get("strategy_id") else None
     if strategy is None or (strategy.user_id not in (None, user.id)):
         raise ValueError("Избери стратегия.")
