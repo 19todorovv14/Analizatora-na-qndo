@@ -32,6 +32,7 @@ import { fetcher } from "@/lib/api";
 import { cx, fmtMoney, fmtPct, fmtR, pnlClass } from "@/lib/format";
 import { useSession } from "@/lib/session";
 import type { Review } from "@/lib/types";
+import { lessonHref } from "@/lib/lessons";
 
 const pageLink = "inline-flex items-center gap-1 text-xs font-medium text-accent2 transition-colors hover:text-text";
 
@@ -91,7 +92,7 @@ function Behaviour({ rep }: { rep: StatsReport }) {
                 <span className="text-sm font-semibold text-text">{f.title}</span>
                 <span className="num text-[11px] text-faint">{f.count}×</span>
                 {f.lesson && (
-                  <Link href={`/learn/${f.lesson}`} className={cx(pageLink, "ml-auto")}>
+                  <Link href={lessonHref(f.lesson)} className={cx(pageLink, "ml-auto")}>
                     Урок <ArrowRight size={12} strokeWidth={2.25} aria-hidden />
                   </Link>
                 )}

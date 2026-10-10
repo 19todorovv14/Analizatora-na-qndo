@@ -21,13 +21,14 @@ import { createPortal } from "react-dom";
 import useSWR from "swr";
 
 import { bestScore, normalize } from "@/components/shell/fuzzy";
-import { NAV_GROUP_OF, NAV, type NavItem } from "@/components/shell/nav";
+import { NAV_GROUP_OF, PALETTE_PAGES, type NavItem } from "@/components/shell/nav";
 import { ShortcutKeys } from "@/components/shell/ShortcutKeys";
 import { Kbd, Skeleton, SourceBadge, Spinner, useStoredState, type SourceLike } from "@/components/ui";
 import { useFocusTrap, useIsClient, useScrollLock } from "@/components/ui/floating";
 import { fetcher } from "@/lib/api";
 import { cx } from "@/lib/format";
 import { useDebounced } from "@/lib/hooks";
+import { lessonHref } from "@/lib/lessons";
 
 /* ─────────────────────────────────────────────────────────── types */
 
@@ -46,13 +47,13 @@ type SearchAsset = {
 type SearchResponse = { results?: SearchAsset[] };
 
 /** GET /api/academy/modules (the academy has no flat lessons endpoint). */
-type ModulesResponse = { modules: { key: string; title: string; lessons: { slug: string; title: string; summary?: string }[] }[] };
+type ModulesResponse = { modules: { key: string; title: string; lessons: { slug: string; title: string; summary?: string; href?: string | null }[] }[] };
 
 type Item =
   | { kind: "recent"; key: string; query: string }
   | { kind: "asset"; key: string; asset: SearchAsset }
   | { kind: "page"; key: string; item: NavItem; group: string }
-  | { kind: "lesson"; key: string; slug: string; title: string; module: string };
+  | { kind: "lesson"; key: string; slug: string; href: string | null; title: string; module: string };
 
 type Section = { key: string; label: string; hint?: string; action?: React.ReactNode; loading?: boolean; items: Item[] };
 
@@ -75,7 +76,7 @@ const CLASS_META: Record<string, { label: string; icon: LucideIcon }> = {
 /**
  * Global command palette (opened with "/" or Ctrl/⌘+K and from the top-bar trigger).
  * Sections: ASSETS (GET /market/search — hidden when the endpoint fails), PAGES (fuzzy over the
- * nav) and LESSONS (GET /academy/modules, matched by title). Empty query → recent searches,
+ * nav + the Academy labs) and LESSONS (GET /academy/modules, matched by title). Empty query → recent searches,
  * popular assets and every page.
  */
 export function CommandPalette({ open, onClose, onOpenHelp }: { open: boolean; onClose: () => void; onOpenHelp?: () => void }) {
@@ -112,7 +113,7 @@ function PaletteDialog({ onClose, onOpenHelp }: { onClose: () => void; onOpenHel
   const modules = useSWR<ModulesResponse>("/academy/modules", fetcher, { revalidateOnFocus: false, dedupingInterval: 60_000 });
 
   const lessons = useMemo(
-    () => (modules.data?.modules ?? []).flatMap((m) => (m.lessons ?? []).map((l) => ({ slug: l.slug, title: l.title, module: m.title }))),
+    () => (modules.data?.modules ?? []).flatMap((m) => (m.lessons ?? []).map((l) => ({ slug: l.slug, href: l.href ?? null, title: l.title, module: m.title }))),
     [modules.data],
   );
 
@@ -148,7 +149,7 @@ function PaletteDialog({ onClose, onOpenHelp }: { onClose: () => void; onOpenHel
       out.push({
         key: "pages",
         label: "PAGES",
-        items: NAV.map((item) => ({ kind: "page" as const, key: `p:${item.href}`, item, group: NAV_GROUP_OF[item.href]?.label ?? "" })),
+        items: PALETTE_PAGES.map((item) => ({ kind: "page" as const, key: `p:${item.href}`, item, group: NAV_GROUP_OF[item.href]?.label ?? "" })),
       });
       return out.filter((s) => s.items.length || s.loading);
     }
@@ -161,7 +162,7 @@ function PaletteDialog({ onClose, onOpenHelp }: { onClose: () => void; onOpenHel
         items: assetRows.slice(0, 12).map((a) => ({ kind: "asset" as const, key: `a:${a.slug}`, asset: a })),
       });
 
-    const pages = NAV.map((item) => {
+    const pages = PALETTE_PAGES.map((item) => {
       const group = NAV_GROUP_OF[item.href]?.label ?? "";
       const score = bestScore(nq, [
         [item.label, 1],
@@ -185,7 +186,7 @@ function PaletteDialog({ onClose, onOpenHelp }: { onClose: () => void; onOpenHel
       out.push({
         key: "lessons",
         label: "LESSONS",
-        items: ls.map(({ l }) => ({ kind: "lesson" as const, key: `l:${l.slug}`, slug: l.slug, title: l.title, module: l.module })),
+        items: ls.map(({ l }) => ({ kind: "lesson" as const, key: `l:${l.slug}`, slug: l.slug, href: l.href, title: l.title, module: l.module })),
       });
     }
     return out.filter((s) => s.items.length || s.loading);
@@ -217,7 +218,7 @@ function PaletteDialog({ onClose, onOpenHelp }: { onClose: () => void; onOpenHel
     }
     remember(query);
     const href =
-      it.kind === "asset" ? `/markets/${encodeURIComponent(it.asset.slug)}` : it.kind === "page" ? it.item.href : `/learn/${encodeURIComponent(it.slug)}`;
+      it.kind === "asset" ? `/markets/${encodeURIComponent(it.asset.slug)}` : it.kind === "page" ? it.item.href : lessonHref(it.slug, it.href);
     onClose();
     router.push(href);
   };

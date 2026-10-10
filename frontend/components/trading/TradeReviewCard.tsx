@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui";
 import { cx, pnlClass } from "@/lib/format";
 import type { Review } from "@/lib/types";
+import { lessonHref } from "@/lib/lessons";
 
 export function TradeReviewCard({ review }: { review: Review }) {
   return (
@@ -70,7 +71,7 @@ export function TradeReviewCard({ review }: { review: Review }) {
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
             Препоръчани уроци:
             {review.lessons.map((l) => (
-              <Link key={l} href={`/learn/${l}`} className="text-accent2 hover:underline">
+              <Link key={l} href={lessonHref(l)} className="text-accent2 hover:underline">
                 /learn/{l}
               </Link>
             ))}

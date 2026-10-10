@@ -7,6 +7,7 @@ import { Tooltip } from "@/components/ui/overlay";
 import { useExplain } from "@/lib/explain";
 import { cx } from "@/lib/format";
 import { GLOSSARY } from "@/lib/glossary";
+import { lessonHref } from "@/lib/lessons";
 
 /** WHAT IT IS / WHY IT MATTERS / COMMON MISTAKE card for a glossary key (null when unknown). */
 export function GlossaryCard({ k, className }: { k: string; className?: string }) {
@@ -35,7 +36,7 @@ export function GlossaryCard({ k, className }: { k: string; className?: string }
       </dl>
       {g.lesson && (
         <div className="mt-3 border-t border-white/[0.06] pt-2.5">
-          <Link href={`/learn/${g.lesson}`} className="inline-flex items-center gap-1 text-xs font-medium text-accent2 transition-colors hover:text-text">
+          <Link href={lessonHref(g.lesson)} className="inline-flex items-center gap-1 text-xs font-medium text-accent2 transition-colors hover:text-text">
             Урок →
           </Link>
         </div>

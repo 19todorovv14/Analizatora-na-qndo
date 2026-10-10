@@ -49,6 +49,7 @@ import { Badge, Button, Disclaimer, EmptyState, RegimeBadge, SourceBadge, StatTi
 import type { MarkerDef } from "@/components/charts/TradingChart";
 import { TF_LABEL, cx, fmtDate, fmtMoney, fmtPct, fmtPrice, fmtR, fmtTime, pnlClass } from "@/lib/format";
 import { PALETTE } from "@/lib/theme";
+import { lessonHref } from "@/lib/lessons";
 
 type Layers = {
   decisions: boolean;
@@ -769,7 +770,7 @@ function LessonsCard({ hr }: { hr: HistoryReview }) {
           {hr.lessons.map((l) => (
             <Link
               key={l.slug}
-              href={l.href ?? `/learn/${l.slug}`}
+              href={lessonHref(l.slug, l.href)}
               className="group rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5 transition-colors hover:border-accent/40 hover:bg-accent/[0.05]"
             >
               <div className="flex items-center justify-between gap-2">

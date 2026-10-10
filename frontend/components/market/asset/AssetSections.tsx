@@ -24,6 +24,7 @@ import { ChangeCell, PriceCell, QuoteSparkline } from "@/components/market/Quote
 import type { AssetPagePayload, MarketItem, RegimeBlock } from "@/components/market/types";
 import { Badge, Card, EmptyState, InfoTip, RegimeBadge, Term } from "@/components/ui";
 import { cx, fmtTime } from "@/lib/format";
+import { lessonHref } from "@/lib/lessons";
 
 /** Current unix time (s), refreshed every `ms` (client only). */
 export function useNow(ms = 30_000): number {
@@ -251,7 +252,7 @@ export function EducationCard({ lessons, className }: { lessons: AssetPagePayloa
         <ul className="divide-y divide-white/[0.05]">
           {lessons.map((l) => (
             <li key={l.slug}>
-              <Link href={l.href || `/learn/${l.slug}`} prefetch={false} className="group flex items-start gap-2.5 px-4 py-2.5 transition-colors hover:bg-white/[0.035]">
+              <Link href={lessonHref(l.slug, l.href)} prefetch={false} className="group flex items-start gap-2.5 px-4 py-2.5 transition-colors hover:bg-white/[0.035]">
                 <BookOpen size={14} strokeWidth={1.9} className="mt-0.5 shrink-0 text-faint group-hover:text-accent2" aria-hidden />
                 <span className="min-w-0">
                   <span className="block text-[13px] font-medium leading-snug text-text group-hover:text-accent2">{l.title}</span>

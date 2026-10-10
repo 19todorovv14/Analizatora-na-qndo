@@ -115,6 +115,7 @@ export function EmptyState({
   action,
   className,
   compact,
+  headingLevel = 3,
 }: {
   icon?: LucideIcon;
   title: React.ReactNode;
@@ -122,7 +123,10 @@ export function EmptyState({
   action?: React.ReactNode;
   className?: string;
   compact?: boolean;
+  /** heading level of the title (2–6); `false` renders a plain <p> (no extra heading in the outline) */
+  headingLevel?: 2 | 3 | 4 | 5 | 6 | false;
 }) {
+  const TitleTag = headingLevel === false ? "p" : (`h${headingLevel}` as "h2" | "h3" | "h4" | "h5" | "h6");
   return (
     <div
       className={cx(
@@ -133,7 +137,7 @@ export function EmptyState({
     >
       <StateIcon icon={icon} />
       <div className="max-w-md">
-        <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-text">{title}</h3>
+        <TitleTag className="text-[15px] font-semibold tracking-[-0.01em] text-text">{title}</TitleTag>
         {description && <p className="mt-1 text-sm leading-relaxed text-muted">{description}</p>}
       </div>
       {action && <div className="mt-0.5 flex flex-wrap items-center justify-center gap-2">{action}</div>}

@@ -5,10 +5,12 @@ import { createContext, useCallback, useContext, useMemo } from "react";
 
 import { useStoredState } from "@/components/ui/storage";
 import { cx } from "@/lib/format";
+import { useServerUiDefaults } from "@/lib/server-defaults";
 
 /**
  * Workspace mode: LEARN (guided, extra hints) vs TRADE (dense paper-trading terminal).
- * Persisted per viewer in localStorage "ta-workspace" (applied right after hydration).
+ * Persisted per viewer in localStorage "ta-workspace" (applied right after hydration). When this
+ * browser has no stored choice, the account default from /settings (app_mode) applies.
  */
 export type WorkspaceMode = "learn" | "trade";
 
@@ -24,7 +26,10 @@ const asMode = (v: unknown): WorkspaceMode | undefined => (v === "learn" || v ==
 const Ctx = createContext<WorkspaceCtx | null>(null);
 
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
-  const [mode, setStored] = useStoredState<WorkspaceMode>(STORAGE_KEY, DEFAULT_MODE, { validate: asMode });
+  const { appMode } = useServerUiDefaults();
+  // null = this browser has no stored choice → the account default (server) applies
+  const [stored, setStored] = useStoredState<WorkspaceMode | null>(STORAGE_KEY, null, { validate: asMode });
+  const mode = stored ?? appMode ?? DEFAULT_MODE;
   const setMode = useCallback((m: WorkspaceMode) => setStored(m), [setStored]);
   const value = useMemo(() => ({ mode, setMode }), [mode, setMode]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

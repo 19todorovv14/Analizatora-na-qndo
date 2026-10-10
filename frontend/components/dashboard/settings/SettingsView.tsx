@@ -230,7 +230,7 @@ export function SettingsView() {
         </Card>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {[
           {
             href: "/settings/data-sources",
@@ -248,7 +248,7 @@ export function SettingsView() {
           <Link
             key={l.href}
             href={l.href}
-            className="card group flex items-center gap-3 px-4 py-3.5 transition-colors hover:border-white/[0.16]"
+            className="card group flex min-w-0 items-center gap-3 px-4 py-3.5 transition-colors hover:border-white/[0.16]"
           >
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/12 text-accent2 ring-1 ring-inset ring-accent/25">
               <l.icon size={16} strokeWidth={1.9} aria-hidden />

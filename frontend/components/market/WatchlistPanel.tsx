@@ -97,6 +97,7 @@ export function WatchlistPanel({ activeSymbol, onSelect, compact, pageSize = 100
           <div className="p-3">
             <EmptyState
               compact
+              headingLevel={false}
               icon={Eye}
               title="Watchlist-ът е празен"
               description="Добави инструменти, които искаш да следиш — цена, промяна и AI статус на едно място."

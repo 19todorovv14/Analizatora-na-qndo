@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from app.academy.content import LESSONS_BY_SLUG, MODULES
+from app.academy.levels import lesson_href
 from app.ai import glossary
 from app.ai.context import HIGHER_TF, ContextBundle, fmt_price, llm_payload
 from app.ai.examples import NOT_A_FORECAST
@@ -854,7 +855,7 @@ def _next_lesson(slug: str, completed: set[str]) -> dict | None:
     if nxt is None:
         return None
     lesson = LESSONS_BY_SLUG[nxt]
-    return {"slug": nxt, "title": lesson["title"], "href": f"/learn/{nxt}", "module": lesson.get("module")}
+    return {"slug": nxt, "title": lesson["title"], "href": lesson_href(nxt), "module": lesson.get("module")}
 
 
 def _pick_lesson(b: ContextBundle, req: Request) -> tuple[dict, str]:
@@ -900,9 +901,9 @@ def _gen_teach(b: ContextBundle, req: Request) -> Draft:
     else:
         sections.append(("example", [_no_data(b)]))
     nxt = _next_lesson(slug, b.completed_lessons)
-    this = {"slug": slug, "title": lesson["title"], "href": f"/learn/{slug}", "module": lesson.get("module")}
+    this = {"slug": slug, "title": lesson["title"], "href": lesson_href(slug), "module": lesson.get("module")}
     if slug not in b.completed_lessons:
-        nl = [f"Прочети целия урок: {lesson['title']} → /learn/{slug}"]
+        nl = [f"Прочети целия урок: {lesson['title']} → {lesson_href(slug)}"]
         if nxt:
             nl.append(f"После: {nxt['title']} → {nxt['href']}")
     else:
@@ -967,7 +968,7 @@ def _gen_review_trade(b: ContextBundle, req: Request) -> Draft:
     did_poorly = list(rev.get("did_poorly") or []) or [
         "Няма открити процесни грешки. Резултатът сам по себе си не е мярка за качеството на решението."
     ]
-    main = [rev["main_lesson"]] + [f"Урок: {_lesson_title(s)} → /learn/{s}" for s in rev.get("lessons") or []]
+    main = [rev["main_lesson"]] + [f"Урок: {_lesson_title(s)} → {lesson_href(s)}" for s in rev.get("lessons") or []]
     follow = [
         _fu(
             f"TEACH ME: {_lesson_title(s)}",

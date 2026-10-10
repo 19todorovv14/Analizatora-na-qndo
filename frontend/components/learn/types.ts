@@ -266,7 +266,5 @@ export type QuizResult = {
   }[];
 };
 
-/** Lesson URL: the API `href` when present (alias routes), else /learn/<slug>. */
-export function lessonHref(slug: string, href?: string | null): string {
-  return href || `/learn/${encodeURIComponent(slug)}`;
-}
+/** Lesson URL: the API `href` when present, else the alias-aware /learn/<route> (see lib/lessons). */
+export { lessonHref } from "@/lib/lessons";

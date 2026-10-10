@@ -12,6 +12,7 @@ import { useSession } from "@/lib/session";
 import { PALETTE } from "@/lib/theme";
 import type { Candle } from "@/lib/types";
 import { LearnHint } from "@/lib/workspace";
+import { lessonHref } from "@/lib/lessons";
 
 type Challenge = { key: string; title: string; kind: string; xp: number; target: number; description: string; lesson: string; progress: number; completed: boolean };
 type Round = { index: number; candles: Candle[]; options?: string[]; token: string };
@@ -230,7 +231,7 @@ export default function ChallengesPage() {
                     </p>
                   )}
                   {c.lesson && (
-                    <Link href={`/learn/${c.lesson}`} className="flex w-fit items-center gap-1 text-xs font-medium text-accent2 transition-colors hover:text-text">
+                    <Link href={lessonHref(c.lesson)} className="flex w-fit items-center gap-1 text-xs font-medium text-accent2 transition-colors hover:text-text">
                       <BookOpen size={12} strokeWidth={2.25} aria-hidden /> Свързан урок
                     </Link>
                   )}

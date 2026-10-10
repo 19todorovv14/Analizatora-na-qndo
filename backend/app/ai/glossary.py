@@ -6,6 +6,7 @@ import re
 from functools import lru_cache
 
 from app.academy.content import LESSONS_BY_SLUG
+from app.academy.levels import lesson_href
 
 
 @lru_cache
@@ -44,5 +45,5 @@ def definition(lesson: dict) -> str:
         lines += [f"- {p}" for p in lesson["key_points"]]
     if lesson.get("common_mistakes"):
         lines.append(f"Честа грешка: {lesson['common_mistakes'][0]}")
-    lines.append(f"📘 Урок: /learn/{lesson['slug']}")
+    lines.append(f"📘 Урок: {lesson_href(lesson['slug'])}")
     return "\n".join(lines)

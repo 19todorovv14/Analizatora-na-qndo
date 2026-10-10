@@ -7,6 +7,7 @@ import {
   Cpu,
   Database,
   Gamepad2,
+  Gauge,
   Globe,
   GraduationCap,
   LayoutDashboard,
@@ -17,6 +18,7 @@ import {
   Sparkles,
   Star,
   TestTubeDiagonal,
+  TrendingUp,
   Trophy,
   Wallet,
   type LucideIcon,
@@ -251,8 +253,44 @@ export const NAV_GROUPS: NavGroup[] = [
 /** Flat list of every navigation item (derived from NAV_GROUPS). */
 export const NAV: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 
-/** Group of a nav item by href. */
-export const NAV_GROUP_OF: Record<string, NavGroup> = Object.fromEntries(NAV_GROUPS.flatMap((g) => g.items.map((i) => [i.href, g])));
+/**
+ * Pages offered by the command palette that are not sidebar entries: the interactive labs inside
+ * the Academy (the sidebar highlights "Academy" on them). Grouped under LEARN.
+ */
+export const PALETTE_EXTRA: NavItem[] = [
+  {
+    href: "/learn/candlesticks",
+    label: "Candlestick Lab",
+    icon: ChartCandlestick,
+    tour: "Свещни модели: разпознай pattern-а, виж контекста и тренирай с практически рундове.",
+    keywords: ["свещи", "свещни модели", "patterns", "candlestick", "лаборатория", "lab", "упражнение"],
+  },
+  {
+    href: "/learn/market-structure",
+    label: "Market Structure Lab",
+    icon: TrendingUp,
+    tour: "Маркирай HH / HL / LH / LL, тренд, range, breakout и retest — и провери отговора си.",
+    keywords: ["структура", "тренд", "hh", "hl", "breakout", "retest", "лаборатория", "lab"],
+  },
+  {
+    href: "/learn/leverage",
+    label: "Leverage Simulator",
+    icon: Gauge,
+    tour: "Виж как leverage променя margin, ликвидацията и риска — само симулация с виртуални пари.",
+    keywords: ["ливъридж", "ливъредж", "маржин", "margin", "ликвидация", "liquidation", "лаборатория", "lab"],
+  },
+];
+
+/** Every page the command palette offers: the navigation + PALETTE_EXTRA (labs). */
+export const PALETTE_PAGES: NavItem[] = [...NAV, ...PALETTE_EXTRA];
+
+const LEARN_GROUP = NAV_GROUPS.find((g) => g.key === "learn");
+
+/** Group of a nav / palette item by href (palette-only labs belong to LEARN). */
+export const NAV_GROUP_OF: Record<string, NavGroup> = Object.fromEntries([
+  ...NAV_GROUPS.flatMap((g) => g.items.map((i) => [i.href, g] as const)),
+  ...(LEARN_GROUP ? PALETTE_EXTRA.map((i) => [i.href, LEARN_GROUP] as const) : []),
+]);
 
 /**
  * Routes rendered edge-to-edge (no main padding, height = viewport − top bar) — terminal layouts.

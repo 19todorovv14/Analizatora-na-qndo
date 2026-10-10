@@ -7,6 +7,7 @@ export {
   AiText,
   Badge,
   Button,
+  buttonClass,
   Card,
   Empty,
   ErrorText,
@@ -26,7 +27,7 @@ export {
   Stat,
   Tabs,
 } from "@/components/ui/primitives";
-export type { CardVariant, SourceLike, SourceStatus, Tone } from "@/components/ui/primitives";
+export type { ButtonSize, ButtonVariant, CardVariant, SourceLike, SourceStatus, Tone } from "@/components/ui/primitives";
 
 export {
   ChartSkeleton,

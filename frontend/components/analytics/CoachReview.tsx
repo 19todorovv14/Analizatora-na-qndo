@@ -14,6 +14,7 @@ import type { Coach, CoachFinding } from "@/components/analytics/types";
 import { linkButton } from "@/components/learn/linkButton";
 import { AiText, Badge, Card, Disclaimer, EmptyState, Meter, Notice, SkeletonText, Tooltip } from "@/components/ui";
 import { cx, fmtDate } from "@/lib/format";
+import { lessonHref } from "@/lib/lessons";
 
 function FindingItem({ f }: { f: CoachFinding }) {
   const high = f.severity === "high";
@@ -217,7 +218,7 @@ export function CoachReview({ coach, error, onRetry }: { coach: Coach | undefine
                   <ul className="space-y-1.5">
                     {coach.next_lessons.map((l) => (
                       <li key={l.slug}>
-                        <Link href={l.href ?? `/learn/${l.slug}`} className="text-sm font-medium text-text hover:text-accent2">
+                        <Link href={lessonHref(l.slug, l.href)} className="text-sm font-medium text-text hover:text-accent2">
                           {l.title}
                         </Link>
                         <span className="block text-[11px] text-muted">{l.reason}</span>

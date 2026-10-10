@@ -194,7 +194,7 @@ export function StatTile({
     <div className={cx("card min-w-0 px-4 py-3.5", className)} aria-busy={loading || undefined}>
       <div className="flex min-h-7 items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1 pt-1 text-[11px] font-medium uppercase leading-4 tracking-[0.06em] text-muted">
-          <span className="truncate">{label}</span>
+          <span className="line-clamp-2 break-words">{label}</span>
           {term && <GlossaryTip k={term} />}
         </div>
         {Icon && (

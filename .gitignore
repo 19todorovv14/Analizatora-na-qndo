@@ -30,3 +30,7 @@ out/
 .DS_Store
 .idea/
 .vscode/
+
+# e2e walkthrough (e2e/)
+e2e/shots/
+e2e/node_modules/

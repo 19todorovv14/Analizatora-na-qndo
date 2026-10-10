@@ -77,19 +77,25 @@ const BTN_SIZE = {
   lg: "min-h-11 gap-2 rounded-lg px-5 py-2 text-[15px]",
 } as const;
 
+export type ButtonVariant = keyof typeof BTN_VARIANT;
+export type ButtonSize = keyof typeof BTN_SIZE;
+
+/**
+ * The Button's class string — for elements that must look like a Button but are not a <button>
+ * (e.g. a next/link: a <button> inside <a> is invalid HTML). Pure, no hooks.
+ */
+export function buttonClass(variant: ButtonVariant = "primary", size: ButtonSize = "md", className?: string): string {
+  return cx(
+    "inline-flex select-none items-center justify-center font-medium leading-tight transition-[background-color,border-color,color,box-shadow,opacity] duration-150 disabled:cursor-not-allowed disabled:opacity-45 [&_svg]:shrink-0",
+    BTN_VARIANT[variant],
+    BTN_SIZE[size],
+    className,
+  );
+}
+
 /** Note: no default `type` on purpose — forms rely on implicit submit. */
 export function Button({ variant = "primary", size = "md", className, ...rest }: BtnProps) {
-  return (
-    <button
-      {...rest}
-      className={cx(
-        "inline-flex select-none items-center justify-center font-medium leading-tight transition-[background-color,border-color,color,box-shadow,opacity] duration-150 disabled:cursor-not-allowed disabled:opacity-45 [&_svg]:shrink-0",
-        BTN_VARIANT[variant],
-        BTN_SIZE[size],
-        className,
-      )}
-    />
-  );
+  return <button {...rest} className={buttonClass(variant, size, className)} />;
 }
 
 /* ──────────────────────────────────────────────────────────── Badge */
@@ -152,29 +158,58 @@ export function Stat({
 
 /* ───────────────────────────────────────────────────────────── Tabs */
 
-/** Underlined tab strip. Plain buttons on purpose (no role="tab"). */
+/**
+ * Underlined tab strip (role="tablist" / role="tab" + aria-selected; ← → move between tabs).
+ * `size="dense"` for compact toolbars.
+ */
 export function Tabs<T extends string>({
   tabs,
   value,
   onChange,
   className,
+  size = "md",
+  ariaLabel,
 }: {
   tabs: { key: T; label: React.ReactNode }[];
   value: T;
   onChange: (v: T) => void;
   className?: string;
+  size?: "md" | "dense";
+  ariaLabel?: string;
 }) {
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    const i = tabs.findIndex((t) => t.key === value);
+    if (i < 0 || !tabs.length) return;
+    e.preventDefault();
+    const next = tabs[(i + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length];
+    onChange(next.key);
+    const btn = e.currentTarget.querySelector<HTMLElement>(`[data-tab-key="${CSS.escape(String(next.key))}"]`);
+    btn?.focus();
+  };
+  // roving tabindex: the selected tab (or the first one when none matches) is the Tab stop
+  const focusKey = tabs.some((t) => t.key === value) ? value : tabs[0]?.key;
   return (
-    <div className={cx("no-scrollbar flex gap-1 overflow-x-auto shadow-[inset_0_-1px_0_0_rgb(255_255_255/0.07)]", className)}>
+    <div
+      role="tablist"
+      aria-label={ariaLabel}
+      onKeyDown={onKeyDown}
+      className={cx("no-scrollbar flex gap-1 overflow-x-auto shadow-[inset_0_-1px_0_0_rgb(255_255_255/0.07)]", className)}
+    >
       {tabs.map((t) => {
         const on = value === t.key;
         return (
           <button
             key={t.key}
             type="button"
+            role="tab"
+            aria-selected={on}
+            tabIndex={t.key === focusKey ? 0 : -1}
+            data-tab-key={t.key}
             onClick={() => onChange(t.key)}
             className={cx(
-              "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-md border-b-2 px-3 pb-2 pt-1.5 text-sm font-medium transition-colors duration-150",
+              "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-md border-b-2 font-medium transition-colors duration-150",
+              size === "dense" ? "px-2.5 pb-1.5 pt-1 text-xs" : "px-3 pb-2 pt-1.5 text-sm",
               on ? "border-accent text-text" : "border-transparent text-muted hover:border-white/15 hover:text-text",
             )}
           >
@@ -277,14 +312,24 @@ export function ProgressBar({ value, tone = "accent", className }: { value: numb
 /* ─────────────────────────────────────────────────────────── forms */
 
 export function Field({ label, children, hint }: { label: React.ReactNode; children: React.ReactNode; hint?: string }) {
+  if (!hint)
+    return (
+      <label className="block min-w-0">
+        <span className="label flex items-center gap-1">{label}</span>
+        {children}
+      </label>
+    );
+  // The "?" tip is a <button>: inside the <label> it would be the first labelable descendant, so the
+  // label would name the tip instead of the input. It therefore sits OUTSIDE the label; the label is
+  // `display: contents`, so the tip still renders right after the label text.
   return (
-    <label className="block min-w-0">
-      <span className="label flex items-center gap-1">
-        {label}
-        {hint && <InfoTip text={hint} />}
-      </span>
-      {children}
-    </label>
+    <div className="flex min-w-0 flex-wrap items-start gap-x-1">
+      <label className="contents">
+        <span className="label">{label}</span>
+        <span className="order-last block w-full min-w-0">{children}</span>
+      </label>
+      <InfoTip text={hint} />
+    </div>
   );
 }
 

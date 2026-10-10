@@ -280,6 +280,7 @@ export function OrderPanel({
             key={p}
             type="button"
             className={QUICK}
+            aria-label={`Стоп ${p * 100}%`}
             disabled={!calc.entry}
             onClick={() => {
               const v = quickStopText(calc, t.side, p, precision);
@@ -295,6 +296,7 @@ export function OrderPanel({
             key={r}
             type="button"
             className={QUICK}
+            aria-label={`Цел ${r}R`}
             disabled={!calc.entry || !calc.stop}
             onClick={() => {
               const v = quickTargetText(calc, t.side, r, precision);
@@ -344,7 +346,13 @@ export function OrderPanel({
               % <Term k="risk_per_trade">risk</Term> от equity
             </span>
             {RISK_PCTS.map((r) => (
-              <button key={r} type="button" className={QUICK} onClick={() => dispatch({ type: "set", field: "riskPct", value: String(r) })}>
+              <button
+                key={r}
+                type="button"
+                className={QUICK}
+                aria-label={`Риск ${r}%`}
+                onClick={() => dispatch({ type: "set", field: "riskPct", value: String(r) })}
+              >
                 {r}%
               </button>
             ))}

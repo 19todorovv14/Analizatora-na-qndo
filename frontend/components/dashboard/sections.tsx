@@ -63,6 +63,7 @@ import {
 import { LearnHint } from "@/lib/workspace";
 import { cx, fmtMoney, fmtPct, fmtR, fmtTime, pnlClass } from "@/lib/format";
 import type { Position, Trade } from "@/lib/types";
+import { lessonHref } from "@/lib/lessons";
 
 const cardLink = "inline-flex items-center gap-1 text-xs font-medium text-accent2 transition-colors hover:text-text";
 
@@ -271,7 +272,7 @@ function InsightRow({ it }: { it: Insight }) {
   const meta = INSIGHT_META[it.kind] ?? { icon: Sparkles, label: it.kind };
   const Icon = meta.icon;
   const warn = it.severity === "warn";
-  const lessonHref = it.lesson_href ?? (it.lesson ? `/learn/${it.lesson}` : null);
+  const lessonLink = it.lesson_href ?? (it.lesson ? lessonHref(it.lesson) : null);
   return (
     <li className="flex gap-3 py-3 first:pt-0 last:pb-0">
       <span
@@ -307,10 +308,10 @@ function InsightRow({ it }: { it: Insight }) {
           {it.why && (
             <WhyButton label="Защо?">
               {it.why}
-              {lessonHref && (
+              {lessonLink && (
                 <>
                   {" "}
-                  <Link href={lessonHref} className="font-medium text-accent2 hover:text-text">
+                  <Link href={lessonLink} className="font-medium text-accent2 hover:text-text">
                     Свързан урок →
                   </Link>
                 </>

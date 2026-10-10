@@ -180,11 +180,16 @@ describe("OrderPanel", () => {
     const t = text(m);
     assert.match(t, /Order panel/);
     const b = buttons(m);
-    for (const name of ["BUY / LONG", "SELL / SHORT", "Manual size", "By risk %", "2R", "1.5R", "3R"]) assert.ok(b.includes(name), `missing button ${name}`);
+    for (const name of ["BUY / LONG", "SELL / SHORT", "Manual size", "By risk %", "Цел 2R", "Цел 1.5R", "Цел 3R"]) assert.ok(b.includes(name), `missing button ${name}`);
     assert.equal(b.filter((x) => x === "SELL / SHORT").length, 1, "exactly one SELL / SHORT button");
-    const firstOnePct = b.indexOf("1%");
-    assert.ok(firstOnePct > b.indexOf("0.5%") && firstOnePct < b.indexOf("1.5R"), "the first '1%' is the stop-distance button");
-    assert.equal(b.filter((x) => x === "1%").length, 2, "stop 1% + risk 1%");
+    // the quick "1%" buttons show the same text but have distinct accessible names (stop distance vs risk)
+    const stopOnePct = b.indexOf("Стоп 1%");
+    assert.ok(stopOnePct > b.indexOf("Стоп 0.5%") && stopOnePct < b.indexOf("Цел 1.5R"), "stop-distance buttons come before the target buttons");
+    assert.equal(b.filter((x) => x === "Стоп 1%").length, 1, "one stop 1% button");
+    assert.equal(b.filter((x) => x === "Риск 1%").length, 1, "one risk 1% button");
+    assert.ok(b.indexOf("Риск 1%") > stopOnePct, "risk buttons follow the stop buttons");
+    assert.equal(b.filter((x) => x === "1%").length, 0, "no ambiguous '1%' accessible name");
+    assert.equal((m.match(/>1%<\/button>/g) ?? []).length, 2, "visible labels stay 1% (stop + risk)");
     assert.ok(b.some((x) => /^BUY \/ LONG .* virtual$/.test(x)), "submit label");
     assert.match(m, /<button[^>]*disabled=""[^>]*>BUY \/ LONG\s+· virtual<\/button>/, "nothing to submit without a stop");
     assert.match(t, /Задай stop loss, за да изчисля размера/);

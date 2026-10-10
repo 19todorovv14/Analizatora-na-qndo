@@ -18,6 +18,7 @@ from functools import partial
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.academy.levels import lesson_href
 from app.ai.providers import get_llm
 from app.analysis.signal import analyze
 from app.market import marketcap, overview
@@ -514,7 +515,7 @@ def lessons_for(spec: AssetSpec) -> list[dict]:
                 "title": lesson["title"],
                 "module": lesson.get("module"),
                 "summary": lesson.get("summary", ""),
-                "href": f"/learn/{slug}",
+                "href": lesson_href(slug),
             }
         )
         if len(out) >= MAX_LESSONS:

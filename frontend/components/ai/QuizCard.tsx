@@ -8,6 +8,7 @@ import { quizInit, quizReducer, quizScore, validQuestions } from "@/components/a
 import type { Quiz, QuizQuestion } from "@/components/ai/types";
 import { Badge, Button, Checklist } from "@/components/ui";
 import { cx } from "@/lib/format";
+import { lessonHref } from "@/lib/lessons";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
 
@@ -177,7 +178,7 @@ export function QuizCard({ quiz, onNewQuiz, compact }: { quiz: Quiz; onNewQuiz?:
           </div>
           <div className="text-muted">{q.explanation}</div>
           {q.lesson && (
-            <Link href={`/learn/${q.lesson}`} className="mt-1.5 inline-flex items-center gap-1 text-[11.5px] font-medium text-accent2 hover:text-text">
+            <Link href={lessonHref(q.lesson)} className="mt-1.5 inline-flex items-center gap-1 text-[11.5px] font-medium text-accent2 hover:text-text">
               <BookOpen size={12} aria-hidden /> Урок по темата
             </Link>
           )}
