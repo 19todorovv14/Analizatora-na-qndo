@@ -10,6 +10,7 @@ import Link from "next/link";
 import { useState } from "react";
 import useSWR from "swr";
 
+import { parseIntSetting } from "@/components/dashboard/settings/system";
 import { Badge, Button, Card, ErrorText, Field, InfoTip, Loading, Notice, PageHeader, Segmented, Switch } from "@/components/ui";
 import { errorMessage, fetcher, patch, post, put } from "@/lib/api";
 import { useExplain } from "@/lib/explain";
@@ -89,6 +90,17 @@ export function SettingsView() {
     }
   };
   const setExec = (k: string, v: unknown) => run(() => patch("/paper/account", { execution: { [k]: v } }), "Запазено.");
+  /** integer inputs: validate on the client (backend ranges) and show the error instead of sending NaN */
+  const saveInt = (raw: string, current: number, min: number, max: number, label: string, save: (v: number) => Promise<unknown>) => {
+    const r = parseIntSetting(raw, min, max, label);
+    if (r.error !== null) {
+      setMsg(null);
+      setError(r.error);
+      return;
+    }
+    if (r.value === current) return;
+    void run(() => save(r.value), "Запазено.");
+  };
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
@@ -166,7 +178,15 @@ export function SettingsView() {
           </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <Field label="Latency (ms)">
-              <input className="input num" inputMode="numeric" defaultValue={String(exec.latency_ms)} onBlur={(e) => void setExec("latency_ms", Number(e.target.value))} />
+              <input
+                className="input num"
+                inputMode="numeric"
+                defaultValue={String(exec.latency_ms)}
+                aria-label="Latency (ms)"
+                onBlur={(e) =>
+                  saveInt(e.target.value, Number(exec.latency_ms), 0, 10_000, "Latency", (v) => patch("/paper/account", { execution: { latency_ms: v } }))
+                }
+              />
             </Field>
             <Field label="Intrabar policy" hint="Когато SL и TP са в една свещ: worst_case приема, че първо е ударен стопът.">
               <select className="input" value={String(exec.intrabar_policy)} onChange={(e) => void setExec("intrabar_policy", e.target.value)}>
@@ -223,7 +243,9 @@ export function SettingsView() {
                 inputMode="numeric"
                 defaultValue={data.settings.max_trades_per_day}
                 aria-label="Overtrading праг"
-                onBlur={(e) => void run(() => put("/settings", { max_trades_per_day: Number(e.target.value) }), "Запазено.")}
+                onBlur={(e) =>
+                  saveInt(e.target.value, data.settings.max_trades_per_day, 1, 100, "Overtrading праг", (v) => put("/settings", { max_trades_per_day: v }))
+                }
               />
             </Row>
           </div>

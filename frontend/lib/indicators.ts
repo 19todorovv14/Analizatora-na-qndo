@@ -18,7 +18,7 @@ export const INDICATORS: IndicatorDef[] = [
   { key: "ema200", name: "ema", params: [200], label: "EMA 200", pane: "price", color: PALETTE.violet, help: "Дългосрочен контекст (цена над/под)." },
   { key: "sma20", name: "sma", params: [20], label: "SMA 20", pane: "price", color: "#fb923c", help: "Проста средна на 20 свещи." },
   { key: "bb", name: "bb", params: [20, 2], label: "Bollinger Bands", pane: "price", color: "#9fb3d9", help: "Ленти на волатилността." },
-  { key: "vwap", name: "vwap", params: [], label: "VWAP", pane: "price", color: "#f472b6", help: "Средна цена за деня, претеглена с обема." },
+  { key: "vwap", name: "vwap", params: [], label: "VWAP", pane: "price", color: "#f472b6", help: "Средна цена, претеглена с обема: от началото на деня (UTC) на intraday timeframes, от началото на седмицата на 1D и по-големи." },
   { key: "rsi", name: "rsi", params: [14], label: "RSI 14", pane: "separate", color: "#c4b5fd", help: "Momentum 0–100. Висок RSI ≠ задължителен спад." },
   { key: "macd", name: "macd", params: [12, 26, 9], label: "MACD", pane: "separate", color: PALETTE.info, help: "Ускоряване/забавяне на momentum." },
   { key: "atr", name: "atr", params: [14], label: "ATR 14", pane: "separate", color: PALETTE.warn, help: "Среден размер на движение — за стопове." },

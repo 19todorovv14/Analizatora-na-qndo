@@ -172,3 +172,15 @@ export function splitEnv(text: string): { t: string; code: boolean }[] {
   if (last < text.length) out.push({ t: text.slice(last), code: false });
   return out;
 }
+
+/**
+ * Whole-number settings input (Settings → latency, overtrading threshold): trims, accepts only an integer
+ * within [min, max] (the backend's ranges) and returns a Bulgarian error otherwise — never NaN/Infinity.
+ */
+export function parseIntSetting(raw: string, min: number, max: number, label: string): { value: number; error: null } | { value: null; error: string } {
+  const t = raw.trim();
+  if (!/^-?\d+$/.test(t)) return { value: null, error: `${label}: въведи цяло число между ${min} и ${max}.` };
+  const n = Number(t);
+  if (!Number.isSafeInteger(n) || n < min || n > max) return { value: null, error: `${label}: допустимо е от ${min} до ${max}.` };
+  return { value: n, error: null };
+}

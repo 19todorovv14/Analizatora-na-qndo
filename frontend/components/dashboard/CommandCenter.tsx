@@ -116,10 +116,13 @@ export function CommandCenter() {
         <RiskCard risk={data.risk} className="xl:col-span-4" />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <LearningCard learning={data.learning} />
-        <ActivityCard trades={data.recent_trades} positions={data.open_positions} backtests={data.strategy_performance ?? []} />
-        <BotsCard bots={data.bots} className="md:col-span-2 xl:col-span-1" />
+      {/* the learning card is the tallest — activity + bots stack next to it instead of stretching to its height */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:items-start xl:grid-cols-12">
+        <LearningCard learning={data.learning} className="xl:col-span-4" />
+        <div className="min-w-0 space-y-4 xl:col-span-8">
+          <ActivityCard trades={data.recent_trades} positions={data.open_positions} backtests={data.strategy_performance ?? []} />
+          <BotsCard bots={data.bots} />
+        </div>
       </div>
     </div>
   );

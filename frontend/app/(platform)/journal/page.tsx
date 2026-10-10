@@ -63,8 +63,12 @@ function GroupTable({ rows, empty }: { rows: { key: string; trades: number; win_
   );
 }
 
+/** Entries loaded at once — the list filters on the client, so keep it bounded. */
+const JOURNAL_PAGE = 200;
+
 export default function JournalPage() {
-  const { data, error, mutate } = useSWR<{ entries: JournalEntry[] }>("/journal", fetcher);
+  // the newest JOURNAL_PAGE entries (the API pages with limit/offset and reports `total`)
+  const { data, error, mutate } = useSWR<{ entries: JournalEntry[]; total?: number }>(`/journal?limit=${JOURNAL_PAGE}`, fetcher);
   const { data: stats, mutate: mutateStats } = useSWR<JournalStats>("/journal/stats", fetcher);
   const [editing, setEditing] = useState<JournalEntry | null>(null);
   const [creating, setCreating] = useState(false);
@@ -93,7 +97,7 @@ export default function JournalPage() {
     refresh();
   };
   const updated = (e: JournalEntry) => {
-    void mutate((d) => (d ? { entries: d.entries.map((x) => (x.id === e.id ? e : x)) } : d), { revalidate: false });
+    void mutate((d) => (d ? { ...d, entries: d.entries.map((x) => (x.id === e.id ? e : x)) } : d), { revalidate: false });
   };
 
   return (
@@ -193,6 +197,11 @@ export default function JournalPage() {
           <EmptyState className="m-3" compact icon={Search} title="Няма записи по тези филтри" description="Промени или изчисти филтрите." />
         ) : (
           <JournalTable entries={shown} onEdit={setEditing} onDelete={(e) => void remove(e)} onUpdated={updated} onOpenShot={setPreview} />
+        )}
+        {data && (data.total ?? 0) > entries.length && (
+          <p className="border-t border-white/[0.06] px-3 py-2 text-[11px] text-faint">
+            Показани са последните <span className="num">{entries.length}</span> от <span className="num">{data.total}</span> записа — филтрите и търсенето работят върху тях.
+          </p>
         )}
       </Card>
 
