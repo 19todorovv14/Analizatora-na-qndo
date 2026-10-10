@@ -314,7 +314,7 @@ export function TerminalLayout({
           className={cx("flex min-w-0 flex-col bg-surface/30", desktop ? "min-h-0 border-t border-white/[0.06]" : "shrink-0 border-t border-white/[0.06]")}
         >
           {bottomHeader}
-          {(bottomOpen || !desktop) && <div className={cx("min-w-0", desktop ? "min-h-0 flex-1 overflow-auto" : "min-h-[220px] pb-2")}>{bottom.render(bottom.active)}</div>}
+          {(bottomOpen || !desktop) && <div className={cx("min-w-0", desktop ? "relative min-h-0 flex-1 overflow-auto" : "min-h-[220px] pb-2")}>{bottom.render(bottom.active)}</div>}
         </section>
         {/* slot 5 — right resize handle */}
         {desktop && rightOpen ? (
@@ -339,7 +339,7 @@ export function TerminalLayout({
             {rightOpen ? (
               <>
                 {rightHeader}
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{right.render(right.stacked ? null : right.active)}</div>
+                <div className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain">{right.render(right.stacked ? null : right.active)}</div>
               </>
             ) : (
               rail
@@ -382,7 +382,7 @@ export function TerminalLayout({
                 <TabStrip tabs={right.tabs} active={right.active} onPick={right.onActive} />
               </div>
             )}
-            <div className="min-h-0 flex-1 overflow-y-auto">{right.render(right.active)}</div>
+            <div className="relative min-h-0 flex-1 overflow-y-auto">{right.render(right.active)}</div>
           </div>
         </Drawer>
       )}

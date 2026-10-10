@@ -1,9 +1,20 @@
+import { BookOpen } from "lucide-react";
 import Link from "next/link";
 
 import { Badge } from "@/components/ui";
 import { cx, pnlClass } from "@/lib/format";
 import type { Review } from "@/lib/types";
 import { lessonHref } from "@/lib/lessons";
+
+const ACRONYMS = new Set(["fomo", "rr", "atr", "ema", "sma", "rsi", "macd", "vwap", "sl", "tp", "fx"]);
+
+/** Readable chip label for a lesson slug ("risk-management" → "Risk management", "fomo" → "FOMO"). */
+function lessonLabel(slug: string): string {
+  const words = slug.split(/[-_\s]+/).filter(Boolean).map((w) => (ACRONYMS.has(w.toLowerCase()) ? w.toUpperCase() : w));
+  if (!words.length) return slug;
+  const t = words.join(" ");
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
 
 export function TradeReviewCard({ review }: { review: Review }) {
   return (
@@ -68,11 +79,16 @@ export function TradeReviewCard({ review }: { review: Review }) {
         <div className="label text-accent2">Main lesson</div>
         <p className="font-medium">{review.main_lesson}</p>
         {review.lessons.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2 text-xs">
-            Препоръчани уроци:
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-muted">Препоръчани уроци:</span>
             {review.lessons.map((l) => (
-              <Link key={l} href={lessonHref(l)} className="text-accent2 hover:underline">
-                /learn/{l}
+              <Link
+                key={l}
+                href={lessonHref(l)}
+                className="inline-flex items-center gap-1 rounded-md border border-accent/30 bg-accent/10 px-2 py-0.5 font-medium text-accent2 transition-colors hover:border-accent/50 hover:bg-accent/20"
+              >
+                <BookOpen size={12} strokeWidth={2.25} aria-hidden />
+                {lessonLabel(l)}
               </Link>
             ))}
           </div>

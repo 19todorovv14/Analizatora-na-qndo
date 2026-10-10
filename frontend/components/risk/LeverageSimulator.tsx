@@ -57,7 +57,7 @@ export function Metric({
   className?: string;
 }) {
   return (
-    <div className={cx("glass-inset min-w-0 px-3.5 py-3", className)}>
+    <div className={cx("glass-inset min-w-0 px-3 py-2.5 sm:px-3.5 sm:py-3", className)}>
       <div className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted">{term ? <Term k={term}>{label}</Term> : label}</div>
       <div className={cx("num mt-1 truncate text-lg font-semibold leading-tight tracking-tight sm:text-xl", INK[tone])}>{value}</div>
       {sub && <div className="mt-1 text-[11px] leading-snug text-faint">{sub}</div>}
@@ -71,7 +71,7 @@ function Outputs({ res, move, beginner }: { res: LeverageResult; move: number; b
   const liq = res.liquidation_price;
   const L = res.leverage;
   return (
-    <div className="grid grid-cols-1 gap-2.5 min-[460px]:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-2 gap-2 sm:gap-2.5 xl:grid-cols-3">
       <Metric label="Размер на позицията" term="notional" value={usd(res.position_notional)} sub={`= margin ${usd(res.required_margin)} × ${L}x`} />
       <Metric label="Нужен margin" term="margin" value={usd(res.required_margin)} sub={`= ${usd(res.position_notional)} / ${L}x · free ${usd(res.free_margin)}`} />
       <Metric
@@ -111,6 +111,7 @@ function Outputs({ res, move, beginner }: { res: LeverageResult; move: number; b
       />
       <Metric
         label="Risk level"
+        className="col-span-2 xl:col-span-1"
         value={RISK_META[res.risk_level].label}
         tone={RISK_INK[res.risk_level]}
         sub={
@@ -122,7 +123,7 @@ function Outputs({ res, move, beginner }: { res: LeverageResult; move: number; b
           </>
         }
       />
-      <div className="min-w-0 min-[460px]:col-span-2 xl:col-span-2">
+      <div className="col-span-2 min-w-0">
         <Notice tone="warn" title="WARNING" className="h-full">
           {leverageWarning(res)}
         </Notice>
@@ -316,7 +317,7 @@ export function LeverageSimulator({
             {res ? (
               <Outputs res={res} move={res.price_move_pct} beginner={beginner} />
             ) : (
-              <div className="grid grid-cols-1 gap-2.5 min-[460px]:grid-cols-2 xl:grid-cols-3" aria-busy>
+              <div className="grid grid-cols-2 gap-2 sm:gap-2.5 xl:grid-cols-3" aria-busy>
                 {Array.from({ length: 6 }, (_, i) => (
                   <div key={i} className="glass-inset h-[92px] animate-pulse" />
                 ))}

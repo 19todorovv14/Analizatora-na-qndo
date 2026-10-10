@@ -519,8 +519,9 @@ export function ActivityCard({
           <ChartNoAxesCombined size={14} strokeWidth={2} className="text-accent2" aria-hidden /> Recent trades
         </>
       }
-      right={<Segmented options={options} value={tab} onChange={setTab} size="sm" ariaLabel="Активност" />}
     >
+      {/* tabs live in the body: in the header they squeezed the title into two lines on narrow cards */}
+      <Segmented options={options} value={tab} onChange={setTab} size="sm" ariaLabel="Активност" className="mb-3" />
       {tab === "trades" &&
         (trades.length ? (
           <ul className="-my-2 divide-y divide-white/[0.05]">

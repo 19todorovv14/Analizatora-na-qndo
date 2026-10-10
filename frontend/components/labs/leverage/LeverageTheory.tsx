@@ -212,16 +212,16 @@ export function LeverageTheory() {
                 <th scope="col" className="py-1.5 text-left font-medium">
                   Leverage
                 </th>
-                <th scope="col" className="py-1.5 font-medium">
+                <th scope="col" className="py-1.5 pl-3 font-medium">
                   Позиция
                 </th>
-                <th scope="col" className="py-1.5 font-medium">
+                <th scope="col" className="py-1.5 pl-3 font-medium">
                   P/L при −1%
                 </th>
-                <th scope="col" className="py-1.5 font-medium">
+                <th scope="col" className="py-1.5 pl-3 font-medium">
                   % от сметката
                 </th>
-                <th scope="col" className="py-1.5 font-medium">
+                <th scope="col" className="py-1.5 pl-3 font-medium">
                   Isolated ликв.
                 </th>
               </tr>
@@ -235,10 +235,10 @@ export function LeverageTheory() {
                       {r.l}x
                     </span>
                   </th>
-                  <td className="py-1.5 text-text">{usd(r.pos)}</td>
-                  <td className="py-1.5 text-down">{usd(r.pnl, true)}</td>
-                  <td className="py-1.5 text-down">{signedPct(r.pctEq, 1)}</td>
-                  <td className="py-1.5 text-muted">{signedPct(-r.iso, 1)}</td>
+                  <td className="py-1.5 pl-3 text-text">{usd(r.pos)}</td>
+                  <td className="py-1.5 pl-3 text-down">{usd(r.pnl, true)}</td>
+                  <td className="py-1.5 pl-3 text-down">{signedPct(r.pctEq, 1)}</td>
+                  <td className="py-1.5 pl-3 text-muted">{signedPct(-r.iso, 1)}</td>
                 </tr>
               ))}
             </tbody>

@@ -94,16 +94,17 @@ export function TableSkeleton({ rows = 6, cols = 5, className }: { rows?: number
 
 /* ─────────────────────────────────────────────── empty / error states */
 
-function StateIcon({ icon: Icon, tone = "accent" }: { icon: LucideIcon; tone?: "accent" | "down" | "muted" }) {
+function StateIcon({ icon: Icon, tone = "accent", small }: { icon: LucideIcon; tone?: "accent" | "down" | "muted"; small?: boolean }) {
   const ink = { accent: "text-accent2", down: "text-down", muted: "text-muted" }[tone];
   return (
     <span
       className={cx(
-        "flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-gradient-to-b from-white/[0.08] to-white/[0.02] shadow-[inset_0_1px_0_0_rgb(255_255_255/0.07),0_8px_20px_-10px_rgb(0_0_0/0.7)]",
+        "flex items-center justify-center rounded-xl border border-white/10 bg-gradient-to-b from-white/[0.08] to-white/[0.02] shadow-[inset_0_1px_0_0_rgb(255_255_255/0.07),0_8px_20px_-10px_rgb(0_0_0/0.7)]",
+        small ? "h-9 w-9" : "h-11 w-11",
         ink,
       )}
     >
-      <Icon size={20} strokeWidth={1.75} aria-hidden />
+      <Icon size={small ? 17 : 20} strokeWidth={1.75} aria-hidden />
     </span>
   );
 }
@@ -131,14 +132,15 @@ export function EmptyState({
     <div
       className={cx(
         "flex flex-col items-center justify-center rounded-xl border border-dashed border-white/10 bg-white/[0.015] text-center",
-        compact ? "gap-2.5 px-4 py-6" : "gap-3.5 px-6 py-12",
+        // compact = dense in-card placeholder (dashboard/markets side cards); full = page-level empty state
+        compact ? "gap-2 px-4 py-5" : "gap-3.5 px-6 py-12",
         className,
       )}
     >
-      <StateIcon icon={icon} />
+      <StateIcon icon={icon} small={compact} />
       <div className="max-w-md">
-        <TitleTag className="text-[15px] font-semibold tracking-[-0.01em] text-text">{title}</TitleTag>
-        {description && <p className="mt-1 text-sm leading-relaxed text-muted">{description}</p>}
+        <TitleTag className={cx("font-semibold tracking-[-0.01em] text-text", compact ? "text-sm" : "text-[15px]")}>{title}</TitleTag>
+        {description && <p className={cx("mt-1 leading-relaxed text-muted", compact ? "text-xs" : "text-sm")}>{description}</p>}
       </div>
       {action && <div className="mt-0.5 flex flex-wrap items-center justify-center gap-2">{action}</div>}
     </div>
@@ -250,20 +252,20 @@ export type ChecklistItem = { label: React.ReactNode; pass: boolean | null; deta
 function Marker({ pass }: { pass: boolean | null }) {
   if (pass === true)
     return (
-      <span className="mt-px flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-up/15 text-up ring-1 ring-inset ring-up/30">
+      <span className="relative mt-px flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-up/15 text-up ring-1 ring-inset ring-up/30">
         <Check size={11} strokeWidth={3} aria-hidden />
         <span className="sr-only">✓</span>
       </span>
     );
   if (pass === false)
     return (
-      <span className="mt-px flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-down/15 text-down ring-1 ring-inset ring-down/30">
+      <span className="relative mt-px flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-down/15 text-down ring-1 ring-inset ring-down/30">
         <X size={11} strokeWidth={3} aria-hidden />
         <span className="sr-only">✕</span>
       </span>
     );
   return (
-    <span className="mt-px flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-white/[0.05] text-faint ring-1 ring-inset ring-white/10">
+    <span className="relative mt-px flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-white/[0.05] text-faint ring-1 ring-inset ring-white/10">
       <Minus size={11} strokeWidth={3} aria-hidden />
       <span className="sr-only">—</span>
     </span>

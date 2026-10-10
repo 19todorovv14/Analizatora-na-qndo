@@ -64,7 +64,7 @@ export function SimulatorResults({
         </Notice>
       )}
 
-      <div className="grid grid-cols-1 gap-2.5 min-[460px]:grid-cols-2 2xl:grid-cols-3">
+      <div className="grid grid-cols-2 gap-2 sm:gap-2.5 2xl:grid-cols-3">
         <Metric
           label="Размер на позицията"
           term="position_size"

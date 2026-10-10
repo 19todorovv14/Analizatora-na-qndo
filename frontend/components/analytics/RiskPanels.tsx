@@ -160,7 +160,7 @@ export function ExposureBreakdown({ st }: { st: RiskStatus }) {
       </ul>
       {bySymbol.length > 0 && (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[22rem] text-xs">
+          <table className="w-full min-w-[20rem] text-xs">
             <thead className="text-left text-[10.5px] uppercase tracking-[0.06em] text-faint">
               <tr>
                 <th className="pb-1.5 font-medium">Инструмент</th>
@@ -290,7 +290,7 @@ export function RiskRulesEditor({ rules, onSaved }: { rules: RiskRules; onSaved?
         void save();
       }}
     >
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {RULE_FIELDS.map((f) => (
           <label key={f.key} className="block min-w-0">
             <span className="label flex items-center gap-1">{f.term ? <Term k={f.term}>{f.label}</Term> : f.label}</span>

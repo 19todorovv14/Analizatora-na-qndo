@@ -55,12 +55,12 @@ function FindingItem({ f }: { f: CoachFinding }) {
 
 function ChecksGrid({ checks }: { checks: NonNullable<Coach["checks"]> }) {
   return (
-    <ul className="grid gap-1.5 sm:grid-cols-2">
+    <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
       {orderChecks(checks).map((c) => {
         const meta = checkMeta(c.status);
         const Icon = c.status === "found" ? TriangleAlert : c.status === "ok" ? CircleCheck : CircleDashed;
         return (
-          <li key={c.key}>
+          <li key={c.key} className="min-w-0">
             <Tooltip content={<span className="text-xs leading-relaxed">{c.detail}</span>} className="block" maxWidth={320}>
               <div className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-1.5 text-xs">
                 <Icon
@@ -130,7 +130,7 @@ export function CoachReview({ coach, error, onRetry }: { coach: Coach | undefine
           <SkeletonText lines={5} />
         )
       ) : (
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
           <div className="min-w-0 space-y-4">
             {coach.sample?.note && (
               <p className="flex items-start gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs leading-relaxed text-muted">
@@ -176,7 +176,7 @@ export function CoachReview({ coach, error, onRetry }: { coach: Coach | undefine
               </div>
             )}
             {(coach.strengths.length > 0 || coach.weaknesses.length > 0) && (
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-up">Strengths</h3>
                   <ul className="space-y-1 text-[13px] leading-relaxed text-text/85">

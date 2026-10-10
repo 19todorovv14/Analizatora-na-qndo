@@ -197,7 +197,7 @@ function LevelBody({ level, next }: { level: PathLevel; next: NextStep | null })
         </div>
       ))}
 
-      <div className={cx("grid gap-3", quiz && level.labs.length > 0 && "@3xl:grid-cols-2")}>
+      <div className={cx("grid grid-cols-1 gap-3", quiz && level.labs.length > 0 && "@3xl:grid-cols-2")}>
         {quiz && (
           <div className="glass-inset flex flex-wrap items-center gap-3 px-3 py-2.5">
             <span
@@ -208,7 +208,8 @@ function LevelBody({ level, next }: { level: PathLevel; next: NextStep | null })
             >
               <Trophy size={16} strokeWidth={1.9} aria-hidden />
             </span>
-            <div className="min-w-0 flex-1">
+            {/* min width: on narrow cards the button wraps below instead of squeezing the title into a column */}
+            <div className="min-w-[10rem] flex-1">
               <div className="text-sm font-medium leading-snug text-text">{quiz.title}</div>
               <div className="text-xs text-muted">
                 {quiz.questions} въпроса · праг 70%
@@ -223,7 +224,7 @@ function LevelBody({ level, next }: { level: PathLevel; next: NextStep | null })
             <Link
               href={quiz.href}
               className={cx(
-                "inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors",
+                "ml-auto inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors",
                 quizNext || (!quiz.passed && level.status !== "locked")
                   ? "border border-[#5b95f7]/40 bg-gradient-to-b from-[#3b82f6] to-[#2563eb] text-white shadow-btn hover:from-[#4a8cf7] hover:to-[#2f6df0]"
                   : "border border-white/10 bg-white/[0.04] text-text hover:border-white/[0.18] hover:bg-white/[0.07]",

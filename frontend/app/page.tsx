@@ -251,25 +251,26 @@ export default function Landing() {
             <Rewind size={13} strokeWidth={2} aria-hidden /> + Market Replay свещ по свещ
           </span>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {FEATURES.map((f) => {
             const Icon = f.icon;
             return (
-              <div key={f.title} className="card hover-lift p-4">
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-gradient-to-b from-white/[0.09] to-white/[0.02] text-accent2 shadow-[inset_0_1px_0_0_rgb(255_255_255/0.07)]">
+              // <sm: icon left of the title (compact rows); sm+: icon above the title
+              <div key={f.title} className="card hover-lift grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-3 p-4 sm:block">
+                <span className="row-span-2 flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-gradient-to-b from-white/[0.09] to-white/[0.02] text-accent2 shadow-[inset_0_1px_0_0_rgb(255_255_255/0.07)]">
                   <Icon size={19} strokeWidth={1.75} aria-hidden />
                 </span>
-                <h3 className="mt-3 font-semibold">{f.title}</h3>
-                <p className="mt-1 text-sm leading-relaxed text-muted">{f.text}</p>
+                <h3 className="font-semibold sm:mt-3">{f.title}</h3>
+                <p className="mt-0.5 text-sm leading-relaxed text-muted sm:mt-1">{f.text}</p>
               </div>
             );
           })}
-          <div className="card flex flex-col justify-center border-accent/25 bg-accent/[0.08] p-4">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-accent/30 bg-accent/15 text-accent2">
+          <div className="card grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-3 border-accent/25 bg-accent/[0.08] p-4 sm:flex sm:flex-col sm:justify-center">
+            <span className="row-span-2 flex h-10 w-10 items-center justify-center rounded-xl border border-accent/30 bg-accent/15 text-accent2">
               <ShieldCheck size={19} strokeWidth={1.75} aria-hidden />
             </span>
-            <h3 className="mt-3 font-semibold">Без хазарт</h3>
-            <p className="mt-1 text-sm leading-relaxed text-muted">
+            <h3 className="font-semibold sm:mt-3">Без хазарт</h3>
+            <p className="mt-0.5 text-sm leading-relaxed text-muted sm:mt-1">
               Няма депозити, тегления, реални поръчки или API ключове с права за търговия. Всичко е симулация.
             </p>
           </div>

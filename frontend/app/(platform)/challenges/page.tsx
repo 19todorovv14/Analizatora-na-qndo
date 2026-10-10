@@ -192,11 +192,11 @@ export default function ChallengesPage() {
                     ) : (
                       <Target size={15} strokeWidth={2} className="shrink-0 text-accent2" aria-hidden />
                     )}
-                    <span className="truncate">{c.title}</span>
+                    <span className="line-clamp-2 leading-snug">{c.title}</span>
                   </span>
                 }
                 right={
-                  <span className="flex items-center gap-1.5">
+                  <span className="flex flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-1.5">
                     <Badge tone="neutral">{KIND_LABEL[c.kind] ?? c.kind}</Badge>
                     <Badge tone={c.completed ? "up" : "accent"}>+{c.xp} XP</Badge>
                   </span>

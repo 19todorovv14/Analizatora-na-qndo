@@ -26,7 +26,7 @@ const linkCls =
 
 function GallerySkeleton() {
   return (
-    <div className="grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4" aria-busy>
+    <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3 xl:grid-cols-4" aria-busy>
       {Array.from({ length: 8 }, (_, i) => (
         <div key={i} className="card p-3">
           <Skeleton className="h-20 w-full" />

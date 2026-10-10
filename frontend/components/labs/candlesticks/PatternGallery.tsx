@@ -47,7 +47,7 @@ export function PatternCardButton({ pattern, active, onOpen }: { pattern: Patter
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-1.5 px-3 pb-3 pt-2.5">
         <div className="flex min-w-0 items-center justify-between gap-2">
-          <span className="truncate text-sm font-semibold text-text">{pattern.name}</span>
+          <span className="line-clamp-2 text-sm font-semibold leading-snug text-text sm:line-clamp-1">{pattern.name}</span>
           <ChevronRight size={15} className="shrink-0 text-faint transition-colors group-hover:text-accent2" aria-hidden />
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -94,7 +94,7 @@ export function PatternGallery({
         </span>
       </div>
       {shown.length ? (
-        <div className="grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3 xl:grid-cols-4">
           {shown.map((p) => (
             <PatternCardButton key={p.key} pattern={p} active={p.key === activeKey} onOpen={onOpen} />
           ))}

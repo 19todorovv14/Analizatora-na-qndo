@@ -135,7 +135,7 @@ export function AIPanel({ symbol, timeframe, strategyId, draft, compact, default
   return (
     <div className={cx("flex min-h-0 min-w-0 flex-col", className)}>
       <Tabs tabs={tabs} value={tab} onChange={setTab} className={compact ? "[&>button]:px-2.5 [&>button]:text-[13px]" : undefined} />
-      <div className={cx("min-h-0 flex-1 overflow-y-auto", compact ? "pt-3" : "pt-4")}>
+      <div className={cx("relative min-h-0 flex-1 overflow-y-auto", compact ? "pt-3" : "pt-4")}>
         {tab === "strategy" && <StrategyView symbol={symbol} timeframe={timeframe} strategyId={sid} compact={compact} />}
 
         {tab === "explain" && (

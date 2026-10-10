@@ -23,6 +23,14 @@ import { cx, fmtDate, fmtMoney, fmtPct, fmtR, pnlClass } from "@/lib/format";
 
 /* ───────────────────────────────────────────────────────── helpers */
 
+/** "11.04.26" — compact local date for the walk-forward table (keeps a window's period on one line). */
+function shortDate(ts: number | null | undefined): string {
+  if (!ts) return "—";
+  const d = new Date(ts * 1000);
+  const p2 = (n: number) => String(n).padStart(2, "0");
+  return `${p2(d.getDate())}.${p2(d.getMonth() + 1)}.${p2(d.getFullYear() % 100)}`;
+}
+
 function SubHead({ icon: Icon, children, right }: { icon: typeof Gauge; children: React.ReactNode; right?: React.ReactNode }) {
   return (
     <div className="mb-2.5 flex min-h-6 flex-wrap items-center gap-2">
@@ -207,22 +215,22 @@ function OosPanel({ v, beginner }: { v: Validation; beginner: boolean }) {
               <thead className="text-left text-[10.5px] uppercase tracking-[0.06em] text-muted">
                 <tr className="border-b border-white/[0.07]">
                   <th className="py-1.5 font-semibold">Метрика</th>
-                  <th className="py-1.5 text-right font-semibold">
+                  <th className="py-1.5 pl-3 text-right font-semibold">
                     In-sample <span className="font-normal normal-case text-faint">70%</span>
                   </th>
-                  <th className="py-1.5 text-right font-semibold">
+                  <th className="py-1.5 pl-3 text-right font-semibold">
                     OOS <span className="font-normal normal-case text-faint">30%</span>
                   </th>
-                  <th className="py-1.5 text-right font-semibold">Δ</th>
+                  <th className="py-1.5 pl-3 text-right font-semibold">Δ</th>
                 </tr>
               </thead>
               <tbody>
                 {comparisonRows(o).map((r) => (
                   <tr key={r.key} className="border-b border-white/[0.04] last:border-0">
                     <td className="py-1.5 text-muted">{r.label}</td>
-                    <td className="num py-1.5 text-right text-text/90">{fmtCmp(r.key, r.in_sample)}</td>
-                    <td className="num py-1.5 text-right font-medium text-text">{fmtCmp(r.key, r.out_of_sample)}</td>
-                    <td className={cx("num py-1.5 text-right", deltaTone(r.key, r.delta))}>{fmtCmp(r.key, r.delta, r.key !== "net_pnl" && r.key !== "expectancy_r")}</td>
+                    <td className="num py-1.5 pl-3 text-right text-text/90">{fmtCmp(r.key, r.in_sample)}</td>
+                    <td className="num py-1.5 pl-3 text-right font-medium text-text">{fmtCmp(r.key, r.out_of_sample)}</td>
+                    <td className={cx("num py-1.5 pl-3 text-right", deltaTone(r.key, r.delta))}>{fmtCmp(r.key, r.delta, r.key !== "net_pnl" && r.key !== "expectancy_r")}</td>
                   </tr>
                 ))}
               </tbody>
@@ -333,13 +341,13 @@ function WalkForwardPanel({ v, beginner }: { v: Validation; beginner: boolean })
               <thead className="text-left text-[10.5px] uppercase tracking-[0.06em] text-muted">
                 <tr className="border-b border-white/[0.07]">
                   <th className="py-1.5 font-semibold">Прозорец</th>
-                  <th className="py-1.5 font-semibold">Период</th>
-                  <th className="py-1.5 text-right font-semibold">Trades</th>
-                  <th className="py-1.5 text-right font-semibold">Return</th>
-                  <th className="py-1.5 text-right font-semibold">Win</th>
-                  <th className="py-1.5 text-right font-semibold">PF</th>
-                  <th className="py-1.5 text-right font-semibold">Exp.</th>
-                  <th className="py-1.5 text-right font-semibold">DD</th>
+                  <th className="py-1.5 pl-3 font-semibold">Период</th>
+                  <th className="py-1.5 pl-3 text-right font-semibold">Trades</th>
+                  <th className="py-1.5 pl-3 text-right font-semibold">Return</th>
+                  <th className="py-1.5 pl-3 text-right font-semibold">Win</th>
+                  <th className="py-1.5 pl-3 text-right font-semibold">PF</th>
+                  <th className="py-1.5 pl-3 text-right font-semibold">Exp.</th>
+                  <th className="py-1.5 pl-3 text-right font-semibold">DD</th>
                 </tr>
               </thead>
               <tbody>
@@ -349,15 +357,15 @@ function WalkForwardPanel({ v, beginner }: { v: Validation; beginner: boolean })
                       <span className={cx("mr-1.5 inline-block h-1.5 w-1.5 rounded-full", w.profitable ? "bg-up" : "bg-down")} aria-hidden />
                       <span className="font-medium text-text">W{w.index}</span>
                     </td>
-                    <td className="num py-1.5 text-muted">
-                      {fmtDate(w.start_ts)} – {fmtDate(w.end_ts)}
+                    <td className="num whitespace-nowrap py-1.5 pl-3 text-muted" title={`${fmtDate(w.start_ts)} – ${fmtDate(w.end_ts)}`}>
+                      {shortDate(w.start_ts)} – {shortDate(w.end_ts)}
                     </td>
-                    <td className="num py-1.5 text-right text-text/90">{w.trades}</td>
-                    <td className={cx("num py-1.5 text-right font-medium", pnlClass(w.return_pct))}>{fmtPct(w.return_pct, 2, true)}</td>
-                    <td className="num py-1.5 text-right text-text/90">{fmtPct(w.win_rate, 0)}</td>
-                    <td className="num py-1.5 text-right text-text/90">{fmtPF(w.profit_factor)}</td>
-                    <td className={cx("num py-1.5 text-right", pnlClass(w.expectancy_r))}>{fmtR(w.expectancy_r)}</td>
-                    <td className="num py-1.5 text-right text-muted">{fmtPct(w.max_drawdown_pct)}</td>
+                    <td className="num py-1.5 pl-3 text-right text-text/90">{w.trades}</td>
+                    <td className={cx("num py-1.5 pl-3 text-right font-medium", pnlClass(w.return_pct))}>{fmtPct(w.return_pct, 2, true)}</td>
+                    <td className="num py-1.5 pl-3 text-right text-text/90">{fmtPct(w.win_rate, 0)}</td>
+                    <td className="num py-1.5 pl-3 text-right text-text/90">{fmtPF(w.profit_factor)}</td>
+                    <td className={cx("num py-1.5 pl-3 text-right", pnlClass(w.expectancy_r))}>{fmtR(w.expectancy_r)}</td>
+                    <td className="num py-1.5 pl-3 text-right text-muted">{fmtPct(w.max_drawdown_pct)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -397,16 +405,16 @@ function StressPanel({ v, m, beginner }: { v: Validation; m: MetricsV2; beginner
         Stress test · Sensitivity
       </SubHead>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[600px] text-xs">
+        <table className="w-full min-w-[480px] text-xs">
           <thead className="text-left text-[10.5px] uppercase tracking-[0.06em] text-muted">
             <tr className="border-b border-white/[0.07]">
               <th className="py-1.5 font-semibold">Вариант</th>
-              <th className="py-1.5 text-right font-semibold">Trades</th>
-              <th className="py-1.5 text-right font-semibold">Net</th>
-              <th className="py-1.5 text-right font-semibold">Win</th>
-              <th className="py-1.5 text-right font-semibold">PF</th>
-              <th className="py-1.5 text-right font-semibold">Exp.</th>
-              <th className="py-1.5 text-right font-semibold">DD</th>
+              <th className="py-1.5 pl-3 text-right font-semibold">Trades</th>
+              <th className="py-1.5 pl-3 text-right font-semibold">Net</th>
+              <th className="py-1.5 pl-3 text-right font-semibold">Win</th>
+              <th className="py-1.5 pl-3 text-right font-semibold">PF</th>
+              <th className="py-1.5 pl-3 text-right font-semibold">Exp.</th>
+              <th className="py-1.5 pl-3 text-right font-semibold">DD</th>
             </tr>
           </thead>
           <tbody>
@@ -429,12 +437,12 @@ function StressPanel({ v, m, beginner }: { v: Validation; m: MetricsV2; beginner
                       </Badge>
                     )}
                   </td>
-                  <td className="num py-1.5 text-right text-text/90">{r.s.total_trades}</td>
-                  <td className={cx("num py-1.5 text-right font-medium", pnlClass(r.s.net_pnl))}>{fmtMoney(r.s.net_pnl, true)}</td>
-                  <td className="num py-1.5 text-right text-text/90">{fmtPct(r.s.win_rate, 0)}</td>
-                  <td className="num py-1.5 text-right text-text/90">{fmtPF(r.s.profit_factor)}</td>
-                  <td className={cx("num py-1.5 text-right", pnlClass(r.s.expectancy_r))}>{fmtR(r.s.expectancy_r)}</td>
-                  <td className="num py-1.5 pr-1.5 text-right text-muted">{fmtPct(r.s.max_drawdown_pct)}</td>
+                  <td className="num py-1.5 pl-3 text-right text-text/90">{r.s.total_trades}</td>
+                  <td className={cx("num py-1.5 pl-3 text-right font-medium", pnlClass(r.s.net_pnl))}>{fmtMoney(r.s.net_pnl, true)}</td>
+                  <td className="num py-1.5 pl-3 text-right text-text/90">{fmtPct(r.s.win_rate, 0)}</td>
+                  <td className="num py-1.5 pl-3 text-right text-text/90">{fmtPF(r.s.profit_factor)}</td>
+                  <td className={cx("num py-1.5 pl-3 text-right", pnlClass(r.s.expectancy_r))}>{fmtR(r.s.expectancy_r)}</td>
+                  <td className="num py-1.5 pl-3 pr-1.5 text-right text-muted">{fmtPct(r.s.max_drawdown_pct)}</td>
                 </tr>
               );
             })}
@@ -576,7 +584,7 @@ export function ValidationPanel({ v, m, beginner, focusRegime }: { v: Validation
           Strategy validation
         </>
       }
-      right={<Badge tone="warn">не е доказателство за предимство</Badge>}
+      right={<Badge tone="warn" className="!whitespace-normal text-right">не е доказателство за предимство</Badge>}
     >
       <div className="space-y-4">
         <PastPerformanceBanner text={v.disclaimer || PAST_PERFORMANCE} />
