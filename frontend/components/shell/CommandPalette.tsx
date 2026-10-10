@@ -2,7 +2,7 @@
 
 import {
   ArrowLeftRight,
-  Bitcoin,
+  Coins,
   BookOpen,
   ChartLine,
   Clock,
@@ -63,7 +63,7 @@ const asRecent = (v: unknown): string[] | undefined =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.trim().length > 0).slice(0, RECENT_MAX) : undefined;
 
 const CLASS_META: Record<string, { label: string; icon: LucideIcon }> = {
-  crypto: { label: "Crypto", icon: Bitcoin },
+  crypto: { label: "Crypto", icon: Coins },
   stock: { label: "Stock", icon: Landmark },
   etf: { label: "ETF", icon: Layers },
   forex: { label: "Forex", icon: ArrowLeftRight },

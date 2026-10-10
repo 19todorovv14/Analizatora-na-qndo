@@ -1,13 +1,13 @@
 /*
  * Asset-class icon chip + badge. No hooks: renders in Server Components too.
  */
-import { ArrowLeftRight, Bitcoin, ChartLine, CircleDot, Gem, Landmark, Layers, type LucideIcon } from "lucide-react";
+import { ArrowLeftRight, ChartLine, CircleDot, Coins, Gem, Landmark, Layers, type LucideIcon } from "lucide-react";
 
 import { CLASS_META, classLabel } from "@/components/market/model";
 import { cx } from "@/lib/format";
 
 export const CLASS_ICON: Record<string, LucideIcon> = {
-  crypto: Bitcoin,
+  crypto: Coins,
   stock: Landmark,
   etf: Layers,
   forex: ArrowLeftRight,
