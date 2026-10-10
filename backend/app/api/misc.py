@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api import system
 from app.api.deps import current_user, now_ts, symbol_param, timeframe_param
 from app.database import get_db
 from app.models import JournalEntry, User
@@ -16,6 +17,8 @@ from app.news.providers import get_news
 from app.services import settings_service, stats_service
 
 router = APIRouter(tags=["misc"])
+# /system/data-sources + /system/ai (S7) — mounted through this router, so app.main needs no change
+router.include_router(system.router)
 
 MAX_SCREENSHOT = 1_500_000  # ~1.5 MB data URL
 
@@ -185,6 +188,10 @@ def put_user_settings(body: dict, user: User = Depends(current_user), db: Sessio
         symbol_param(allowed["default_symbol"])
     if "default_timeframe" in allowed:
         timeframe_param(allowed["default_timeframe"])
+    try:
+        settings_service.validate_patch(allowed)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"settings": settings_service.update_settings(db, user, allowed)}
 
 

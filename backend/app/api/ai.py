@@ -175,7 +175,10 @@ def session(session_id: int, user: User = Depends(current_user), db: Session = D
     return {
         "id": s.id,
         "title": s.title,
-        "messages": [{"role": m.role, "content": m.content, "ts": m.created_ts} for m in msgs],
+        # `data` (additive): the structured payload stored with the message (teacher sections, mode, …) or {}
+        "messages": [
+            {"role": m.role, "content": m.content, "ts": m.created_ts, "data": m.data or {}} for m in msgs
+        ],
     }
 
 

@@ -18,7 +18,19 @@ DEFAULTS: dict = {
     "default_timeframe": "1h",
     "news_risk": False,  # manual "important event soon" flag used by the no-trade system
     "max_trades_per_day": 8,
+    # v2 (S7): default workspace (LEARN / TRADE) and the default of the explain mode (<Term> tooltips)
+    "app_mode": "learn",
+    "explain_mode": False,
 }
+APP_MODES = ("learn", "trade")
+
+
+def validate_patch(patch: dict) -> None:
+    """ValueError for invalid values of the v2 keys (the dataclass-backed keys are validated in update_settings)."""
+    if "app_mode" in patch and patch["app_mode"] not in APP_MODES:
+        raise ValueError(f"app_mode must be one of {', '.join(APP_MODES)}")
+    if "explain_mode" in patch and not isinstance(patch["explain_mode"], bool):
+        raise ValueError("explain_mode must be true or false")
 
 
 def _merge(base: dict, override: dict) -> dict:
