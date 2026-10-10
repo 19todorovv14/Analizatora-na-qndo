@@ -5,7 +5,7 @@
  * output structure, modes, safety rules and disclaimers; the explain-mode default (PUT /api/settings
  * explain_mode). No secret inputs: the provider and key are configured only in the server environment.
  */
-import { BookOpenText, Bot, Cpu, KeyRound, Languages, ListChecks, ShieldCheck, Sparkles, WifiOff } from "lucide-react";
+import { Bot, Cpu, KeyRound, Languages, ListChecks, ShieldCheck, Sparkles, WifiOff } from "lucide-react";
 import { useState } from "react";
 import useSWR from "swr";
 
@@ -208,9 +208,7 @@ export function AiSettingsView() {
           </div>
 
           <Notice tone="info" title="Ключовете се задават само на сървъра">
-            <span className="flex items-start gap-1.5">
-              <BookOpenText size={13} strokeWidth={2} className="mt-1 shrink-0" aria-hidden /> {data.keys_policy}
-            </span>
+            {data.keys_policy}
           </Notice>
         </>
       )}

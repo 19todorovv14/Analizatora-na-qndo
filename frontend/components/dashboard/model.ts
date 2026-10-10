@@ -77,9 +77,9 @@ export function orderInsights(items: Insight[]): Insight[] {
     .map((x) => x.it);
 }
 
-/** Next actions without the ones the primary CTA already covers (same href). */
-export function extraActions(actions: NextAction[] | undefined, primaryHref: string): NextAction[] {
-  return (actions ?? []).filter((a) => a.href !== primaryHref).slice(0, 4);
+/** Next actions without the ones the header CTAs already cover (same href). */
+export function extraActions(actions: NextAction[] | undefined, skipHrefs: string[]): NextAction[] {
+  return (actions ?? []).filter((a) => !skipHrefs.includes(a.href)).slice(0, 4);
 }
 
 export function xpPercent(l: Pick<DashLearning, "xp_progress">): number {

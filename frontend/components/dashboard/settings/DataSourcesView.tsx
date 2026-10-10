@@ -298,7 +298,9 @@ export function DataSourcesView() {
               <div className="grid grid-cols-3 gap-2 text-xs sm:grid-cols-6">
                 {Object.entries(data.catalog.by_class).map(([k, v]) => (
                   <div key={k} className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-2 py-1.5 text-center">
-                    <div className="truncate text-[10.5px] text-muted">{k}</div>
+                    <div className="truncate text-[10.5px] text-muted" title={k}>
+                      {data.classes.find((c) => c.asset_class === k)?.label ?? k}
+                    </div>
                     <div className="num font-semibold">{v}</div>
                   </div>
                 ))}

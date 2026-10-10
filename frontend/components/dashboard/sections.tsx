@@ -76,11 +76,11 @@ const ACTION_ICON: Record<string, LucideIcon> = {
   risk: ShieldAlert,
 };
 
-export function NextActions({ actions, primaryHref }: { actions?: NextAction[]; primaryHref: string }) {
-  const list = extraActions(actions, primaryHref);
+export function NextActions({ actions, skipHrefs }: { actions?: NextAction[]; skipHrefs: string[] }) {
+  const list = extraActions(actions, skipHrefs);
   if (!list.length) return null;
   return (
-    <nav aria-label="Следващи стъпки" className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+    <nav aria-label="Следващи стъпки" className="grid gap-2 sm:grid-cols-[repeat(auto-fit,minmax(15rem,1fr))]">
       {list.map((a) => {
         const Icon = ACTION_ICON[a.key] ?? Sparkles;
         return (
@@ -93,7 +93,7 @@ export function NextActions({ actions, primaryHref }: { actions?: NextAction[]; 
               <Icon size={14} strokeWidth={2} aria-hidden />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium text-text group-hover:text-accent2">{a.label}</span>
+              <span className="line-clamp-2 block text-sm font-medium text-text group-hover:text-accent2">{a.label}</span>
               <span className="mt-0.5 line-clamp-2 block text-xs leading-snug text-muted">{a.reason}</span>
             </span>
             <ArrowRight size={14} strokeWidth={2} className="mt-1.5 shrink-0 text-faint group-hover:text-accent2" aria-hidden />
@@ -116,7 +116,7 @@ export function AccountTiles({ account }: { account: DashAccount }) {
       <StatTile label="Day P/L" value={fmtMoney(account.day_pnl, true)} tone={pnlTone(account.day_pnl)} sub="от 00:00 UTC" />
       <StatTile label="Unrealized P/L" term="unrealized" value={fmtMoney(account.unrealized_pnl, true)} tone={pnlTone(account.unrealized_pnl)} sub={`${account.open_positions ?? 0} отворени`} />
       <StatTile label="Realized P/L" term="realized" value={fmtMoney(account.realized_pnl, true)} tone={pnlTone(account.realized_pnl)} sub="затворени сделки" />
-      <StatTile label="Available margin" term="freemargin" value={fmtMoney(avail)} sub={`Max DD ${fmtPct(-Math.abs(account.max_drawdown_pct || 0), 2)}`} />
+      <StatTile label="Free margin" term="freemargin" value={fmtMoney(avail)} sub={`Max DD ${fmtPct(-Math.abs(account.max_drawdown_pct || 0), 2)}`} />
       <StatTile
         label="Used margin"
         term="margin"
@@ -136,7 +136,7 @@ function ClassTile({ c }: { c: MarketClass }) {
   const top = c.top_mover;
   const body = (
     <>
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <span className="flex min-w-0 items-center gap-2">
           <ClassIcon cls={c.asset_class} size={22} />
           <span className="truncate text-[13px] font-semibold text-text">{c.label}</span>
@@ -153,7 +153,7 @@ function ClassTile({ c }: { c: MarketClass }) {
               </>
             )}
           </div>
-          <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px]">
+          <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[11px]">
             <span className="num text-muted">
               <span className="text-up">{c.advancers}↑</span> <span className="text-down">{c.decliners}↓</span>
             </span>

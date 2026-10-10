@@ -12,6 +12,7 @@ import Link from "next/link";
 
 import {
   MONTHS_BG,
+  bucketShort,
   bucketTone,
   exitLabel,
   fmtHold,
@@ -187,7 +188,7 @@ export function RHistogram({ dist }: { dist: Performance["r_distribution"] }) {
       <div className="mt-1.5 flex gap-1.5 border-t border-white/[0.08] pt-1.5">
         {buckets.map((b) => (
           <span key={b.key} className="num min-w-0 flex-1 truncate text-center text-[10px] text-faint" title={b.label}>
-            {b.label.replace(" … ", "…")}
+            {bucketShort(b)}
           </span>
         ))}
       </div>

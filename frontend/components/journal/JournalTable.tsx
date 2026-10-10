@@ -100,23 +100,21 @@ export function JournalTable({
   const toggle = (id?: number) => setOpen((o) => (o === id ? null : (id ?? null)));
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[64rem] text-[13px]">
+      <table className="w-full min-w-[54rem] text-[13px] [&_td]:px-2 [&_th]:px-2">
         <thead className="text-left text-[10.5px] uppercase tracking-[0.06em] text-faint">
           <tr className="border-b border-white/[0.06]">
-            <th className="w-8 py-2 pl-3" aria-label="Детайли" />
+            <th className="w-9 py-2 !pl-3" aria-label="Детайли" />
             <th className="py-2 font-medium">Дата</th>
             <th className="py-2 font-medium">Инструмент</th>
             <th className="py-2 font-medium">Strategy</th>
-            <th className="py-2 text-right font-medium">Entry</th>
-            <th className="py-2 text-right font-medium">Exit</th>
-            <th className="py-2 text-right font-medium">Stop</th>
-            <th className="py-2 text-right font-medium">Target</th>
+            <th className="py-2 text-right font-medium">Entry → Exit</th>
+            <th className="py-2 text-right font-medium">Stop / Target</th>
             <th className="py-2 text-right font-medium">Risk</th>
             <th className="py-2 text-right font-medium">Result</th>
             <th className="py-2 text-right font-medium">R</th>
-            <th className="py-2 pl-3 font-medium">Shot</th>
+            <th className="py-2 font-medium">Shot</th>
             <th className="py-2 font-medium">AI review</th>
-            <th className="py-2 pr-3 text-right font-medium" aria-label="Действия" />
+            <th className="py-2 !pr-3 text-right font-medium" aria-label="Действия" />
           </tr>
         </thead>
         <tbody>
@@ -126,7 +124,7 @@ export function JournalTable({
             return (
               <Fragment key={e.id}>
                 <tr className={cx("border-b border-white/[0.05] transition-colors hover:bg-white/[0.025]", isOpen && "bg-white/[0.03]")}>
-                  <td className="py-2 pl-3">
+                  <td className="py-2 !pl-3">
                     <button
                       type="button"
                       onClick={() => toggle(e.id)}
@@ -147,14 +145,16 @@ export function JournalTable({
                   <td className="max-w-[10rem] truncate py-2 text-muted" title={strategyOf(e)}>
                     {strategyOf(e) || "—"}
                   </td>
-                  <td className="num py-2 text-right">{px(e.entry)}</td>
-                  <td className="num py-2 text-right">{px(e.exit_price)}</td>
-                  <td className="num py-2 text-right text-down/90">{px(e.stop)}</td>
-                  <td className="num py-2 text-right text-up/90">{px(e.target)}</td>
+                  <td className="num whitespace-nowrap py-2 text-right">
+                    {px(e.entry)} <span className="text-faint">→</span> {px(e.exit_price)}
+                  </td>
+                  <td className="num whitespace-nowrap py-2 text-right">
+                    <span className="text-down/90">{px(e.stop)}</span> <span className="text-faint">/</span> <span className="text-up/90">{px(e.target)}</span>
+                  </td>
                   <td className="num py-2 text-right text-muted">{e.risk_amount ? `$${fmtNum(e.risk_amount)}` : "—"}</td>
                   <td className={cx("num py-2 text-right font-semibold", pnlClass(e.result))}>{fmtMoney(e.result, true)}</td>
                   <td className={cx("num py-2 text-right", pnlClass(e.r_multiple))}>{fmtR(e.r_multiple)}</td>
-                  <td className="py-1.5 pl-3">
+                  <td className="py-1.5">
                     <Thumb src={e.screenshot} onOpen={onOpenShot} />
                   </td>
                   <td className="py-2">
@@ -170,7 +170,7 @@ export function JournalTable({
                       {grade ? `Grade ${grade}` : "AI review"}
                     </button>
                   </td>
-                  <td className="py-2 pr-3">
+                  <td className="py-2 !pr-3">
                     <span className="flex justify-end gap-0.5">
                       <IconButton icon={Pencil} label="Редактирай" size="sm" onClick={() => onEdit(e)} />
                       <IconButton icon={Trash2} label="Изтрий" size="sm" onClick={() => onDelete(e)} />
@@ -179,7 +179,7 @@ export function JournalTable({
                 </tr>
                 {isOpen && (
                   <tr className="border-b border-white/[0.06] bg-white/[0.015]">
-                    <td colSpan={14}>
+                    <td colSpan={12} className="!px-0">
                       <Details e={e} onUpdated={onUpdated} onOpenShot={onOpenShot} />
                     </td>
                   </tr>

@@ -209,6 +209,15 @@ export function bucketTone(b: Pick<RBucket, "from" | "to">): "up" | "down" | "ne
   return "neutral";
 }
 
+/** Compact axis label of an R bucket: "<-2", "-1…-0.5", "≥3". */
+export function bucketShort(b: Pick<RBucket, "from" | "to">): string {
+  const n = (v: number) => String(Math.round(v * 100) / 100);
+  if (b.from === null && b.to !== null) return `<${n(b.to)}`;
+  if (b.to === null && b.from !== null) return `≥${n(b.from)}`;
+  if (b.from !== null && b.to !== null) return `${n(b.from)}…${n(b.to)}`;
+  return "—";
+}
+
 export function maxBucket(buckets: RBucket[]): number {
   return buckets.reduce((m, b) => Math.max(m, b.count), 0);
 }

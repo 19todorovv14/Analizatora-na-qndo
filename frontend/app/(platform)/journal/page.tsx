@@ -115,12 +115,12 @@ export default function JournalPage() {
           <StatTile label="Average R" term="r" value={fmtR(stats.average_r)} tone={pnlTone(stats.average_r)} sub={`avg risk ${fmtPct(stats.average_risk_pct, 2)}`} />
           <StatTile
             label="Най-добър setup"
-            value={<span className="text-base">{stats.most_profitable_setup?.key ?? "—"}</span>}
+            value={<span className="font-sans text-base">{stats.most_profitable_setup?.key ?? "—"}</span>}
             sub={stats.most_profitable_setup ? fmtMoney(stats.most_profitable_setup.net_pnl, true) : "няма данни"}
           />
           <StatTile
             label="Най-честа грешка"
-            value={<span className="text-base">{stats.most_common_mistake?.mistake ?? "—"}</span>}
+            value={<span className="font-sans text-base">{stats.most_common_mistake?.mistake ?? "—"}</span>}
             sub={stats.most_common_mistake ? `${stats.most_common_mistake.count}×` : "няма записани"}
             tone={stats.most_common_mistake ? "warn" : "neutral"}
           />
@@ -154,7 +154,7 @@ export default function JournalPage() {
         <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.06] px-3 py-2.5">
           <label className="relative min-w-[12rem] flex-1 sm:max-w-xs">
             <Search size={14} strokeWidth={2} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" aria-hidden />
-            <input className="input w-full !pl-8" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Търси в причина, бележки, тагове…" aria-label="Търси в журнала" />
+            <input className="input w-full !pl-8" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Търси…" aria-label="Търси в журнала" />
           </label>
           <Segmented options={RESULTS} value={filters.result} onChange={(v) => setFilters({ ...filters, result: v })} size="sm" ariaLabel="Резултат" />
           <select className="input w-auto" value={filters.symbol} onChange={(e) => setFilters({ ...filters, symbol: e.target.value })} aria-label="Инструмент">

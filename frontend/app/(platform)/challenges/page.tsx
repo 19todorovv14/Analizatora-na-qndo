@@ -208,15 +208,17 @@ export default function ChallengesPage() {
                     {Math.min(c.progress, c.target)}/{c.target}
                   </span>
                 </div>
-                <div className="mt-3.5 space-y-2">
+                <div className="mt-3.5 space-y-2.5">
                   {c.kind === "interactive" && (
-                    <Interactive
-                      ch={c}
-                      onDone={() => {
-                        void mutate();
-                        void refresh();
-                      }}
-                    />
+                    <div className="space-y-2">
+                      <Interactive
+                        ch={c}
+                        onDone={() => {
+                          void mutate();
+                          void refresh();
+                        }}
+                      />
+                    </div>
                   )}
                   {c.kind !== "interactive" && !c.completed && WHERE[c.key] && (
                     <p className="text-xs text-muted">
@@ -228,7 +230,7 @@ export default function ChallengesPage() {
                     </p>
                   )}
                   {c.lesson && (
-                    <Link href={`/learn/${c.lesson}`} className="inline-flex items-center gap-1 text-xs font-medium text-accent2 transition-colors hover:text-text">
+                    <Link href={`/learn/${c.lesson}`} className="flex w-fit items-center gap-1 text-xs font-medium text-accent2 transition-colors hover:text-text">
                       <BookOpen size={12} strokeWidth={2.25} aria-hidden /> Свързан урок
                     </Link>
                   )}

@@ -230,16 +230,14 @@ export function PerformanceView() {
         </div>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-5">
-        <Card title="Месечни резултати" className="xl:col-span-3">
-          <MonthlyReturns rows={data.monthly_returns} currency={data.currency} />
-        </Card>
-        <Card title="R distribution" className="xl:col-span-2" right={<Badge tone="neutral">{data.r_distribution.with_r} сделки</Badge>}>
+      <Card title="Месечни резултати">
+        <MonthlyReturns rows={data.monthly_returns} currency={data.currency} />
+      </Card>
+
+      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+        <Card title="R distribution" className="lg:col-span-2 xl:col-span-1" right={<Badge tone="neutral">{data.r_distribution.with_r} сделки</Badge>}>
           <RHistogram dist={data.r_distribution} />
         </Card>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
         <Card title="Най-добри сделки">
           <TradeBriefList trades={data.best_trades} empty="Няма печеливши сделки." />
         </Card>

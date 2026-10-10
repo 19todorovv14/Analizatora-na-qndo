@@ -96,7 +96,7 @@ export function CommandCenter() {
         }
       />
 
-      <NextActions actions={data.next_actions} primaryHref={primary.href} />
+      <NextActions actions={data.next_actions} skipHrefs={[primary.href, secondary.href]} />
 
       <Section
         title="Paper account"
