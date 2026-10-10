@@ -501,7 +501,7 @@ def ai_settings(user: User) -> dict:
             "code": "bg",
             "note": "AI отговаря на български с английски trading термини (stop loss, take profit, breakout…).",
         },
-        "explain_mode_default": bool(settings_service.user_settings(user).get("explain_mode", False)),
+        "explain_mode_default": bool(settings_service.user_settings(user).get("explain_mode", True)),
         "keys_policy": KEYS_POLICY,
         "how_to_enable": "AI_PROVIDER=anthropic и ANTHROPIC_API_KEY=<ключ> в backend/.env (по желание "
         "ANTHROPIC_MODEL, AI_EFFORT=low|medium|high), после рестарт на backend-а. Ключът остава само на сървъра.",

@@ -21,7 +21,7 @@ DEFAULTS: dict = {
     "max_trades_per_day": 8,
     # v2 (S7): default workspace (LEARN / TRADE) and the default of the explain mode (<Term> tooltips)
     "app_mode": "learn",
-    "explain_mode": False,
+    "explain_mode": True,  # beginners see WHAT IT IS / WHY IT MATTERS / COMMON MISTAKE tips until they turn it off
 }
 APP_MODES = ("learn", "trade")
 

@@ -203,7 +203,7 @@ def test_ai_settings_offline(guest):
     assert {"no_predictions", "no_commands", "no_guarantees", "hypothetical_setups", "paper_only"} <= keys
     assert d["setup_disclaimer"] == "This is a rule-based hypothetical setup, not a guarantee of future price movement."
     assert d["key_present"] is False and d["key_env"] == "ANTHROPIC_API_KEY"
-    assert d["explain_mode_default"] is False and d["language"]["code"] == "bg"
+    assert d["explain_mode_default"] is True and d["language"]["code"] == "bg"
     assert any(m["key"] == "explain" for m in d["modes"])
 
 
@@ -237,14 +237,14 @@ def test_ai_settings_anthropic_without_key_falls_back(guest, monkeypatch):
 # ------------------------------------------------------------------ settings v2 + AI session data
 def test_settings_v2_defaults_and_put(guest):
     s = guest.get("/api/settings").json()["settings"]
-    assert s["app_mode"] == "learn" and s["explain_mode"] is False
-    out = guest.put("/api/settings", json={"app_mode": "trade", "explain_mode": True}).json()["settings"]
-    assert out["app_mode"] == "trade" and out["explain_mode"] is True
+    assert s["app_mode"] == "learn" and s["explain_mode"] is True
+    out = guest.put("/api/settings", json={"app_mode": "trade", "explain_mode": False}).json()["settings"]
+    assert out["app_mode"] == "trade" and out["explain_mode"] is False
     again = guest.get("/api/settings").json()["settings"]
-    assert again["app_mode"] == "trade" and again["explain_mode"] is True
-    assert guest.get("/api/system/ai").json()["explain_mode_default"] is True
+    assert again["app_mode"] == "trade" and again["explain_mode"] is False
+    assert guest.get("/api/system/ai").json()["explain_mode_default"] is False
     user = guest.get("/api/dashboard").json()["user"]
-    assert user["app_mode"] == "trade" and user["explain_mode"] is True
+    assert user["app_mode"] == "trade" and user["explain_mode"] is False
     assert guest.put("/api/settings", json={"app_mode": "casino"}).status_code == 422
     assert guest.put("/api/settings", json={"explain_mode": "yes"}).status_code == 422
     assert guest.get("/api/settings").json()["settings"]["app_mode"] == "trade"

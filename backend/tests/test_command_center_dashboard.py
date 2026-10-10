@@ -39,7 +39,7 @@ def test_dashboard_keeps_v1_keys_and_adds_v2(guest, small_universe):
         assert k in d
     for k in ("market", "watchlist_total", "watchlist_limit", "next_actions", "as_of"):
         assert k in d
-    assert d["user"]["app_mode"] == "learn" and d["user"]["explain_mode"] is False
+    assert d["user"]["app_mode"] == "learn" and d["user"]["explain_mode"] is True
     acc = d["account"]
     for k in ("balance", "equity", "unrealized_pnl", "realized_pnl", "day_pnl", "free_margin", "max_drawdown_pct",
               "used_margin", "available_margin", "margin_level", "margin_level_pct", "exposure", "exposure_pct",
